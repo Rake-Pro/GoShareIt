@@ -103,7 +103,7 @@ func handleScreenshot(selective bool) {
 
 	utilities.CopyToClipboard(url)
 	logger.Info("Upload complete, URL copied to clipboard: " + url)
-	utilities.Notify("Uploaded!", "URL copied to clipboard"+url)
+	utilities.Notify("Uploaded!", "URL copied to clipboard:\n\n"+url)
 }
 
 func main() {
