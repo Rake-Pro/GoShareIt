@@ -8,6 +8,10 @@ import (
 )
 
 type Config struct {
+	Uploader struct {
+		Type string `yaml:"type"`
+	} `yaml:"uploader"`
+
 	Nextcloud struct {
 		BaseURL         string `yaml:"base_url"`
 		Username        string `yaml:"username"`
@@ -21,6 +25,10 @@ type Config struct {
 		StartStopRecording  string `yaml:"start_stop_recording"`
 		Quit                string `yaml:"quit"`
 	} `yaml:"shortcuts"`
+
+	Notifications struct {
+		Enabled bool `yaml:"enabled"`
+	} `yaml:"notifications"`
 
 	Logging struct {
 		Level string `yaml:"level"`

@@ -10,5 +10,7 @@ shortcuts:
   selective_screenshot: "Cmd+Shift+9"
   start_stop_recording: "Cmd+Shift+0"
   quit: "Cmd+Shift+Q"
+notifications:
+  enabled: true
 logging:
   level: "DEBUG"
