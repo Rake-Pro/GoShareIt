@@ -1,10 +1,10 @@
 package config
 
 import (
-	"os"
-
 	"github.com/rake8288/goshareit/logger"
+	"github.com/rake8288/goshareit/security"
 	"gopkg.in/yaml.v3"
+	"os"
 )
 
 type Config struct {
@@ -54,4 +54,13 @@ func LoadConfig() {
 
 	logger.SetLogLevel(AppConfig.Logging.Level)
 	logger.Info("Configuration loaded from: " + configPath)
+
+	redacted := security.RedactPasswords(AppConfig)
+
+	dump, err := yaml.Marshal(&redacted)
+	if err != nil {
+		logger.Error("Failed to marshal redacted config: " + err.Error())
+	} else {
+		logger.Info("Loaded configuration (redacted):\n" + string(dump))
+	}
 }
