@@ -1,0 +1,14 @@
+uploader:
+  type: nextcloud
+nextcloud:
+  base_url: "https://yourcloud.com/remote.php/webdav/"
+  username: "your_username"
+  password: "your_password"
+  public_url_prefix: "https://yourcloud.com/files/"
+shortcuts:
+  full_screenshot: "Cmd+Shift+1"
+  selective_screenshot: "Cmd+Shift+9"
+  start_stop_recording: "Cmd+Shift+0"
+  quit: "Cmd+Shift+Q"
+logging:
+  level: "DEBUG"
