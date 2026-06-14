@@ -1,8 +1,8 @@
 package config
 
 import (
-	"github.com/rake8288/goshareit/logger"
-	"github.com/rake8288/goshareit/security"
+	"github.com/Rake-Pro/goshareit/logger"
+	"github.com/Rake-Pro/goshareit/security"
 	"gopkg.in/yaml.v3"
 	"os"
 )

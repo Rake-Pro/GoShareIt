@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"github.com/getlantern/systray"
-	"github.com/rake8288/goshareit/capture"
-	"github.com/rake8288/goshareit/config"
-	"github.com/rake8288/goshareit/logger"
-	"github.com/rake8288/goshareit/uploader"
-	"github.com/rake8288/goshareit/utilities"
+	"github.com/Rake-Pro/goshareit/capture"
+	"github.com/Rake-Pro/goshareit/config"
+	"github.com/Rake-Pro/goshareit/logger"
+	"github.com/Rake-Pro/goshareit/uploader"
+	"github.com/Rake-Pro/goshareit/utilities"
 	"os"
 	"time"
 )

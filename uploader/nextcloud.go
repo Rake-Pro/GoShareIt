@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rake8288/goshareit/config"
-	"github.com/rake8288/goshareit/logger"
+	"github.com/Rake-Pro/goshareit/config"
+	"github.com/Rake-Pro/goshareit/logger"
 )
 
 type ShareResponse struct {

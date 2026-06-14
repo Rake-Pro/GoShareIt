@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/rake8288/goshareit/logger"
+	"github.com/Rake-Pro/goshareit/logger"
 )
 
 func TakeScreenshot(path string, interactive bool) error {

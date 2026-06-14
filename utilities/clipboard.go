@@ -2,7 +2,7 @@ package utilities
 
 import (
 	"github.com/atotto/clipboard"
-	"github.com/rake8288/goshareit/logger"
+	"github.com/Rake-Pro/goshareit/logger"
 )
 
 func CopyToClipboard(text string) {

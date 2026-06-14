@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rake8288/goshareit/logger"
-	"github.com/rake8288/goshareit/uploader"
-	"github.com/rake8288/goshareit/utilities"
+	"github.com/Rake-Pro/goshareit/logger"
+	"github.com/Rake-Pro/goshareit/uploader"
+	"github.com/Rake-Pro/goshareit/utilities"
 )
 
 var ffmpegPath = filepath.Join("bin", "ffmpeg")
