@@ -206,9 +206,9 @@ func (r *Recorder) Stop(ctx context.Context) (capture.Result, error) {
 	if len(data) == 0 {
 		return capture.Result{}, fmt.Errorf("windows recorder: recording is empty (ffmpeg may have been killed before finalizing)")
 	}
+	_ = os.Remove(out) // bytes are in memory; don't leave the temp mp4 behind
 
 	return capture.Result{
-		Path:  out,
 		Bytes: data,
 		Mime:  "video/mp4",
 		Kind:  capture.KindVideo,

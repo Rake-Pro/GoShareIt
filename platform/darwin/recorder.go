@@ -121,9 +121,9 @@ func (r *Recorder) Stop(_ context.Context) (capture.Result, error) {
 	if err != nil {
 		return capture.Result{}, fmt.Errorf("darwin recorder: read output: %w", err)
 	}
+	_ = os.Remove(path) // bytes are in memory; don't leave the temp mp4 behind
 
 	return capture.Result{
-		Path:  path,
 		Bytes: b,
 		Mime:  "video/mp4",
 		Kind:  capture.KindVideo,
