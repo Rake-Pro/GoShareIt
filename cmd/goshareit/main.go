@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,9 +26,23 @@ func main() {
 	cfgPath := flag.String("config", "config.yaml", "path to config file (overridden by GOSHAREIT_CONFIG_PATH)")
 	flag.Parse()
 
-	cfg, err := config.Load(resolveConfigPath(*cfgPath))
+	cfgFile, didSetup, secretPath, err := acquireConfig(*cfgPath)
 	if err != nil {
-		log.Fatal().Err(err).Msg("load config")
+		log.Fatal().Err(err).Msg("resolve config")
+	}
+	if didSetup {
+		fmt.Fprintf(os.Stderr,
+			"GoShareIt first-run setup complete.\n"+
+				"  config written: %s\n"+
+				"  put your Nextcloud app password in: %s\n"+
+				"  then review base_url/username and launch GoShareIt again.\n",
+			cfgFile, secretPath)
+		return
+	}
+
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		log.Fatal().Err(err).Str("config", cfgFile).Msg("load config")
 	}
 
 	level, _ := zerolog.ParseLevel(cfg.Logging.Level)
@@ -146,15 +161,37 @@ func captureMode(s string) capture.Mode {
 	}
 }
 
-// resolveConfigPath picks the config file to load. An explicit -config flag (any
-// value other than the default) is honored as-is. Otherwise it searches the
-// working dir, then standard user locations, so a bundled .app launched with cwd
-// "/" still finds config. GOSHAREIT_CONFIG_PATH (handled in config.Load) still
-// overrides everything.
-func resolveConfigPath(flagVal string) string {
-	if flagVal != "config.yaml" {
-		return flagVal
+// acquireConfig determines the config file to load. Precedence:
+// GOSHAREIT_CONFIG_PATH, an explicit -config flag, then the first existing file
+// among the standard locations. If none exist (first run) it writes a starter
+// config + empty password file and returns didSetup=true so the caller can guide
+// the user instead of failing - the app must never fatal merely because it is
+// unconfigured.
+func acquireConfig(flagVal string) (path string, didSetup bool, secretPath string, err error) {
+	if env := os.Getenv(config.EnvConfigPath); env != "" {
+		return env, false, "", nil
 	}
+	if flagVal != "config.yaml" {
+		return flagVal, false, "", nil
+	}
+	if p := firstExistingConfig(); p != "" {
+		return p, false, "", nil
+	}
+	def, err := config.DefaultConfigPath()
+	if err != nil {
+		return "", false, "", err
+	}
+	secretPath, err = config.WriteStarter(def)
+	if err != nil {
+		return "", false, "", err
+	}
+	return def, true, secretPath, nil
+}
+
+// firstExistingConfig returns the first config file that exists among the working
+// dir and standard user locations, or "" if none. This lets a bundled .app
+// launched with cwd "/" still find a user config.
+func firstExistingConfig() string {
 	candidates := []string{"config.yaml"}
 	if home, err := os.UserHomeDir(); err == nil {
 		candidates = append(candidates,
@@ -167,7 +204,7 @@ func resolveConfigPath(flagVal string) string {
 			return c
 		}
 	}
-	return flagVal
+	return ""
 }
 
 func historyPath() string {
