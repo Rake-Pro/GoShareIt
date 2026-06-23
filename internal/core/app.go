@@ -138,6 +138,20 @@ func (a *App) Recording() bool {
 	return a.recorder != nil && a.recorder.Recording()
 }
 
+// RecordingModeSupported reports whether the wired recorder advertises the given
+// mode (e.g. capture.VideoFull or capture.GIF).
+func (a *App) RecordingModeSupported(mode capture.Mode) bool {
+	if a.recorder == nil {
+		return false
+	}
+	for _, m := range a.recorder.Capabilities().Modes {
+		if m == mode {
+			return true
+		}
+	}
+	return false
+}
+
 // StartRecording begins a recording for the given mode.
 func (a *App) StartRecording(ctx context.Context, mode capture.Mode) error {
 	if a.recorder == nil {

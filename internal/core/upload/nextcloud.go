@@ -85,10 +85,11 @@ func (n *Nextcloud) Upload(ctx context.Context, name string, body io.Reader, siz
 		return UploadResult{}, err
 	}
 	base := strings.TrimRight(n.cfg.BaseURL, "/")
-	// Images use /preview so the link renders inline (matches the original
-	// prototype); other types use /download to serve the raw bytes.
+	// Static images use /preview so the link renders inline; everything else
+	// (animated GIFs, video, etc.) uses /download to serve the raw bytes. A
+	// GIF's /preview is a single static frame, so it must not use /preview.
 	direct := base + "/s/" + token + "/download"
-	if strings.HasPrefix(mime, "image/") {
+	if mime == "image/png" || mime == "image/jpeg" {
 		direct = base + "/s/" + token + "/preview"
 	}
 	return UploadResult{

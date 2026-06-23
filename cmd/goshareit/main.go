@@ -119,19 +119,23 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 	// hotkey and a tray click can never disagree.
 	updateRecordItems := func(recording bool) {
 		if tr != nil {
+			// While recording, both Start items grey out and Stop enables.
 			tr.SetItemEnabled("record-start", !recording)
+			tr.SetItemEnabled("record-gif", !recording)
 			tr.SetItemEnabled("record-stop", recording)
 		}
 	}
-	startRec := func() {
-		if !app.RecordingSupported() || app.Recording() {
-			return
+	startRec := func(mode capture.Mode) func() {
+		return func() {
+			if !app.RecordingSupported() || app.Recording() {
+				return
+			}
+			if err := app.StartRecording(ctx, mode); err != nil {
+				log.Error().Err(err).Str("mode", mode.String()).Msg("start recording failed")
+				return
+			}
+			updateRecordItems(true)
 		}
-		if err := app.StartRecording(ctx, capture.VideoFull); err != nil {
-			log.Error().Err(err).Msg("start recording failed")
-			return
-		}
-		updateRecordItems(true)
 	}
 	stopRec := func() {
 		if !app.Recording() {
@@ -150,7 +154,7 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 		if app.Recording() {
 			stopRec()
 		} else {
-			startRec()
+			startRec(capture.VideoFull)()
 		}
 	}
 
@@ -203,12 +207,18 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 		{ID: "region", Title: label("Capture Region", cfg.Hotkeys.Region), OnClick: runShot(captureMode("region"))},
 		{ID: "fullscreen", Title: label("Capture Full Screen", cfg.Hotkeys.FullScreen), OnClick: runShot(captureMode("fullscreen"))},
 	}
-	// Recording: separate Start/Stop items. Stop starts greyed out; the two swap
-	// enabled state as recording starts/stops.
+	// Recording: separate Start (video), Start GIF, and a shared Stop. Stop starts
+	// greyed out; while recording, both Start items grey and Stop enables. Each
+	// Start item appears only if its mode is supported on this build.
 	if app.RecordingSupported() {
+		items = append(items, tray.MenuItem{Separator: true})
+		if app.RecordingModeSupported(capture.VideoFull) {
+			items = append(items, tray.MenuItem{ID: "record-start", Title: label("Start Recording", cfg.Hotkeys.Record), OnClick: startRec(capture.VideoFull)})
+		}
+		if app.RecordingModeSupported(capture.GIF) {
+			items = append(items, tray.MenuItem{ID: "record-gif", Title: "Start GIF Recording", OnClick: startRec(capture.GIF)})
+		}
 		items = append(items,
-			tray.MenuItem{Separator: true},
-			tray.MenuItem{ID: "record-start", Title: label("Start Recording", cfg.Hotkeys.Record), OnClick: startRec},
 			tray.MenuItem{ID: "record-stop", Title: label("Stop Recording", cfg.Hotkeys.Record), OnClick: stopRec, Disabled: true},
 		)
 	}

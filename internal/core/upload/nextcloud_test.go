@@ -96,6 +96,40 @@ func TestNextcloudUpload(t *testing.T) {
 	}
 }
 
+func TestNextcloudDirectURLByMime(t *testing.T) {
+	cases := []struct {
+		mime string
+		tail string
+	}{
+		{"image/png", "/preview"},
+		{"image/jpeg", "/preview"},
+		{"image/gif", "/download"},
+		{"video/mp4", "/download"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.mime, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut {
+					w.WriteHeader(http.StatusCreated)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				io.WriteString(w, `{"ocs":{"meta":{"statuscode":200},"data":{"token":"tok"}}}`)
+			}))
+			defer srv.Close()
+
+			nc := NewNextcloud(NextcloudConfig{BaseURL: srv.URL, Username: "imgshare@rake.pro", Password: "pw"}, srv.Client())
+			got, err := nc.Upload(context.Background(), "a", strings.NewReader("x"), 1, tc.mime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := srv.URL + "/s/tok" + tc.tail; got.DirectURL != want {
+				t.Errorf("DirectURL = %q, want %q", got.DirectURL, want)
+			}
+		})
+	}
+}
+
 func TestNextcloudRemoteDirAndDavUser(t *testing.T) {
 	var putPath, shareForm string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
