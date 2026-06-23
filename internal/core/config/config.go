@@ -64,6 +64,7 @@ type HotkeysConfig struct {
 	Region     string `yaml:"region"`
 	FullScreen string `yaml:"fullscreen"`
 	Window     string `yaml:"window"`
+	Record     string `yaml:"record"`
 	Quit       string `yaml:"quit"`
 }
 

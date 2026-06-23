@@ -2,7 +2,10 @@
 // only on the Capturer interface; concrete OS backends live under platform/.
 package capture
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Mode identifies what kind of capture the user requested.
 type Mode int
@@ -74,5 +77,33 @@ type Caps struct {
 // Capturer is the OS capture seam. Implementations are platform-specific.
 type Capturer interface {
 	Capture(ctx context.Context, r Request) (Result, error)
+	Capabilities() Caps
+}
+
+// Sentinel errors for the Recorder state machine.
+var (
+	ErrAlreadyRecording = errors.New("capture: recording already in progress")
+	ErrNotRecording     = errors.New("capture: no recording in progress")
+)
+
+// Recorder is the stateful capture seam for screen recording. Unlike Capturer
+// (one-shot), a Recorder is started, runs in the background, and is later
+// stopped to finalize the media. Implementations are platform-specific and must
+// be safe for concurrent Start/Stop/Recording calls.
+type Recorder interface {
+	// Start begins recording for the given mode (VideoRegion, VideoFull). It
+	// returns once the OS recorder is running; it does not block for the
+	// duration. Calling Start while already recording returns ErrAlreadyRecording.
+	Start(ctx context.Context, mode Mode) error
+
+	// Stop ends the active recording, finalizes the container, and returns the
+	// encoded media as a Result (Kind=KindVideo, Mime="video/mp4"). Calling Stop
+	// with no active recording returns ErrNotRecording.
+	Stop(ctx context.Context) (Result, error)
+
+	// Recording reports whether a recording is currently in progress.
+	Recording() bool
+
+	// Capabilities advertises which video modes this Recorder supports.
 	Capabilities() Caps
 }

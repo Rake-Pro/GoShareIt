@@ -17,6 +17,7 @@ func buildProviders(_ *config.Config) (core.Providers, error) {
 	log.Warn().Msg("no capture backend on linux: using in-memory fakes")
 	return core.Providers{
 		Capturer:  fake.NewCapturer(),
+		Recorder:  fake.NewRecorder(),
 		Uploader:  fake.NewUploader(), // replaced by the real Nextcloud uploader in main
 		Clipboard: &fake.Clipboard{},
 		Notifier:  &fake.Notifier{},

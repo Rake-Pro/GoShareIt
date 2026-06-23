@@ -13,6 +13,7 @@ import (
 func buildProviders(_ *config.Config) (core.Providers, error) {
 	return core.Providers{
 		Capturer:  darwin.NewCapturer(),
+		Recorder:  darwin.NewRecorder(),
 		Clipboard: darwin.NewClipboard(),
 		Notifier:  darwin.NewNotifier(),
 		Tray:      darwin.NewTray(),

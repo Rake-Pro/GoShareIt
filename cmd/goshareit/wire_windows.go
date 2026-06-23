@@ -19,5 +19,6 @@ func buildProviders(_ *config.Config) (core.Providers, error) {
 		Notifier:  windows.NewNotifier(),
 		Tray:      windows.NewTray(),
 		Hotkeys:   windows.NewHotkeyManager(),
+		Recorder:  windows.NewRecorder(),
 	}, nil
 }

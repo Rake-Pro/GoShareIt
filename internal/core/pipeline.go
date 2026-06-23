@@ -15,24 +15,31 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
 
-// runPipeline: capture -> after-capture -> name -> upload -> after-upload.
+// runPipeline: capture -> processResult. It is the entry point for one-shot
+// captures.
 func (a *App) runPipeline(ctx context.Context, req capture.Request) (upload.UploadResult, error) {
-	// 1. Capture.
 	res, err := a.capturer.Capture(ctx, req)
 	if err != nil {
 		return upload.UploadResult{}, fmt.Errorf("capture: %w", err)
 	}
+	return a.processResult(ctx, res)
+}
+
+// processResult runs after-capture -> name -> upload -> after-upload on an
+// already-captured Result. It is shared by one-shot capture and recording stop.
+// After-capture behavior (local save, clipboard image copy) is driven by config.
+func (a *App) processResult(ctx context.Context, res capture.Result) (upload.UploadResult, error) {
 	if len(res.Bytes) == 0 {
 		return upload.UploadResult{}, fmt.Errorf("capture: empty result")
 	}
 
 	// 2. After-capture: optional local save + clipboard image copy.
-	if req.SaveLocal {
-		if err := a.saveLocal(res, req.SaveDir); err != nil {
+	if a.cfg.AfterCapture.SaveLocal {
+		if err := a.saveLocal(res, a.cfg.AfterCapture.SaveDir); err != nil {
 			return upload.UploadResult{}, err
 		}
 	}
-	if req.CopyToClipboard && res.Kind == capture.KindImage {
+	if a.cfg.AfterCapture.CopyImageToClipboard && res.Kind == capture.KindImage {
 		if err := a.clipboard.WriteImage(res.Bytes); err != nil {
 			a.log.Warn().Err(err).Msg("copy image to clipboard failed")
 		}

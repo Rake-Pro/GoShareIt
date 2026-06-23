@@ -93,10 +93,38 @@ func main() {
 func run(ctx context.Context, app *core.App, quit func()) error {
 	cfg := app.Config()
 
-	capture := func(mode capture.Mode) func() {
+	runShot := func(mode capture.Mode) func() {
 		return func() {
 			if _, err := app.RunCapture(ctx, mode); err != nil {
 				log.Error().Err(err).Msg("capture failed")
+			}
+		}
+	}
+
+	// recordToggle starts or stops recording based on the recorder's own state,
+	// so a hotkey press and a tray click can never disagree. relabel may be nil
+	// (hotkey-only path, or a tray seam that cannot relabel an item).
+	recordToggle := func(mode capture.Mode, relabel func(string)) func() {
+		return func() {
+			if !app.RecordingSupported() {
+				log.Warn().Msg("recording not supported on this build")
+				return
+			}
+			if app.Recording() {
+				if relabel != nil {
+					relabel("Start Recording")
+				}
+				if _, err := app.StopRecording(ctx); err != nil {
+					log.Error().Err(err).Msg("stop recording failed")
+				}
+				return
+			}
+			if err := app.StartRecording(ctx, mode); err != nil {
+				log.Error().Err(err).Msg("start recording failed")
+				return
+			}
+			if relabel != nil {
+				relabel("Stop Recording")
 			}
 		}
 	}
@@ -107,10 +135,16 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 			id, keys string
 			fn       func()
 		}{
-			{"region", cfg.Hotkeys.Region, capture(captureMode("region"))},
-			{"fullscreen", cfg.Hotkeys.FullScreen, capture(captureMode("fullscreen"))},
-			{"window", cfg.Hotkeys.Window, capture(captureMode("window"))},
+			{"region", cfg.Hotkeys.Region, runShot(captureMode("region"))},
+			{"fullscreen", cfg.Hotkeys.FullScreen, runShot(captureMode("fullscreen"))},
+			{"window", cfg.Hotkeys.Window, runShot(captureMode("window"))},
 			{"quit", cfg.Hotkeys.Quit, quit},
+		}
+		if app.RecordingSupported() && cfg.Hotkeys.Record != "" {
+			bindings = append(bindings, struct {
+				id, keys string
+				fn       func()
+			}{"record", cfg.Hotkeys.Record, recordToggle(capture.VideoFull, nil)})
 		}
 		for _, b := range bindings {
 			if b.keys == "" {
@@ -132,20 +166,36 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 		<-ctx.Done()
 		return nil
 	}
-	spec := tray.MenuSpec{
-		Tooltip: "GoShareIt",
-		Items: []tray.MenuItem{
-			{ID: "region", Title: "Capture Region", OnClick: capture(captureMode("region"))},
-			{ID: "fullscreen", Title: "Capture Full Screen", OnClick: capture(captureMode("fullscreen"))},
-			{Separator: true},
-			{ID: "quit", Title: "Quit", OnClick: func() {
-				log.Info().Msg("quit requested")
-				quit()
-			}},
-		},
+	items := []tray.MenuItem{
+		{ID: "region", Title: "Capture Region", OnClick: runShot(captureMode("region"))},
+		{ID: "fullscreen", Title: "Capture Full Screen", OnClick: runShot(captureMode("fullscreen"))},
 	}
+	// The record control is present only on builds that support recording. The
+	// tray seam has no relabel hook, so the toggle reads app.Recording() as the
+	// source of truth; the label stays static while behavior flips correctly.
+	if app.RecordingSupported() {
+		items = append(items,
+			tray.MenuItem{Separator: true},
+			tray.MenuItem{ID: "record", Title: "Start Recording", OnClick: recordToggle(capture.VideoFull, nil)},
+		)
+	}
+	items = append(items,
+		tray.MenuItem{Separator: true},
+		tray.MenuItem{ID: "quit", Title: "Quit", OnClick: func() {
+			log.Info().Msg("quit requested")
+			quit()
+		}},
+	)
+	spec := tray.MenuSpec{Tooltip: "GoShareIt", Items: items}
 	if err := tr.Run(ctx, spec); err != nil && ctx.Err() == nil {
 		return err
+	}
+	// Best-effort: finalize an in-flight recording on shutdown so the child
+	// process is interrupted and the partial file is not orphaned.
+	if app.Recording() {
+		if _, err := app.StopRecording(context.Background()); err != nil {
+			log.Warn().Err(err).Msg("stop recording on shutdown failed")
+		}
 	}
 	return nil
 }

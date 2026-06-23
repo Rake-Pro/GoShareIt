@@ -22,6 +22,7 @@ import (
 // cmd layer constructs these per-GOOS and hands them to New.
 type Providers struct {
 	Capturer  capture.Capturer
+	Recorder  capture.Recorder // optional; nil = recording unsupported
 	Uploader  upload.Uploader
 	Clipboard clipboard.Clipboard
 	Notifier  notify.Notifier
@@ -36,6 +37,7 @@ type App struct {
 	history *history.History
 
 	capturer  capture.Capturer
+	recorder  capture.Recorder // may be nil
 	uploader  upload.Uploader
 	clipboard clipboard.Clipboard
 	notifier  notify.Notifier
@@ -59,6 +61,7 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 		log:       log,
 		history:   hist,
 		capturer:  p.Capturer,
+		recorder:  p.Recorder,
 		uploader:  p.Uploader,
 		clipboard: p.Clipboard,
 		notifier:  p.Notifier,
@@ -88,4 +91,39 @@ func (a *App) RunCapture(ctx context.Context, mode capture.Mode) (upload.UploadR
 		SaveDir:         a.cfg.AfterCapture.SaveDir,
 	}
 	return a.runPipeline(ctx, req)
+}
+
+// Recorder exposes the recorder seam (may be nil if unsupported).
+func (a *App) Recorder() capture.Recorder { return a.recorder }
+
+// RecordingSupported reports whether this build can record: a recorder is wired
+// and it advertises at least one supported mode.
+func (a *App) RecordingSupported() bool {
+	return a.recorder != nil && len(a.recorder.Capabilities().Modes) > 0
+}
+
+// Recording reports whether a recording is currently active.
+func (a *App) Recording() bool {
+	return a.recorder != nil && a.recorder.Recording()
+}
+
+// StartRecording begins a recording for the given mode.
+func (a *App) StartRecording(ctx context.Context, mode capture.Mode) error {
+	if a.recorder == nil {
+		return fmt.Errorf("core: recording not supported on this build")
+	}
+	return a.recorder.Start(ctx, mode)
+}
+
+// StopRecording finalizes the active recording and routes the video Result
+// through the same upload pipeline as screenshots.
+func (a *App) StopRecording(ctx context.Context) (upload.UploadResult, error) {
+	if a.recorder == nil {
+		return upload.UploadResult{}, fmt.Errorf("core: recording not supported on this build")
+	}
+	res, err := a.recorder.Stop(ctx)
+	if err != nil {
+		return upload.UploadResult{}, fmt.Errorf("stop recording: %w", err)
+	}
+	return a.processResult(ctx, res)
 }

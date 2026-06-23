@@ -112,6 +112,101 @@ func TestPipelineCopyImageToClipboard(t *testing.T) {
 	}
 }
 
+func TestStopRecordingRunsThroughPipeline(t *testing.T) {
+	cfg := baseCfg()
+	cfg.AfterCapture.CopyImageToClipboard = true // must NOT copy a video to clipboard
+
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb := &fake.Clipboard{}
+	up := fake.NewUploader()
+	nt := &fake.Notifier{}
+	rec := fake.NewRecorder()
+	p := Providers{
+		Capturer:  fake.NewCapturer(),
+		Recorder:  rec,
+		Uploader:  up,
+		Clipboard: cb,
+		Notifier:  nt,
+		Tray:      fake.Tray{},
+		Hotkeys:   fake.NewHotkeyManager(),
+	}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !app.RecordingSupported() {
+		t.Fatal("RecordingSupported = false, want true")
+	}
+	if app.Recording() {
+		t.Fatal("Recording = true before start")
+	}
+	if err := app.StartRecording(context.Background(), capture.VideoFull); err != nil {
+		t.Fatalf("StartRecording: %v", err)
+	}
+	if !app.Recording() {
+		t.Fatal("Recording = false after start")
+	}
+
+	res, err := app.StopRecording(context.Background())
+	if err != nil {
+		t.Fatalf("StopRecording: %v", err)
+	}
+	if app.Recording() {
+		t.Fatal("Recording = true after stop")
+	}
+
+	// Video uploaded with .mp4 extension and video mime.
+	if len(up.Names) != 1 {
+		t.Fatalf("uploader calls = %d, want 1", len(up.Names))
+	}
+	if filepath.Ext(up.Names[0]) != ".mp4" {
+		t.Errorf("uploaded name has wrong ext: %q", up.Names[0])
+	}
+	if up.Mimes[0] != "video/mp4" {
+		t.Errorf("uploaded mime = %q, want video/mp4", up.Mimes[0])
+	}
+
+	// URL copied to clipboard, but the video was NOT copied as an image.
+	if got, _ := cb.ReadText(); got != res.DirectURL {
+		t.Errorf("clipboard text = %q, want DirectURL %q", got, res.DirectURL)
+	}
+	if _, ok := cb.ReadImage(); ok {
+		t.Error("video must not be copied to clipboard as an image")
+	}
+
+	// History appended and notify fired.
+	entries, err := app.History().List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("history entries = %d, want 1", len(entries))
+	}
+	if nt.Count() != 1 {
+		t.Errorf("notify count = %d, want 1", nt.Count())
+	}
+}
+
+func TestRecordingUnsupportedWhenNilRecorder(t *testing.T) {
+	app, _, _, _ := testApp(t, baseCfg())
+	if app.RecordingSupported() {
+		t.Error("RecordingSupported = true with nil recorder")
+	}
+	if app.Recording() {
+		t.Error("Recording = true with nil recorder")
+	}
+	if err := app.StartRecording(context.Background(), capture.VideoFull); err == nil {
+		t.Error("StartRecording with nil recorder: want error")
+	}
+	if _, err := app.StopRecording(context.Background()); err == nil {
+		t.Error("StopRecording with nil recorder: want error")
+	}
+}
+
 func TestPipelineNotifyDisabled(t *testing.T) {
 	cfg := baseCfg()
 	cfg.AfterUpload.Notify = false

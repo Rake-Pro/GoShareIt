@@ -37,6 +37,7 @@ hotkeys:
   region: "Cmd+Shift+1"
   fullscreen: "Cmd+Shift+9"
   window: "Cmd+Shift+0"
+  record: "Cmd+Shift+R"
   quit: "Cmd+Shift+Q"
 
 logging:

@@ -47,6 +47,64 @@ func (c *Capturer) Capabilities() capture.Caps {
 	}}
 }
 
+// Recorder is an in-memory Recorder state machine for tests and the linux
+// build. Start sets recording=true and arms a fake video Result; Stop returns
+// it and clears recording.
+type Recorder struct {
+	Result    capture.Result
+	StartErr  error
+	StopErr   error
+	mu        sync.Mutex
+	recording bool
+	Starts    []capture.Mode
+}
+
+// NewRecorder returns a Recorder producing a tiny fake mp4.
+func NewRecorder() *Recorder {
+	return &Recorder{Result: capture.Result{
+		Bytes: []byte("\x00\x00\x00\x18ftypmp42fakevideo"),
+		Mime:  "video/mp4",
+		Kind:  capture.KindVideo,
+	}}
+}
+
+func (r *Recorder) Start(_ context.Context, mode capture.Mode) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.StartErr != nil {
+		return r.StartErr
+	}
+	if r.recording {
+		return capture.ErrAlreadyRecording
+	}
+	r.recording = true
+	r.Starts = append(r.Starts, mode)
+	return nil
+}
+
+func (r *Recorder) Stop(_ context.Context) (capture.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.StopErr != nil {
+		return capture.Result{}, r.StopErr
+	}
+	if !r.recording {
+		return capture.Result{}, capture.ErrNotRecording
+	}
+	r.recording = false
+	return r.Result, nil
+}
+
+func (r *Recorder) Recording() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.recording
+}
+
+func (r *Recorder) Capabilities() capture.Caps {
+	return capture.Caps{Modes: []capture.Mode{capture.VideoRegion, capture.VideoFull}}
+}
+
 // Uploader records uploads and returns canned links.
 type Uploader struct {
 	Result upload.UploadResult
