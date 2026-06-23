@@ -49,13 +49,29 @@ CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -o "$EDITOR_BIN" ./cmd/go
 echo "==> assembling $APP"
 VERSION="$VERSION" BUNDLE_ID="$BUNDLE_ID" BIN="$BIN" EDITOR_BIN="$EDITOR_BIN" APP="$APP" "$SCRIPT_DIR/bundle.sh"
 
+# Auto-discover a signing identity if none was provided, so the bundle is ALWAYS
+# signed. This matters for TCC: an UNSIGNED bundle gets a new identity on every
+# rebuild, so macOS invalidates its Screen Recording / Accessibility / Input
+# Monitoring grants each time (the "remove and re-add" dance). A bundle signed
+# with a stable identity keeps those grants across rebuilds.
+if [ "$SIGN" -eq 1 ] && [ -z "${DEVELOPER_ID_APP:-}" ]; then
+	DEVELOPER_ID_APP="$(security find-identity -v -p codesigning 2>/dev/null | awk '/GoShareIt Dev/{print $2; exit}')"
+	if [ -z "$DEVELOPER_ID_APP" ]; then
+		DEVELOPER_ID_APP="$(security find-identity -v -p codesigning 2>/dev/null | awk '$2 ~ /^[0-9A-Fa-f]{40}$/{print $2; exit}')"
+	fi
+	[ -n "$DEVELOPER_ID_APP" ] && export DEVELOPER_ID_APP && echo "==> auto-selected signing identity: $DEVELOPER_ID_APP"
+fi
+
 if [ "$SIGN" -eq 1 ]; then
 	if [ -n "${DEVELOPER_ID_APP:-}" ]; then
 		echo "==> signing"
 		APP="$APP" "$SCRIPT_DIR/sign.sh"
 	else
-		echo "dev-build: DEVELOPER_ID_APP not set - skipping signing." >&2
-		echo "dev-build: unsigned bundle; TCC grants will not persist across rebuilds." >&2
+		echo "dev-build: no code-signing identity found - shipping UNSIGNED." >&2
+		echo "dev-build: an unsigned bundle re-keys TCC every build, so Screen Recording /" >&2
+		echo "dev-build: Accessibility grants will NOT persist. Create a self-signed code-" >&2
+		echo "dev-build: signing cert named 'GoShareIt Dev' (Keychain Access > Certificate" >&2
+		echo "dev-build: Assistant) and rerun, or set DEVELOPER_ID_APP." >&2
 	fi
 fi
 
