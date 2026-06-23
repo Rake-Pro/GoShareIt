@@ -1,0 +1,17 @@
+# binaries / build artifacts
+/goshareit
+goshareit
+*.exe
+*.app
+/dist/
+/work/
+
+# secrets and local config
+*.secret
+config.yaml
+config.local.yaml
+*.local.yaml
+
+# misc
+*.test
+*.out

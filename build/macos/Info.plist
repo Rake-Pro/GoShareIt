@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Info.plist for the GoShareIt menubar (agent) app.
+
+  Placeholders __VERSION__ and __BUNDLE_ID__ are substituted by scripts/bundle.sh
+  from the VERSION and BUNDLE_ID environment variables. BUNDLE_ID defaults to
+  pro.rake.goshareit.
+
+  TCC note: macOS privacy permissions are granted at runtime via System Settings,
+  not declared here. The two permissions this app needs are:
+    - Screen Recording   (to capture the screen)  -> Privacy & Security > Screen Recording
+    - Accessibility / Input Monitoring (global hotkeys) -> Privacy & Security > Accessibility
+  Neither is plist-declarable. The ONLY screenshot-related plist key is
+  NSScreenCaptureUsageDescription below (the purpose string shown to the user).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>GoShareIt</string>
+
+	<key>CFBundleDisplayName</key>
+	<string>GoShareIt</string>
+
+	<key>CFBundleIdentifier</key>
+	<string>__BUNDLE_ID__</string>
+
+	<key>CFBundleExecutable</key>
+	<string>goshareit</string>
+
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+
+	<!-- Marketing version (e.g. 1.2.3) and build number; both from VERSION. -->
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+
+	<!-- Menubar-only: no Dock icon, no main window. -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- Minimum supported macOS. -->
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+
+	<!-- High-resolution capable. -->
+	<key>NSHighResolutionCapable</key>
+	<true/>
+
+	<!-- Purpose string shown when the app first captures the screen. -->
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>GoShareIt captures your screen, a selected region, or a window so it can upload the screenshot and copy a shareable link to your clipboard.</string>
+</dict>
+</plist>

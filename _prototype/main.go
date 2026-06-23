@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/getlantern/systray"
 	"github.com/Rake-Pro/goshareit/capture"
 	"github.com/Rake-Pro/goshareit/config"
 	"github.com/Rake-Pro/goshareit/logger"
 	"github.com/Rake-Pro/goshareit/uploader"
 	"github.com/Rake-Pro/goshareit/utilities"
+	"github.com/getlantern/systray"
 	"os"
 	"time"
 )
