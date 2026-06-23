@@ -25,7 +25,7 @@ func main() {
 	cfgPath := flag.String("config", "config.yaml", "path to config file (overridden by GOSHAREIT_CONFIG_PATH)")
 	flag.Parse()
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := config.Load(resolveConfigPath(*cfgPath))
 	if err != nil {
 		log.Fatal().Err(err).Msg("load config")
 	}
@@ -144,6 +144,30 @@ func captureMode(s string) capture.Mode {
 	default:
 		return capture.RegionInteractive
 	}
+}
+
+// resolveConfigPath picks the config file to load. An explicit -config flag (any
+// value other than the default) is honored as-is. Otherwise it searches the
+// working dir, then standard user locations, so a bundled .app launched with cwd
+// "/" still finds config. GOSHAREIT_CONFIG_PATH (handled in config.Load) still
+// overrides everything.
+func resolveConfigPath(flagVal string) string {
+	if flagVal != "config.yaml" {
+		return flagVal
+	}
+	candidates := []string{"config.yaml"}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, ".config", "goshareit", "config.yaml"),
+			filepath.Join(home, "Library", "Application Support", "GoShareIt", "config.yaml"),
+		)
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return flagVal
 }
 
 func historyPath() string {
