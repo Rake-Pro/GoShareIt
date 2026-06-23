@@ -1,7 +1,11 @@
 # GoShareIt - Project Status & Remaining Work
 
-Snapshot date: 2026-06-24. Last commit: `1f45824` (P4b). Branch: `main` (pushed to origin).
-P1-P4b code-complete; macOS recording + Gio editor still need on-device verification. See "Recent fixes" and "P3b design forks" below.
+Snapshot date: 2026-06-24. Last code commit: `86bdcb3` (P3b region selector). Branch: `main` (pushed to origin).
+**PAUSED for extensive on-device testing.** P1-P4b + GIF + region selector/recording are all code-complete
+and build green (linux core CGO-off + GOOS=windows cross-build + all unit tests). Everything except P1
+(macOS screenshots) is UNTESTED on real hardware - the macOS recording/editor/overlay cgo and the entire
+Windows build have never run. Next session: validate on a Mac and a Windows box, fix what breaks. The only
+unbuilt roadmap item is P4c (in-editor copy/save/upload buttons) plus the small LastRegion-overlay wiring.
 
 GoShareIt is a ShareX-style screenshot/recording + Nextcloud-upload tool. Goal: 1:1 ShareX
 screenshot-capture parity on **macOS and Windows from one Go codebase**. Architecture, rationale,
