@@ -216,6 +216,16 @@ func (e *editor) previewShape() shape {
 		kind = kEllipse
 	case ToolCrop:
 		kind = kCrop
+	case ToolLine:
+		kind = kLine
+	case ToolBlur:
+		kind = kBlur
+	case ToolPixelate:
+		kind = kPixelate
+	case ToolHighlight:
+		kind = kHighlight
+	case ToolFreehand:
+		return shape{kind: kFreehand, pts: e.freehandPts, col: e.col, stroke: e.stroke}
 	}
 	return shape{kind: kind, p0: e.dragFrom, p1: e.dragTo, col: e.col, stroke: e.stroke}
 }
@@ -250,6 +260,48 @@ func (e *editor) drawShape(ops *op.Ops, s shape) {
 		p := e.screen(s.p0)
 		dot := clip.Rect{Min: image.Pt(int(p.X), int(p.Y)), Max: image.Pt(int(p.X)+4, int(p.Y)+4)}
 		paint.FillShape(ops, s.col, dot.Op())
+	case kLine:
+		strokeLine(ops, e.screen(s.p0), e.screen(s.p1), w, s.col)
+	case kFreehand:
+		if len(s.pts) >= 2 {
+			var p clip.Path
+			p.Begin(ops)
+			p.MoveTo(e.screen(s.pts[0]))
+			for _, pt := range s.pts[1:] {
+				p.LineTo(e.screen(pt))
+			}
+			paint.FillShape(ops, s.col, clip.Stroke{Path: p.End(), Width: w}.Op())
+		} else if len(s.pts) == 1 {
+			c := e.screen(s.pts[0])
+			dot := clip.Rect{Min: image.Pt(int(c.X), int(c.Y)), Max: image.Pt(int(c.X)+int(w)+1, int(c.Y)+int(w)+1)}
+			paint.FillShape(ops, s.col, dot.Op())
+		}
+	case kBlur, kPixelate:
+		// Approximate preview: translucent fill plus outline. The real pixel
+		// effect (box-blur / mosaic) is applied by annotate on Confirm.
+		r := rectOf(s.p0, s.p1)
+		min, max := e.screen(r.Min), e.screen(r.Max)
+		fillRect(ops, min, max, color.NRGBA{0x80, 0x80, 0x80, 0x60})
+		strokeRect(ops, min, max, 2, color.NRGBA{0xff, 0xff, 0xff, 0xc0})
+	case kHighlight:
+		// Approximate preview: translucent tint in the chosen color; annotate
+		// composites the same color over the region on Confirm.
+		r := rectOf(s.p0, s.p1)
+		min, max := e.screen(r.Min), e.screen(r.Max)
+		tint := color.NRGBA{s.col.R, s.col.G, s.col.B, 0x60}
+		fillRect(ops, min, max, tint)
+	case kStep:
+		// Filled disc preview; the centered number is rasterized by annotate.
+		c := e.screen(s.p0)
+		rad := float32(badgeRadius) * e.lastScale
+		if rad < 3 {
+			rad = 3
+		}
+		el := clip.Ellipse{
+			Min: image.Pt(int(c.X-rad), int(c.Y-rad)),
+			Max: image.Pt(int(c.X+rad), int(c.Y+rad)),
+		}
+		paint.FillShape(ops, s.col, el.Op(ops))
 	case kCrop:
 		r := rectOf(s.p0, s.p1)
 		strokeRect(ops, e.screen(r.Min), e.screen(r.Max), 2, color.NRGBA{0xff, 0xff, 0xff, 0xff})
@@ -263,6 +315,11 @@ func strokeLine(ops *op.Ops, a, b f32.Point, width float32, col color.NRGBA) {
 	p.LineTo(b)
 	spec := p.End()
 	paint.FillShape(ops, col, clip.Stroke{Path: spec, Width: width}.Op())
+}
+
+func fillRect(ops *op.Ops, min, max f32.Point, col color.NRGBA) {
+	r := image.Rect(int(min.X), int(min.Y), int(max.X), int(max.Y)).Canon()
+	paint.FillShape(ops, col, clip.Rect(r).Op())
 }
 
 func strokeRect(ops *op.Ops, min, max f32.Point, width float32, col color.NRGBA) {
@@ -313,6 +370,18 @@ func toolLabel(t Tool) string {
 		return "Ellipse"
 	case ToolText:
 		return "Text"
+	case ToolBlur:
+		return "Blur"
+	case ToolPixelate:
+		return "Pixelate"
+	case ToolHighlight:
+		return "Highlight"
+	case ToolStep:
+		return "Step"
+	case ToolLine:
+		return "Line"
+	case ToolFreehand:
+		return "Freehand"
 	}
 	return string(t)
 }

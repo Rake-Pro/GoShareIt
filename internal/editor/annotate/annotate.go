@@ -12,6 +12,7 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"strconv"
 
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
@@ -57,6 +58,55 @@ type Text struct {
 	Color  color.Color
 	Face   font.Face
 	Stroke int
+}
+
+// Line is a straight stroked line from From to To with no arrowhead.
+type Line struct {
+	From, To image.Point
+	Color    color.Color
+	Stroke   int
+}
+
+// Freehand is a connected polyline through Points, drawn as one stroke.
+type Freehand struct {
+	Points []image.Point
+	Color  color.Color
+	Stroke int
+}
+
+// BlurRegion box-blurs the pixels under Rect in place (P4b obscure tool). Radius
+// is the box-kernel radius; three separable passes approximate a Gaussian. The
+// effect reads whatever has been drawn into dst beneath it, so add it after the
+// base is composited (Render does this) and before shapes that should sit on top.
+type BlurRegion struct {
+	Rect   image.Rectangle
+	Radius int
+}
+
+// Pixelate replaces Rect with a mosaic of Block-sized cells, each the average
+// color of the pixels it covers (P4b obscure tool).
+type Pixelate struct {
+	Rect  image.Rectangle
+	Block int
+}
+
+// Highlight composites a translucent Color over Rect (P4b callout tool). Alpha
+// is the overlay opacity (0 -> a sensible default); underlying detail remains
+// partly visible.
+type Highlight struct {
+	Rect  image.Rectangle
+	Color color.Color
+	Alpha uint8
+}
+
+// StepBadge is an auto-incrementing numbered callout: a filled disc of Color
+// centered at Center with Number drawn in a contrasting color at its middle
+// (P4b callout tool). Radius is the disc radius (0 -> default).
+type StepBadge struct {
+	Center image.Point
+	Number int
+	Color  color.Color
+	Radius int
 }
 
 // Render applies crop (if non-nil) to base then draws shapes onto a mutable
@@ -283,6 +333,215 @@ func drawScaledText(dst draw.Image, at image.Point, s string, c color.Color, fac
 	scaled := image.NewRGBA(image.Rect(0, 0, w*factor, h*factor))
 	xdraw.NearestNeighbor.Scale(scaled, scaled.Bounds(), mask, mask.Bounds(), xdraw.Over, nil)
 	draw.Draw(dst, image.Rect(at.X, at.Y, at.X+w*factor, at.Y+h*factor), scaled, image.Point{}, draw.Over)
+}
+
+func (l Line) draw(dst draw.Image) {
+	stroke := l.Stroke
+	if stroke < 1 {
+		stroke = 1
+	}
+	drawLine(dst, l.From, l.To, stroke, l.Color)
+}
+
+func (f Freehand) draw(dst draw.Image) {
+	stroke := f.Stroke
+	if stroke < 1 {
+		stroke = 1
+	}
+	if len(f.Points) == 0 {
+		return
+	}
+	if len(f.Points) == 1 {
+		stamp(dst, f.Points[0].X, f.Points[0].Y, stroke, f.Color)
+		return
+	}
+	for i := 1; i < len(f.Points); i++ {
+		drawLine(dst, f.Points[i-1], f.Points[i], stroke, f.Color)
+	}
+}
+
+func (b BlurRegion) draw(dst draw.Image) {
+	rect := b.Rect.Canon().Intersect(dst.Bounds())
+	if rect.Empty() {
+		return
+	}
+	radius := b.Radius
+	if radius < 1 {
+		radius = 4
+	}
+	region := subImageRGBA(dst, rect)
+	for pass := 0; pass < 3; pass++ {
+		boxBlurH(region, radius)
+		boxBlurV(region, radius)
+	}
+	draw.Draw(dst, rect, region, image.Point{}, draw.Src)
+}
+
+func (p Pixelate) draw(dst draw.Image) {
+	rect := p.Rect.Canon().Intersect(dst.Bounds())
+	if rect.Empty() {
+		return
+	}
+	block := p.Block
+	if block < 2 {
+		block = 8
+	}
+	for by := rect.Min.Y; by < rect.Max.Y; by += block {
+		for bx := rect.Min.X; bx < rect.Max.X; bx += block {
+			x1 := min(bx+block, rect.Max.X)
+			y1 := min(by+block, rect.Max.Y)
+			var rs, gs, bs, as, n uint64
+			for y := by; y < y1; y++ {
+				for x := bx; x < x1; x++ {
+					cr, cg, cb, ca := dst.At(x, y).RGBA()
+					rs += uint64(cr)
+					gs += uint64(cg)
+					bs += uint64(cb)
+					as += uint64(ca)
+					n++
+				}
+			}
+			if n == 0 {
+				continue
+			}
+			avg := color.RGBA64{
+				R: uint16(rs / n), G: uint16(gs / n), B: uint16(bs / n), A: uint16(as / n),
+			}
+			for y := by; y < y1; y++ {
+				for x := bx; x < x1; x++ {
+					dst.Set(x, y, avg)
+				}
+			}
+		}
+	}
+}
+
+func (h Highlight) draw(dst draw.Image) {
+	rect := h.Rect.Canon().Intersect(dst.Bounds())
+	if rect.Empty() {
+		return
+	}
+	a := h.Alpha
+	if a == 0 {
+		a = 0x60
+	}
+	r, g, b, _ := h.Color.RGBA()
+	overlay := image.NewUniform(color.NRGBA{
+		R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: a,
+	})
+	draw.Draw(dst, rect, overlay, image.Point{}, draw.Over)
+}
+
+func (s StepBadge) draw(dst draw.Image) {
+	radius := s.Radius
+	if radius < 1 {
+		radius = 14
+	}
+	cx, cy := s.Center.X, s.Center.Y
+	rr := radius * radius
+	for dy := -radius; dy <= radius; dy++ {
+		for dx := -radius; dx <= radius; dx++ {
+			if dx*dx+dy*dy <= rr {
+				setPixel(dst, cx+dx, cy+dy, s.Color)
+			}
+		}
+	}
+	label := strconv.Itoa(s.Number)
+	face := basicfont.Face7x13
+	d := &font.Drawer{Face: face}
+	w := d.MeasureString(label).Ceil()
+	hgt := face.Metrics().Height.Ceil()
+	scale := radius / 7
+	if scale < 1 {
+		scale = 1
+	}
+	at := image.Pt(cx-(w*scale)/2, cy-(hgt*scale)/2)
+	drawScaledText(dst, at, label, badgeTextColor(s.Color), scale)
+}
+
+// badgeTextColor returns black or white, whichever contrasts the disc color.
+func badgeTextColor(c color.Color) color.Color {
+	r, g, b, _ := c.RGBA()
+	lum := (299*uint64(r) + 587*uint64(g) + 114*uint64(b)) / 1000
+	if lum > 0x7fff {
+		return color.RGBA{0, 0, 0, 0xff}
+	}
+	return color.RGBA{0xff, 0xff, 0xff, 0xff}
+}
+
+// subImageRGBA copies the rect-bounded region of dst into a fresh (0,0)-origin
+// RGBA so the blur passes can read/write it without aliasing dst.
+func subImageRGBA(dst draw.Image, rect image.Rectangle) *image.RGBA {
+	out := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
+	draw.Draw(out, out.Bounds(), dst, rect.Min, draw.Src)
+	return out
+}
+
+// boxBlurH replaces each pixel with the average of its horizontal neighbors
+// within radius, clamping at the edges.
+func boxBlurH(img *image.RGBA, radius int) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	win := 2*radius + 1
+	src := make([]uint8, len(img.Pix))
+	copy(src, img.Pix)
+	for y := 0; y < h; y++ {
+		row := y * img.Stride
+		for x := 0; x < w; x++ {
+			var rs, gs, bs, as int
+			for k := -radius; k <= radius; k++ {
+				xx := clampi(x+k, 0, w-1)
+				o := row + xx*4
+				rs += int(src[o])
+				gs += int(src[o+1])
+				bs += int(src[o+2])
+				as += int(src[o+3])
+			}
+			o := row + x*4
+			img.Pix[o] = uint8(rs / win)
+			img.Pix[o+1] = uint8(gs / win)
+			img.Pix[o+2] = uint8(bs / win)
+			img.Pix[o+3] = uint8(as / win)
+		}
+	}
+}
+
+// boxBlurV is the vertical counterpart of boxBlurH.
+func boxBlurV(img *image.RGBA, radius int) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	win := 2*radius + 1
+	src := make([]uint8, len(img.Pix))
+	copy(src, img.Pix)
+	for x := 0; x < w; x++ {
+		col := x * 4
+		for y := 0; y < h; y++ {
+			var rs, gs, bs, as int
+			for k := -radius; k <= radius; k++ {
+				yy := clampi(y+k, 0, h-1)
+				o := yy*img.Stride + col
+				rs += int(src[o])
+				gs += int(src[o+1])
+				bs += int(src[o+2])
+				as += int(src[o+3])
+			}
+			o := y*img.Stride + col
+			img.Pix[o] = uint8(rs / win)
+			img.Pix[o+1] = uint8(gs / win)
+			img.Pix[o+2] = uint8(bs / win)
+			img.Pix[o+3] = uint8(as / win)
+		}
+	}
+}
+
+func clampi(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // --- tiny math helpers (avoid pulling math into hot pixel loops via aliases) ---

@@ -35,11 +35,17 @@ import (
 type Tool string
 
 const (
-	ToolCrop  Tool = "crop"
-	ToolArrow Tool = "arrow"
-	ToolRect  Tool = "rect"
-	ToolEllip Tool = "ellipse"
-	ToolText  Tool = "text"
+	ToolCrop      Tool = "crop"
+	ToolArrow     Tool = "arrow"
+	ToolRect      Tool = "rect"
+	ToolEllip     Tool = "ellipse"
+	ToolText      Tool = "text"
+	ToolBlur      Tool = "blur"
+	ToolPixelate  Tool = "pixelate"
+	ToolHighlight Tool = "highlight"
+	ToolStep      Tool = "step"
+	ToolLine      Tool = "line"
+	ToolFreehand  Tool = "freehand"
 )
 
 // Options configures the initial editor state. Color is the initial stroke
@@ -61,6 +67,12 @@ const (
 	kEllipse
 	kText
 	kCrop
+	kBlur
+	kPixelate
+	kHighlight
+	kStep
+	kLine
+	kFreehand
 )
 
 // shape is the UI-side concrete annotation, stored in original-image pixel
@@ -72,6 +84,8 @@ type shape struct {
 	col    color.NRGBA
 	stroke int
 	text   string
+	num    int           // step-badge number (kStep)
+	pts    []image.Point // freehand polyline (kFreehand)
 }
 
 // Run shows the editor for img and returns the (possibly annotated) result.
@@ -105,9 +119,10 @@ type editor struct {
 	crop   *image.Rectangle
 
 	// in-progress drag (image coords)
-	dragging bool
-	dragFrom image.Point
-	dragTo   image.Point
+	dragging    bool
+	dragFrom    image.Point
+	dragTo      image.Point
+	freehandPts []image.Point // accumulated points for the active freehand stroke
 
 	// view transform
 	zoom       float64
@@ -137,6 +152,10 @@ type editor struct {
 
 const canvasTag = "goshareit.canvas"
 
+// badgeRadius is the step-badge disc radius in image pixels; shared by the
+// annotate render and the on-canvas preview so they line up.
+const badgeRadius = 14
+
 func newEditor(img image.Image, opts Options) *editor {
 	b := img.Bounds()
 	// Normalize coordinates so shape space matches a 0,0-origin base.
@@ -149,7 +168,10 @@ func newEditor(img image.Image, opts Options) *editor {
 
 	tools := opts.Tools
 	if len(tools) == 0 {
-		tools = []Tool{ToolCrop, ToolArrow, ToolRect, ToolEllip, ToolText}
+		tools = []Tool{
+			ToolCrop, ToolArrow, ToolRect, ToolEllip, ToolText,
+			ToolBlur, ToolPixelate, ToolHighlight, ToolStep, ToolLine, ToolFreehand,
+		}
 	}
 	tool := opts.Tool
 	if tool == "" {
@@ -278,7 +300,8 @@ func (e *editor) handlePointer(pe pointer.Event) {
 		e.dragging = true
 		e.dragFrom = ip
 		e.dragTo = ip
-		if e.tool == ToolText {
+		switch e.tool {
+		case ToolText:
 			// Click-to-place single-line text from the toolbar field. After
 			// placing, clear the field so the next placement starts fresh.
 			txt := e.textIn.Text()
@@ -287,10 +310,21 @@ func (e *editor) handlePointer(pe pointer.Event) {
 				e.push(shape{kind: kText, p0: ip, col: e.col, stroke: e.stroke, text: txt})
 				e.textIn.SetText("")
 			}
+		case ToolStep:
+			// Click-to-place an auto-incrementing badge. The number is derived
+			// from the count of step shapes currently in the stack so undo/redo
+			// stays consistent (a removed step frees its number for the next).
+			e.dragging = false
+			e.push(shape{kind: kStep, p0: ip, col: e.col, stroke: e.stroke, num: e.stepCount() + 1})
+		case ToolFreehand:
+			e.freehandPts = []image.Point{ip}
 		}
 	case pointer.Drag:
 		if e.dragging {
 			e.dragTo = e.toImage(pe.Position)
+			if e.tool == ToolFreehand {
+				e.freehandPts = append(e.freehandPts, e.dragTo)
+			}
 		}
 	case pointer.Release:
 		if !e.dragging {
@@ -322,6 +356,26 @@ func (e *editor) commitDrag() {
 			return
 		}
 		e.push(shape{kind: kEllipse, p0: r.Min, p1: r.Max, col: e.col, stroke: e.stroke})
+	case ToolLine:
+		if from == to {
+			return
+		}
+		e.push(shape{kind: kLine, p0: from, p1: to, col: e.col, stroke: e.stroke})
+	case ToolBlur, ToolPixelate, ToolHighlight:
+		r := rectOf(from, to)
+		if r.Dx() < 1 || r.Dy() < 1 {
+			return
+		}
+		e.push(shape{kind: rectToolKind(e.tool), p0: r.Min, p1: r.Max, col: e.col, stroke: e.stroke})
+	case ToolFreehand:
+		pts := e.freehandPts
+		e.freehandPts = nil
+		if len(pts) == 0 {
+			return
+		}
+		cp := make([]image.Point, len(pts))
+		copy(cp, pts)
+		e.push(shape{kind: kFreehand, pts: cp, col: e.col, stroke: e.stroke})
 	case ToolCrop:
 		r := rectOf(from, to).Intersect(e.bounds)
 		if r.Dx() < 1 || r.Dy() < 1 {
@@ -331,6 +385,29 @@ func (e *editor) commitDrag() {
 		e.crop = &cr
 		e.push(shape{kind: kCrop, p0: r.Min, p1: r.Max})
 	}
+}
+
+func rectToolKind(t Tool) shapeKind {
+	switch t {
+	case ToolBlur:
+		return kBlur
+	case ToolPixelate:
+		return kPixelate
+	case ToolHighlight:
+		return kHighlight
+	}
+	return kRect
+}
+
+// stepCount returns how many step badges are currently committed.
+func (e *editor) stepCount() int {
+	n := 0
+	for _, s := range e.shapes {
+		if s.kind == kStep {
+			n++
+		}
+	}
+	return n
 }
 
 func (e *editor) push(s shape) {
@@ -413,6 +490,24 @@ func (e *editor) buildShapes() []annotate.Shape {
 			out = append(out, annotate.Ellipse{Rect: rectOf(s.p0, s.p1).Sub(off), Color: s.col, Stroke: s.stroke})
 		case kText:
 			out = append(out, annotate.Text{At: s.p0.Sub(off), Text: s.text, Color: s.col, Stroke: s.stroke})
+		case kLine:
+			out = append(out, annotate.Line{From: s.p0.Sub(off), To: s.p1.Sub(off), Color: s.col, Stroke: s.stroke})
+		case kBlur:
+			// Stroke doubles as blur strength (kernel radius).
+			out = append(out, annotate.BlurRegion{Rect: rectOf(s.p0, s.p1).Sub(off), Radius: s.stroke})
+		case kPixelate:
+			// Stroke scales the mosaic block size.
+			out = append(out, annotate.Pixelate{Rect: rectOf(s.p0, s.p1).Sub(off), Block: s.stroke * 3})
+		case kHighlight:
+			out = append(out, annotate.Highlight{Rect: rectOf(s.p0, s.p1).Sub(off), Color: s.col, Alpha: 0x60})
+		case kStep:
+			out = append(out, annotate.StepBadge{Center: s.p0.Sub(off), Number: s.num, Color: s.col, Radius: badgeRadius})
+		case kFreehand:
+			pts := make([]image.Point, len(s.pts))
+			for i, p := range s.pts {
+				pts[i] = p.Sub(off)
+			}
+			out = append(out, annotate.Freehand{Points: pts, Color: s.col, Stroke: s.stroke})
 		case kCrop:
 			// folded into the crop rect, not drawn
 		}
