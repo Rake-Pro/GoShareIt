@@ -1,6 +1,6 @@
 # binaries / build artifacts
+# NOTE: anchored to repo root so it never matches the cmd/goshareit/ package dir
 /goshareit
-goshareit
 *.exe
 *.app
 /dist/
