@@ -279,11 +279,13 @@ func (e *editor) handlePointer(pe pointer.Event) {
 		e.dragFrom = ip
 		e.dragTo = ip
 		if e.tool == ToolText {
-			// Click-to-place single-line text from the toolbar field.
+			// Click-to-place single-line text from the toolbar field. After
+			// placing, clear the field so the next placement starts fresh.
 			txt := e.textIn.Text()
 			e.dragging = false
 			if txt != "" {
 				e.push(shape{kind: kText, p0: ip, col: e.col, stroke: e.stroke, text: txt})
+				e.textIn.SetText("")
 			}
 		}
 	case pointer.Drag:

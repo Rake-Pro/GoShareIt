@@ -9,6 +9,7 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -35,6 +36,11 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 	for t, b := range e.toolBtns {
 		if b.Clicked(gtx) {
 			e.tool = t
+			// Selecting the text tool focuses the toolbar field so the user can
+			// type immediately, then click the canvas to place the text.
+			if t == ToolText {
+				gtx.Execute(key.FocusCmd{Tag: &e.textIn})
+			}
 		}
 	}
 	for i, b := range e.swatchBtn {

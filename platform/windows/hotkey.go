@@ -19,12 +19,13 @@ import (
 // library spins its own message-only window/thread per hotkey internally, so it
 // coexists with fyne.io/systray (see tray.go) without sharing a run loop.
 //
-// MODIFIER MAPPING: macOS configs use "Cmd" (e.g. "Cmd+Shift+4"). Windows has no
-// Command key, so Cmd/Command/Super/Meta/Win all map to the Windows logo key
-// (hotkey.ModWin). NOTE: many Win+<key> combinations are reserved by the OS/shell
-// and RegisterHotKey will fail for those; users porting a macOS config may need
-// to rebind to a Ctrl/Alt/Shift combination. Ctrl/Shift/Alt map to their Win32
-// equivalents directly.
+// MODIFIER MAPPING: macOS configs use "Cmd" as the primary modifier (e.g.
+// "Cmd+Shift+1"). On Windows the equivalent primary modifier is Ctrl, and the
+// Windows logo key (Win) reserves most Win+<key> combos at the OS/shell level, so
+// Cmd/Command/Super/Meta map to hotkey.ModCtrl - this lets a shared macOS config
+// register on Windows as Ctrl+Shift+1 instead of the OS-reserved Win+Shift+1.
+// "Win" still maps to the logo key for users who explicitly want it. Ctrl/Shift/
+// Alt map to their Win32 equivalents directly.
 type HotkeyManager struct {
 	mu       sync.Mutex
 	bindings map[string]*binding
@@ -146,8 +147,10 @@ func parseHotkey(s string) ([]hotkey.Modifier, hotkey.Key, error) {
 
 func modifierFor(s string) (hotkey.Modifier, bool) {
 	switch strings.ToLower(s) {
-	case "cmd", "command", "super", "meta", "win":
-		// macOS Cmd has no Windows equivalent; map to the Windows logo key.
+	case "cmd", "command", "super", "meta":
+		// macOS primary modifier -> Ctrl on Windows (Win+<key> is OS-reserved).
+		return hotkey.ModCtrl, true
+	case "win":
 		return hotkey.ModWin, true
 	case "shift":
 		return hotkey.ModShift, true
