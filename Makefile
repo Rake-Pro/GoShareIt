@@ -28,7 +28,7 @@ HOST_ARCH := $(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 export VERSION
 export BUNDLE_ID
 
-.PHONY: all test vet fmt-check build-darwin bundle sign notarize release clean help
+.PHONY: all test vet fmt-check build-darwin bundle sign notarize release dev dev-run clean help
 
 all: test vet fmt-check ## Run the core checks.
 
@@ -63,6 +63,12 @@ notarize: ## Notarize + staple the .app (needs AC_NOTARY_PROFILE).
 
 release: bundle sign notarize ## bundle -> sign -> notarize -> staple.
 	@echo "release complete: $(APP) (v$(VERSION))"
+
+dev: ## Local loop: build -> bundle -> sign (if DEVELOPER_ID_APP set).
+	scripts/dev-build.sh
+
+dev-run: ## Same as dev, then launch the .app.
+	scripts/dev-build.sh --open
 
 clean: ## Remove build artifacts.
 	rm -rf $(DIST)
