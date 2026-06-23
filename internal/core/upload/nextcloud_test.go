@@ -88,7 +88,7 @@ func TestNextcloudUpload(t *testing.T) {
 	if got.ShareToken != "abc123" {
 		t.Errorf("token = %q", got.ShareToken)
 	}
-	if want := srv.URL + "/s/abc123/download"; got.DirectURL != want {
+	if want := srv.URL + "/s/abc123/preview"; got.DirectURL != want {
 		t.Errorf("DirectURL = %q, want %q", got.DirectURL, want)
 	}
 	if want := srv.URL + "/s/abc123"; got.PublicURL != want {

@@ -85,9 +85,15 @@ func (n *Nextcloud) Upload(ctx context.Context, name string, body io.Reader, siz
 		return UploadResult{}, err
 	}
 	base := strings.TrimRight(n.cfg.BaseURL, "/")
+	// Images use /preview so the link renders inline (matches the original
+	// prototype); other types use /download to serve the raw bytes.
+	direct := base + "/s/" + token + "/download"
+	if strings.HasPrefix(mime, "image/") {
+		direct = base + "/s/" + token + "/preview"
+	}
 	return UploadResult{
 		PublicURL:  base + "/s/" + token,
-		DirectURL:  base + "/s/" + token + "/download",
+		DirectURL:  direct,
 		ShareToken: token,
 	}, nil
 }
