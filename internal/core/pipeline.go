@@ -22,6 +22,21 @@ func (a *App) runPipeline(ctx context.Context, req capture.Request) (upload.Uplo
 	if err != nil {
 		return upload.UploadResult{}, fmt.Errorf("capture: %w", err)
 	}
+
+	// 1b. Optional edit (gated by config + per-request flag). Fail-open: an
+	// editor error never aborts the capture; the original image flows on.
+	if req.Edit && res.Kind == capture.KindImage {
+		edited, ok, eerr := a.editor.Edit(ctx, res)
+		switch {
+		case eerr != nil:
+			a.log.Warn().Err(eerr).Msg("editor failed; using original capture")
+		case ok:
+			res = edited
+		default:
+			// skipped or cancelled: keep original res unchanged.
+		}
+	}
+
 	return a.processResult(ctx, res)
 }
 

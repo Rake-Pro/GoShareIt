@@ -11,6 +11,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
 	"github.com/Rake-Pro/GoShareIt/internal/core/clipboard"
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
+	"github.com/Rake-Pro/GoShareIt/internal/core/edit"
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
 	"github.com/Rake-Pro/GoShareIt/internal/core/hotkey"
 	"github.com/Rake-Pro/GoShareIt/internal/core/notify"
@@ -28,6 +29,7 @@ type Providers struct {
 	Notifier  notify.Notifier
 	Tray      tray.Tray
 	Hotkeys   hotkey.Manager
+	Editor    edit.Editor // optional; nil -> NoopEditor
 }
 
 // App is the portable orchestrator.
@@ -43,6 +45,7 @@ type App struct {
 	notifier  notify.Notifier
 	tray      tray.Tray
 	hotkeys   hotkey.Manager
+	editor    edit.Editor
 }
 
 // New constructs an App from config, providers, a logger and a history store.
@@ -56,6 +59,10 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 	if hist == nil {
 		return nil, fmt.Errorf("core: nil history")
 	}
+	editor := p.Editor
+	if editor == nil {
+		editor = edit.NoopEditor{}
+	}
 	return &App{
 		cfg:       cfg,
 		log:       log,
@@ -67,6 +74,7 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 		notifier:  p.Notifier,
 		tray:      p.Tray,
 		hotkeys:   p.Hotkeys,
+		editor:    editor,
 	}, nil
 }
 
@@ -89,8 +97,31 @@ func (a *App) RunCapture(ctx context.Context, mode capture.Mode) (upload.UploadR
 		CopyToClipboard: a.cfg.AfterCapture.CopyImageToClipboard,
 		SaveLocal:       a.cfg.AfterCapture.SaveLocal,
 		SaveDir:         a.cfg.AfterCapture.SaveDir,
+		Edit:            a.cfg.Editor.Enabled && modeInOnModes(mode, a.cfg.Editor.OnModes),
 	}
 	return a.runPipeline(ctx, req)
+}
+
+// modeInOnModes reports whether a capture mode matches one of the configured
+// editor on_modes names ("region", "fullscreen", "window").
+func modeInOnModes(mode capture.Mode, onModes []string) bool {
+	var name string
+	switch mode {
+	case capture.RegionInteractive, capture.LastRegion:
+		name = "region"
+	case capture.FullScreen:
+		name = "fullscreen"
+	case capture.ActiveWindow, capture.WindowPick:
+		name = "window"
+	default:
+		return false
+	}
+	for _, m := range onModes {
+		if m == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Recorder exposes the recorder seam (may be nil if unsupported).

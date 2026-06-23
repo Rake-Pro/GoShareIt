@@ -37,15 +37,17 @@ VERSION="${VERSION:-0.0.0-dev}"
 BUNDLE_ID="${BUNDLE_ID:-pro.rake.goshareit}"
 DIST="dist"
 BIN="$DIST/goshareit"
+EDITOR_BIN="$DIST/goshareit-editor"
 APP="$DIST/GoShareIt.app"
 HOST_ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
 
-echo "==> building cgo binary (darwin/$HOST_ARCH)"
+echo "==> building cgo binaries (darwin/$HOST_ARCH): host + editor"
 mkdir -p "$DIST"
 CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -o "$BIN" ./cmd/goshareit
+CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -o "$EDITOR_BIN" ./cmd/goshareit-editor
 
 echo "==> assembling $APP"
-VERSION="$VERSION" BUNDLE_ID="$BUNDLE_ID" BIN="$BIN" APP="$APP" "$SCRIPT_DIR/bundle.sh"
+VERSION="$VERSION" BUNDLE_ID="$BUNDLE_ID" BIN="$BIN" EDITOR_BIN="$EDITOR_BIN" APP="$APP" "$SCRIPT_DIR/bundle.sh"
 
 if [ "$SIGN" -eq 1 ]; then
 	if [ -n "${DEVELOPER_ID_APP:-}" ]; then

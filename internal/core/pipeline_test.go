@@ -13,6 +13,21 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
 )
 
+// fakeEditor records calls and returns canned edited bytes on confirm.
+type fakeEditor struct {
+	out   capture.Result
+	ok    bool
+	calls int
+}
+
+func (e *fakeEditor) Edit(_ context.Context, in capture.Result) (capture.Result, bool, error) {
+	e.calls++
+	if !e.ok {
+		return in, false, nil
+	}
+	return e.out, true, nil
+}
+
 func testApp(t *testing.T, cfg *config.Config) (*App, *fake.Clipboard, *fake.Uploader, *fake.Notifier) {
 	t.Helper()
 	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
@@ -204,6 +219,109 @@ func TestRecordingUnsupportedWhenNilRecorder(t *testing.T) {
 	}
 	if _, err := app.StopRecording(context.Background()); err == nil {
 		t.Error("StopRecording with nil recorder: want error")
+	}
+}
+
+func TestPipelineEditStepReplacesBytes(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Editor.Enabled = true
+	cfg.Editor.OnModes = []string{"fullscreen"}
+
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed := &fakeEditor{
+		out: capture.Result{Bytes: []byte("EDITEDPNG"), Mime: "image/png", Kind: capture.KindImage},
+		ok:  true,
+	}
+	up := fake.NewUploader()
+	p := Providers{
+		Capturer:  fake.NewCapturer(),
+		Uploader:  up,
+		Clipboard: &fake.Clipboard{},
+		Editor:    ed,
+	}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if ed.calls != 1 {
+		t.Fatalf("editor calls = %d, want 1", ed.calls)
+	}
+	if len(up.Bodies) != 1 || string(up.Bodies[0]) != "EDITEDPNG" {
+		t.Errorf("uploaded body = %q, want EDITEDPNG", up.Bodies[0])
+	}
+}
+
+func TestPipelineEditSkippedWhenModeNotEnabled(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Editor.Enabled = true
+	cfg.Editor.OnModes = []string{"region"} // not fullscreen
+
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed := &fakeEditor{ok: true}
+	p := Providers{
+		Capturer:  fake.NewCapturer(),
+		Uploader:  fake.NewUploader(),
+		Clipboard: &fake.Clipboard{},
+		Editor:    ed,
+	}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if ed.calls != 0 {
+		t.Errorf("editor calls = %d, want 0 (mode not enabled)", ed.calls)
+	}
+}
+
+func TestPipelineEditSkippedForVideo(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Editor.Enabled = true
+	cfg.Editor.OnModes = []string{"region", "fullscreen", "window"}
+
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed := &fakeEditor{
+		out: capture.Result{Bytes: []byte("SHOULDNOTAPPEAR"), Mime: "image/png", Kind: capture.KindImage},
+		ok:  true,
+	}
+	rec := fake.NewRecorder()
+	up := fake.NewUploader()
+	p := Providers{
+		Capturer:  fake.NewCapturer(),
+		Recorder:  rec,
+		Uploader:  up,
+		Clipboard: &fake.Clipboard{},
+		Editor:    ed,
+	}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.StartRecording(context.Background(), capture.VideoFull); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.StopRecording(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ed.calls != 0 {
+		t.Errorf("editor calls = %d, want 0 for video", ed.calls)
+	}
+	if len(up.Mimes) != 1 || up.Mimes[0] != "video/mp4" {
+		t.Errorf("uploaded mime = %v, want video/mp4", up.Mimes)
 	}
 }
 

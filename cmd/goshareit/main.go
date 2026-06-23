@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -17,6 +18,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core"
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
+	"github.com/Rake-Pro/GoShareIt/internal/core/edit"
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
@@ -71,6 +73,18 @@ func main() {
 		ShareExpireDays: cfg.Upload.ShareExpireDays,
 		SharePassword:   cfg.Upload.SharePassword,
 	}, nil)
+
+	// The editor launcher is portable (CGO-free); the GUI it spawns lives in a
+	// separate goshareit-editor binary. It is only ever invoked when
+	// cfg.Editor.Enabled, so a missing editor binary is harmless when disabled.
+	providers.Editor = edit.Launcher{
+		HelperPath:  cfg.Editor.HelperPath,
+		Timeout:     time.Duration(cfg.Editor.TimeoutSeconds) * time.Second,
+		Tool:        cfg.Editor.DefaultTool,
+		Color:       cfg.Editor.Color,
+		StrokeWidth: cfg.Editor.StrokeWidth,
+		Tools:       cfg.Editor.Tools,
+	}
 
 	app, err := core.New(cfg, providers, logger, hist)
 	if err != nil {

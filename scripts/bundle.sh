@@ -40,9 +40,20 @@ RES_DIR="$CONTENTS/Resources"
 rm -rf "$APP"
 mkdir -p "$MACOS_DIR" "$RES_DIR"
 
-# Binary.
+# Host binary.
 cp "$BIN" "$MACOS_DIR/goshareit"
 chmod +x "$MACOS_DIR/goshareit"
+
+# Editor helper binary, placed beside the host so the launcher finds it via
+# os.Executable()'s directory. Optional: skipped if not built.
+EDITOR_BIN="${EDITOR_BIN:-dist/goshareit-editor}"
+if [ -f "$EDITOR_BIN" ]; then
+	cp "$EDITOR_BIN" "$MACOS_DIR/goshareit-editor"
+	chmod +x "$MACOS_DIR/goshareit-editor"
+	echo "  + bundled editor helper: goshareit-editor"
+else
+	echo "  ! editor helper not found ($EDITOR_BIN); annotation editor will be unavailable" >&2
+fi
 
 # Info.plist with placeholders substituted. Use a temp file then move.
 sed -e "s|__VERSION__|$VERSION|g" \

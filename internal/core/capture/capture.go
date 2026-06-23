@@ -58,6 +58,7 @@ type Request struct {
 	CopyToClipboard bool
 	SaveLocal       bool
 	SaveDir         string
+	Edit            bool
 }
 
 // Result is the output of a capture operation. Bytes holds the encoded media

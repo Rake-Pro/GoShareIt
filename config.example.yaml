@@ -39,5 +39,15 @@ hotkeys:
   record: "Cmd+Shift+R"   # toggle screen recording (only on builds that support it)
   quit: "Cmd+Shift+Q"
 
+editor:
+  enabled: false          # master switch; false -> current behavior (no editor)
+  on_modes: [region]      # which capture modes open the editor (region|fullscreen|window)
+  helper_path: ""         # "" -> goshareit-editor next to the host binary
+  timeout_seconds: 0      # 0 -> no timeout
+  default_tool: arrow
+  stroke_width: 3
+  color: "#ff3b30"
+  tools: [crop, arrow, rect, text, blur, highlight, step]
+
 logging:
   level: "info"

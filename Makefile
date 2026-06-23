@@ -19,8 +19,10 @@ VERSION     ?= 0.0.0-dev
 BUNDLE_ID   ?= pro.rake.goshareit
 DIST        := dist
 BIN         := $(DIST)/goshareit
+EDITOR_BIN  := $(DIST)/goshareit-editor
 APP         := $(DIST)/GoShareIt.app
 CMD         := ./cmd/goshareit
+EDITOR_CMD  := ./cmd/goshareit-editor
 
 # Host architecture for the darwin build (arm64 on Apple Silicon, amd64 on Intel).
 HOST_ARCH := $(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
@@ -36,8 +38,8 @@ help: ## List targets.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n", $$1, $$2}'
 
-test: ## Build/test the pure-Go core with cgo OFF.
-	CGO_ENABLED=0 $(GO) test ./...
+test: ## Build/test all packages (cgo on the dev host; CI runs the core CGO-off on linux).
+	$(GO) test ./...
 
 vet: ## go vet the module.
 	$(GO) vet ./...
@@ -45,14 +47,14 @@ vet: ## go vet the module.
 fmt-check: ## Fail if any file is not gofmt-clean.
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 
-build-darwin: ## Build the cgo binary for the host arch into dist/goshareit.
+build-darwin: ## Build the cgo host + editor binaries for the host arch into dist/.
 	@mkdir -p $(DIST)
-	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) \
-		$(GO) build -o $(BIN) $(CMD)
-	@echo "built $(BIN) (darwin/$(HOST_ARCH))"
+	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -o $(BIN) $(CMD)
+	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -o $(EDITOR_BIN) $(EDITOR_CMD)
+	@echo "built $(BIN) and $(EDITOR_BIN) (darwin/$(HOST_ARCH))"
 
-bundle: build-darwin ## Assemble dist/GoShareIt.app from the built binary.
-	VERSION=$(VERSION) BUNDLE_ID=$(BUNDLE_ID) BIN=$(BIN) APP=$(APP) \
+bundle: build-darwin ## Assemble dist/GoShareIt.app (host + editor) from the built binaries.
+	VERSION=$(VERSION) BUNDLE_ID=$(BUNDLE_ID) BIN=$(BIN) EDITOR_BIN=$(EDITOR_BIN) APP=$(APP) \
 		scripts/bundle.sh
 
 sign: ## Codesign the .app (needs DEVELOPER_ID_APP).

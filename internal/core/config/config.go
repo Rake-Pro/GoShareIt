@@ -21,6 +21,7 @@ type Config struct {
 	AfterCapture AfterCaptureConfig `yaml:"after_capture"`
 	AfterUpload  AfterUploadConfig  `yaml:"after_upload"`
 	Hotkeys      HotkeysConfig      `yaml:"hotkeys"`
+	Editor       EditorConfig       `yaml:"editor"`
 	Logging      LoggingConfig      `yaml:"logging"`
 
 	// password is resolved at load time, never serialized.
@@ -66,6 +67,19 @@ type HotkeysConfig struct {
 	Window     string `yaml:"window"`
 	Record     string `yaml:"record"`
 	Quit       string `yaml:"quit"`
+}
+
+// EditorConfig controls the optional post-capture annotation editor. When
+// Enabled is false (default) the app uses a NoopEditor and behavior is unchanged.
+type EditorConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	OnModes        []string `yaml:"on_modes"`
+	HelperPath     string   `yaml:"helper_path"`
+	TimeoutSeconds int      `yaml:"timeout_seconds"`
+	DefaultTool    string   `yaml:"default_tool"`
+	StrokeWidth    int      `yaml:"stroke_width"`
+	Color          string   `yaml:"color"`
+	Tools          []string `yaml:"tools"`
 }
 
 // LoggingConfig controls logging.
