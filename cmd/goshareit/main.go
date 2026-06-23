@@ -106,6 +106,7 @@ func main() {
 // the hotkey manager runs alongside.
 func run(ctx context.Context, app *core.App, quit func()) error {
 	cfg := app.Config()
+	tr := app.Tray()
 
 	runShot := func(mode capture.Mode) func() {
 		return func() {
@@ -115,32 +116,54 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 		}
 	}
 
-	// recordToggle starts or stops recording based on the recorder's own state,
-	// so a hotkey press and a tray click can never disagree. relabel may be nil
-	// (hotkey-only path, or a tray seam that cannot relabel an item).
-	recordToggle := func(mode capture.Mode, relabel func(string)) func() {
-		return func() {
-			if !app.RecordingSupported() {
-				log.Warn().Msg("recording not supported on this build")
-				return
-			}
-			if app.Recording() {
-				if relabel != nil {
-					relabel("Start Recording")
-				}
-				if _, err := app.StopRecording(ctx); err != nil {
-					log.Error().Err(err).Msg("stop recording failed")
-				}
-				return
-			}
-			if err := app.StartRecording(ctx, mode); err != nil {
-				log.Error().Err(err).Msg("start recording failed")
-				return
-			}
-			if relabel != nil {
-				relabel("Stop Recording")
-			}
+	// Recording uses two separate menu items (Start / Stop); the inapplicable one
+	// is greyed out. updateRecordItems reflects the current state onto the tray
+	// (no-op when there is no tray). Start and Stop guard on app.Recording() so a
+	// hotkey and a tray click can never disagree.
+	updateRecordItems := func(recording bool) {
+		if tr != nil {
+			tr.SetItemEnabled("record-start", !recording)
+			tr.SetItemEnabled("record-stop", recording)
 		}
+	}
+	startRec := func() {
+		if !app.RecordingSupported() || app.Recording() {
+			return
+		}
+		if err := app.StartRecording(ctx, capture.VideoFull); err != nil {
+			log.Error().Err(err).Msg("start recording failed")
+			return
+		}
+		updateRecordItems(true)
+	}
+	stopRec := func() {
+		if !app.Recording() {
+			return
+		}
+		if _, err := app.StopRecording(ctx); err != nil {
+			log.Error().Err(err).Msg("stop recording failed")
+		}
+		updateRecordItems(false)
+	}
+	recordToggle := func() {
+		if !app.RecordingSupported() {
+			log.Warn().Msg("recording not supported on this build")
+			return
+		}
+		if app.Recording() {
+			stopRec()
+		} else {
+			startRec()
+		}
+	}
+
+	// label appends the configured hotkey to a menu title, e.g.
+	// "Capture Region  (Cmd+Shift+1)", so the menu documents its own shortcuts.
+	label := func(title, keys string) string {
+		if keys == "" {
+			return title
+		}
+		return title + "  (" + keys + ")"
 	}
 
 	hk := app.Hotkeys()
@@ -158,7 +181,7 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 			bindings = append(bindings, struct {
 				id, keys string
 				fn       func()
-			}{"record", cfg.Hotkeys.Record, recordToggle(capture.VideoFull, nil)})
+			}{"record", cfg.Hotkeys.Record, recordToggle})
 		}
 		for _, b := range bindings {
 			if b.keys == "" {
@@ -175,27 +198,26 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 		}()
 	}
 
-	tr := app.Tray()
 	if tr == nil {
 		<-ctx.Done()
 		return nil
 	}
 	items := []tray.MenuItem{
-		{ID: "region", Title: "Capture Region", OnClick: runShot(captureMode("region"))},
-		{ID: "fullscreen", Title: "Capture Full Screen", OnClick: runShot(captureMode("fullscreen"))},
+		{ID: "region", Title: label("Capture Region", cfg.Hotkeys.Region), OnClick: runShot(captureMode("region"))},
+		{ID: "fullscreen", Title: label("Capture Full Screen", cfg.Hotkeys.FullScreen), OnClick: runShot(captureMode("fullscreen"))},
 	}
-	// The record control is present only on builds that support recording. The
-	// tray seam has no relabel hook, so the toggle reads app.Recording() as the
-	// source of truth; the label stays static while behavior flips correctly.
+	// Recording: separate Start/Stop items. Stop starts greyed out; the two swap
+	// enabled state as recording starts/stops.
 	if app.RecordingSupported() {
 		items = append(items,
 			tray.MenuItem{Separator: true},
-			tray.MenuItem{ID: "record", Title: "Start Recording", OnClick: recordToggle(capture.VideoFull, nil)},
+			tray.MenuItem{ID: "record-start", Title: label("Start Recording", cfg.Hotkeys.Record), OnClick: startRec},
+			tray.MenuItem{ID: "record-stop", Title: label("Stop Recording", cfg.Hotkeys.Record), OnClick: stopRec, Disabled: true},
 		)
 	}
 	items = append(items,
 		tray.MenuItem{Separator: true},
-		tray.MenuItem{ID: "quit", Title: "Quit", OnClick: func() {
+		tray.MenuItem{ID: "quit", Title: label("Quit", cfg.Hotkeys.Quit), OnClick: func() {
 			log.Info().Msg("quit requested")
 			quit()
 		}},

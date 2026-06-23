@@ -4,6 +4,7 @@ package windows
 
 import (
 	"context"
+	"sync"
 
 	"fyne.io/systray"
 
@@ -16,10 +17,13 @@ import (
 // window and a Shell_NotifyIcon tray icon, and systray.Run drives that window's
 // message loop. The hotkey backend (see hotkey.go) uses its own message threads
 // via RegisterHotKey, so the two do not contend for a shared run loop.
-type Tray struct{}
+type Tray struct {
+	mu    sync.Mutex
+	items map[string]*systray.MenuItem
+}
 
 // NewTray returns a Windows systray-backed Tray.
-func NewTray() *Tray { return &Tray{} }
+func NewTray() *Tray { return &Tray{items: map[string]*systray.MenuItem{}} }
 
 // Run builds the menu from spec and blocks until ctx is cancelled. On ctx.Done
 // it calls systray.Quit, which unwinds systray.Run and returns.
@@ -35,6 +39,14 @@ func (t *Tray) Run(ctx context.Context, spec tray.MenuSpec) error {
 				continue
 			}
 			mi := systray.AddMenuItem(item.Title, item.Title)
+			if item.Disabled {
+				mi.Disable()
+			}
+			if item.ID != "" {
+				t.mu.Lock()
+				t.items[item.ID] = mi
+				t.mu.Unlock()
+			}
 			if item.OnClick != nil {
 				go func(ch <-chan struct{}, fn func()) {
 					for {
@@ -61,4 +73,30 @@ func (t *Tray) Run(ctx context.Context, spec tray.MenuSpec) error {
 
 	systray.Run(ready, func() {})
 	return nil
+}
+
+// SetItemEnabled enables or greys out a menu item by ID. Safe to call from any
+// goroutine; no-op if the item has not been created yet.
+func (t *Tray) SetItemEnabled(id string, enabled bool) {
+	t.mu.Lock()
+	mi := t.items[id]
+	t.mu.Unlock()
+	if mi == nil {
+		return
+	}
+	if enabled {
+		mi.Enable()
+	} else {
+		mi.Disable()
+	}
+}
+
+// SetItemTitle updates a menu item's label by ID. No-op if absent.
+func (t *Tray) SetItemTitle(id, title string) {
+	t.mu.Lock()
+	mi := t.items[id]
+	t.mu.Unlock()
+	if mi != nil {
+		mi.SetTitle(title)
+	}
 }

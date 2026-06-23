@@ -205,6 +205,9 @@ func (Tray) Run(ctx context.Context, _ tray.MenuSpec) error {
 	return ctx.Err()
 }
 
+func (Tray) SetItemEnabled(string, bool) {}
+func (Tray) SetItemTitle(string, string) {}
+
 // HotkeyManager records registrations and can fire them.
 type HotkeyManager struct {
 	mu   sync.Mutex

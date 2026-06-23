@@ -9,6 +9,7 @@ type MenuItem struct {
 	Title     string
 	OnClick   func()
 	Separator bool
+	Disabled  bool // initial state: true => greyed out (still present) at startup
 }
 
 // MenuSpec describes the tray menu to display.
@@ -20,4 +21,9 @@ type MenuSpec struct {
 // Tray runs the system tray until ctx is cancelled.
 type Tray interface {
 	Run(ctx context.Context, spec MenuSpec) error
+	// SetItemEnabled enables or greys out the item with the given ID at runtime.
+	// No-op if the item does not exist (e.g. before the tray is built).
+	SetItemEnabled(id string, enabled bool)
+	// SetItemTitle updates an item's label at runtime. No-op if the item is absent.
+	SetItemTitle(id, title string)
 }
