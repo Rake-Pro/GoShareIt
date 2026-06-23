@@ -10,7 +10,11 @@ require (
 require (
 	fyne.io/systray v1.12.2 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
+	github.com/gen2brain/shm v0.1.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/jezek/xgb v1.1.1 // indirect
+	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018 // indirect
+	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	golang.design/x/clipboard v0.8.0 // indirect
