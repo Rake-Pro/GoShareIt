@@ -19,7 +19,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -28,6 +27,7 @@ import (
 	"strings"
 
 	"gioui.org/app"
+	"github.com/rs/zerolog/log"
 
 	"github.com/Rake-Pro/GoShareIt/internal/editor/ui"
 )
@@ -42,13 +42,13 @@ func main() {
 	flag.Parse()
 
 	if *in == "" || *out == "" {
-		fmt.Fprintln(os.Stderr, "goshareit-editor: --in and --out are required")
+		log.Error().Msg("--in and --out are required")
 		os.Exit(1)
 	}
 
 	img, err := decodePNG(*in)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "goshareit-editor: decode %s: %v\n", *in, err)
+		log.Error().Err(err).Str("in", *in).Msg("decode input")
 		os.Exit(1)
 	}
 
@@ -73,14 +73,14 @@ func main() {
 	go func() {
 		result, confirmed, rerr := ui.Run(img, opts)
 		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "goshareit-editor: editor: %v\n", rerr)
+			log.Error().Err(rerr).Msg("editor")
 			os.Exit(1)
 		}
 		if !confirmed || result == nil {
 			os.Exit(64)
 		}
 		if err := encodePNG(*out, result); err != nil {
-			fmt.Fprintf(os.Stderr, "goshareit-editor: encode %s: %v\n", *out, err)
+			log.Error().Err(err).Str("out", *out).Msg("encode output")
 			os.Exit(1)
 		}
 		os.Exit(0)

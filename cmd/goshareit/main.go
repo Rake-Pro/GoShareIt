@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -33,12 +32,10 @@ func main() {
 		log.Fatal().Err(err).Msg("resolve config")
 	}
 	if didSetup {
-		fmt.Fprintf(os.Stderr,
-			"GoShareIt first-run setup complete.\n"+
-				"  config written: %s\n"+
-				"  put your Nextcloud app password in: %s\n"+
-				"  then review base_url/username and launch GoShareIt again.\n",
-			cfgFile, secretPath)
+		log.Info().
+			Str("config", cfgFile).
+			Str("secret", secretPath).
+			Msg("first-run setup complete - add your Nextcloud app password to the secret file, review base_url/username in the config, then relaunch")
 		return
 	}
 
