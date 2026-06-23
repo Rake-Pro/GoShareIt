@@ -28,7 +28,7 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 | P3a | Recording video: macOS native AVFoundation->mp4 (no ffmpeg), Windows ffmpeg gdigrab; `Recorder` Start/Stop, record hotkey + tray toggle | **Code DONE; linux+windows build verified; cgo/recording UNTESTED on device** |
 | P4a | Annotation editor MVP: Gio out-of-process (crop/arrow/rect/text, undo, confirm/cancel); pure-Go `annotate` ops | **Code DONE; builds verified; Gio UI UNTESTED on device** |
 | P4b | Editor: blur, pixelate, highlight, step-numbers, line, freehand | **Code DONE; 17 annotate pixel tests pass (CGO off); GOOS=windows build verified; Gio UI UNTESTED on device** |
-| P3b | GIF + video region crop | **NOT STARTED - has design forks, see below** |
+| P3b | GIF (frame-sampling, no ffmpeg) **DONE**; video region crop NOT STARTED | **GIF: code done, gifrec/composite/upload tests pass (CGO off), GOOS=windows verified, untested on device. Region crop: needs the region-selector overlay (see forks).** |
 | P4c | Editor: in-window copy/save/upload buttons, full ShareX/Greenshot parity | **NOT STARTED** |
 
 ## On-device validation still owed (nothing below has run on real hardware)
@@ -69,19 +69,18 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 4. **First-run via `open` is silent** (stderr hidden). A GUI first-run dialog would help; low priority.
 5. **Notifier OpenURL/thumbnail ignored** on both platforms (P1 limitation).
 
-## P3b design forks (decide before implementing)
+## Remaining design fork: video region crop (+ LastRegion)
 
-- **GIF on macOS:** Windows can transcode to GIF via ffmpeg (palettegen) cleanly, but the Mac side
-  deliberately has no ffmpeg, and decoding the AVFoundation mp4 to frames in pure Go is impractical
-  (no Go h264 decoder). Options: (a) a frame-sampling recorder that grabs screenshots every N ms and
-  encodes with pure-Go `image/gif` (cross-platform, no ffmpeg, gif-encode is unit-testable) - RECOMMENDED;
-  (b) bundle a small ffmpeg on mac just for transcode (contradicts the no-ffmpeg-on-mac decision).
-  Also: an animated GIF's clipboard link must use `/download`, not `/preview` (preview is a static frame) -
-  the uploader currently routes any `image/*` to `/preview`, so it needs `png/jpeg -> /preview`,
-  `gif/video -> /download`.
-- **Video region crop:** needs a rect handed to `Recorder.Start` (the frozen interface takes only a mode),
-  so either extend the interface or add an interactive region overlay first. Same overlay would fix
-  `LastRegion`.
+- **GIF: DONE** via the frame-sampling approach (option a) - `internal/core/gifrec` samples the Capturer
+  at ~10fps and encodes with `image/gif`; `capture.NewCompositeRecorder` routes GIF vs video. Uploader
+  fixed: `png/jpeg -> /preview`, `gif/video -> /download`. Tray has a "Start GIF Recording" item.
+- **Video region crop** still needs an interactive **region-selector overlay**: a transparent fullscreen
+  drag-a-box window that returns `x,y,w,h`. There is no OS built-in for "select a region then record video
+  of it" (screencapture -i / ms-screenclip return the cropped image, not screen coordinates). Recommended:
+  build it as a small out-of-process Gio overlay (same pattern as the editor, dodges the macOS main-thread
+  conflict) that prints the rect; then extend `Recorder.Start` to accept it (ffmpeg `-offset/-video_size`,
+  AVFoundation `cropRect`). The same overlay fixes `LastRegion` (which also lacks a rect today). Until built,
+  region-video records the full display. AWAITING the user's go-ahead to build the overlay.
 
 ## Build / run quick reference
 
