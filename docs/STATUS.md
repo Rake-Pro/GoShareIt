@@ -28,7 +28,7 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 | P3a | Recording video: macOS native AVFoundation->mp4 (no ffmpeg), Windows ffmpeg gdigrab; `Recorder` Start/Stop, record hotkey + tray toggle | **Code DONE; linux+windows build verified; cgo/recording UNTESTED on device** |
 | P4a | Annotation editor MVP: Gio out-of-process (crop/arrow/rect/text, undo, confirm/cancel); pure-Go `annotate` ops | **Code DONE; builds verified; Gio UI UNTESTED on device** |
 | P4b | Editor: blur, pixelate, highlight, step-numbers, line, freehand | **Code DONE; 17 annotate pixel tests pass (CGO off); GOOS=windows build verified; Gio UI UNTESTED on device** |
-| P3b | GIF (frame-sampling, no ffmpeg) **DONE**; video region crop NOT STARTED | **GIF: code done, gifrec/composite/upload tests pass (CGO off), GOOS=windows verified, untested on device. Region crop: needs the region-selector overlay (see forks).** |
+| P3b | GIF (frame-sampling, no ffmpeg) + interactive region selector + region recording | **Code DONE; linux build/vet/test + GOOS=windows verified; Gio overlay + macOS cropRect untested on device (coordinate/DPI accuracy is the key risk)** |
 | P4c | Editor: in-window copy/save/upload buttons, full ShareX/Greenshot parity | **NOT STARTED** |
 
 ## On-device validation still owed (nothing below has run on real hardware)
@@ -69,18 +69,27 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 4. **First-run via `open` is silent** (stderr hidden). A GUI first-run dialog would help; low priority.
 5. **Notifier OpenURL/thumbnail ignored** on both platforms (P1 limitation).
 
-## Remaining design fork: video region crop (+ LastRegion)
+## P3b - DONE (GIF + region selector + region recording)
 
-- **GIF: DONE** via the frame-sampling approach (option a) - `internal/core/gifrec` samples the Capturer
-  at ~10fps and encodes with `image/gif`; `capture.NewCompositeRecorder` routes GIF vs video. Uploader
-  fixed: `png/jpeg -> /preview`, `gif/video -> /download`. Tray has a "Start GIF Recording" item.
-- **Video region crop** still needs an interactive **region-selector overlay**: a transparent fullscreen
-  drag-a-box window that returns `x,y,w,h`. There is no OS built-in for "select a region then record video
-  of it" (screencapture -i / ms-screenclip return the cropped image, not screen coordinates). Recommended:
-  build it as a small out-of-process Gio overlay (same pattern as the editor, dodges the macOS main-thread
-  conflict) that prints the rect; then extend `Recorder.Start` to accept it (ffmpeg `-offset/-video_size`,
-  AVFoundation `cropRect`). The same overlay fixes `LastRegion` (which also lacks a rect today). Until built,
-  region-video records the full display. AWAITING the user's go-ahead to build the overlay.
+- **GIF** via frame-sampling (`internal/core/gifrec`, ~10fps, pure-Go `image/gif`); `capture.NewCompositeRecorder`
+  routes GIF vs video. Uploader: `png/jpeg -> /preview`, `gif/video -> /download`. Tray "Start GIF Recording".
+- **Region selector**: out-of-process Gio overlay = `goshareit-editor --region` (dim fullscreen, drag a box,
+  writes `x,y,w,h`, exit 0/64). Host `region.Launcher` (internal/core/region) execs it -> `image.Rectangle`.
+- **Region recording**: `RegionRecorder` optional extension (`StartRegion(ctx, mode, rect)`); base `Recorder`
+  unchanged so it degrades to full-screen. Implemented on darwin (AVFoundation `cropRect`, pixel->point + Y-flip),
+  windows (ffmpeg `-offset/-video_size`, even-dim rounding), gifrec (pure-Go crop). Tray "Start Region Recording"
+  launches the overlay then records the rect.
+- **Still owed:** `LastRegion` (replay last region as a screenshot) is NOT wired to the overlay yet - it still
+  falls back to interactive. Could store the overlay's last rect and feed `screencapture -R` / `CaptureRect`.
+
+## On-device verification specific to the region selector (highest risk)
+
+- The Gio overlay must render fullscreen + borderless + dimmed on mac/win; drag box + `WxH` readout correct.
+- **Coordinate accuracy is the #1 risk:** the overlay's window->screen pixel mapping must match the screen-pixel
+  rect the platform `StartRegion` expects. macOS `cropRect` does a pixel->point divide + Y-flip against display
+  height (Retina scale 2, multi-display, non-primary origin all suspect). Windows gdigrab `-offset` is relative
+  to the virtual desktop. Verify the recorded area matches the selected box pixel-for-pixel. v1 targets the
+  PRIMARY display only.
 
 ## Build / run quick reference
 
