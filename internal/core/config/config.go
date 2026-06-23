@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -74,6 +75,20 @@ type LoggingConfig struct {
 // Password returns the resolved Nextcloud password.
 func (c *Config) Password() string { return c.password }
 
+// expandHome expands a leading ~ or ~/ to the user's home directory. Go does
+// not do this automatically, so config paths like ~/.config/... need it.
+func expandHome(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if h, err := os.UserHomeDir(); err == nil {
+			if p == "~" {
+				return h
+			}
+			return filepath.Join(h, p[2:])
+		}
+	}
+	return p
+}
+
 // Load reads and validates config from path. If the GOSHAREIT_CONFIG_PATH env
 // var is set it overrides path. Defaults are applied before validation.
 func Load(path string) (*Config, error) {
@@ -124,7 +139,7 @@ func (c *Config) resolvePassword() error {
 	case file != "" && env != "":
 		return fmt.Errorf("config: set exactly one of nextcloud.password_file or nextcloud.password_env, not both")
 	case file != "":
-		b, err := os.ReadFile(file)
+		b, err := os.ReadFile(expandHome(file))
 		if err != nil {
 			return fmt.Errorf("config: read password_file %s: %w", file, err)
 		}

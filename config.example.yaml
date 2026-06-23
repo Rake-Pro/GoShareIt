@@ -9,7 +9,11 @@ nextcloud:
   # before '@' (e.g. "imgshare"). The live server validated with "imgshare".
   dav_user: ""
   # Provide exactly ONE of password_file or password_env.
-  password_file: /home/you/.config/goshareit/app-password.secret
+  # A leading ~ is expanded to your home dir. Create the file with:
+  #   mkdir -p ~/.config/goshareit
+  #   printf '%s' 'YOUR_APP_PASSWORD' > ~/.config/goshareit/app-password.secret
+  #   chmod 600 ~/.config/goshareit/app-password.secret
+  password_file: ~/.config/goshareit/app-password.secret
   # password_env: GOSHAREIT_NC_PASSWORD
   remote_dir: ""   # "" = account files root
 
