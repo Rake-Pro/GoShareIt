@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"flag"
+	"image"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/edit"
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
+	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
@@ -119,8 +121,9 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 	// hotkey and a tray click can never disagree.
 	updateRecordItems := func(recording bool) {
 		if tr != nil {
-			// While recording, both Start items grey out and Stop enables.
+			// While recording, all Start items grey out and Stop enables.
 			tr.SetItemEnabled("record-start", !recording)
+			tr.SetItemEnabled("record-region", !recording)
 			tr.SetItemEnabled("record-gif", !recording)
 			tr.SetItemEnabled("record-stop", recording)
 		}
@@ -130,12 +133,37 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 			if !app.RecordingSupported() || app.Recording() {
 				return
 			}
-			if err := app.StartRecording(ctx, mode); err != nil {
+			if err := app.StartRecording(ctx, mode, image.Rectangle{}); err != nil {
 				log.Error().Err(err).Str("mode", mode.String()).Msg("start recording failed")
 				return
 			}
 			updateRecordItems(true)
 		}
+	}
+	// regionSel runs the out-of-process overlay to pick a screen rectangle. It
+	// reuses the goshareit-editor helper (same binary, --region flag).
+	regionSel := region.Launcher{HelperPath: cfg.Editor.HelperPath}
+	startRegionRec := func() {
+		if !app.RecordingSupported() || app.Recording() {
+			return
+		}
+		// The overlay blocks on its own process, so run it off the tray callback
+		// goroutine; recording only starts after the user confirms a rectangle.
+		go func() {
+			rect, ok, err := regionSel.Select(ctx)
+			if err != nil {
+				log.Error().Err(err).Msg("region select failed")
+				return
+			}
+			if !ok || app.Recording() {
+				return
+			}
+			if err := app.StartRecording(ctx, capture.VideoRegion, rect); err != nil {
+				log.Error().Err(err).Msg("start region recording failed")
+				return
+			}
+			updateRecordItems(true)
+		}()
 	}
 	stopRec := func() {
 		if !app.Recording() {
@@ -214,6 +242,9 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 		items = append(items, tray.MenuItem{Separator: true})
 		if app.RecordingModeSupported(capture.VideoFull) {
 			items = append(items, tray.MenuItem{ID: "record-start", Title: label("Start Recording", cfg.Hotkeys.Record), OnClick: startRec(capture.VideoFull)})
+		}
+		if app.RecordingModeSupported(capture.VideoRegion) || app.RecordingModeSupported(capture.VideoFull) {
+			items = append(items, tray.MenuItem{ID: "record-region", Title: "Start Region Recording", OnClick: startRegionRec})
 		}
 		if app.RecordingModeSupported(capture.GIF) {
 			items = append(items, tray.MenuItem{ID: "record-gif", Title: "Start GIF Recording", OnClick: startRec(capture.GIF)})

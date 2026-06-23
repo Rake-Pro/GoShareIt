@@ -5,6 +5,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"image"
 
 	"github.com/rs/zerolog"
 
@@ -152,10 +153,17 @@ func (a *App) RecordingModeSupported(mode capture.Mode) bool {
 	return false
 }
 
-// StartRecording begins a recording for the given mode.
-func (a *App) StartRecording(ctx context.Context, mode capture.Mode) error {
+// StartRecording begins a recording for the given mode. When region is non-empty
+// and the wired recorder implements capture.RegionRecorder, the recording is
+// cropped to that screen-pixel rectangle; otherwise it records full screen.
+func (a *App) StartRecording(ctx context.Context, mode capture.Mode, region image.Rectangle) error {
 	if a.recorder == nil {
 		return fmt.Errorf("core: recording not supported on this build")
+	}
+	if !region.Empty() {
+		if rr, ok := a.recorder.(capture.RegionRecorder); ok {
+			return rr.StartRegion(ctx, mode, region)
+		}
 	}
 	return a.recorder.Start(ctx, mode)
 }

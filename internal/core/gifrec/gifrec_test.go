@@ -81,6 +81,36 @@ func TestRecordGIF(t *testing.T) {
 	}
 }
 
+func TestRecordGIFRegion(t *testing.T) {
+	const w, h = 40, 30
+	cap := &colorCapturer{w: w, h: h}
+	r := New(cap, 30, 100)
+
+	rect := image.Rect(5, 6, 25, 21) // 20x15 crop
+	if err := r.StartRegion(context.Background(), capture.GIF, rect); err != nil {
+		t.Fatalf("StartRegion: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	res, err := r.Stop(context.Background())
+	if err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	g, err := gif.DecodeAll(bytes.NewReader(res.Bytes))
+	if err != nil {
+		t.Fatalf("DecodeAll: %v", err)
+	}
+	if len(g.Image) < 1 {
+		t.Fatalf("frames = %d, want >=1", len(g.Image))
+	}
+	for i, im := range g.Image {
+		if b := im.Bounds(); b.Dx() != rect.Dx() || b.Dy() != rect.Dy() {
+			t.Errorf("frame %d bounds = %v, want %dx%d", i, b, rect.Dx(), rect.Dy())
+		}
+	}
+}
+
 func TestStartNonGIFMode(t *testing.T) {
 	r := New(&colorCapturer{w: 4, h: 4}, 10, 10)
 	if err := r.Start(context.Background(), capture.VideoFull); err == nil {

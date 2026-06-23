@@ -19,6 +19,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -29,17 +30,24 @@ import (
 	"gioui.org/app"
 	"github.com/rs/zerolog/log"
 
+	"github.com/Rake-Pro/GoShareIt/internal/editor/region"
 	"github.com/Rake-Pro/GoShareIt/internal/editor/ui"
 )
 
 func main() {
 	in := flag.String("in", "", "path to the input PNG to annotate")
 	out := flag.String("out", "", "path to write the edited PNG on confirm")
+	regionMode := flag.Bool("region", false, "run the interactive screen-region selector instead of the editor")
 	tool := flag.String("tool", "", "initial tool (crop|arrow|rect|ellipse|text)")
 	colorHex := flag.String("color", "", "initial color as #rrggbb")
 	stroke := flag.Int("stroke", 0, "initial stroke width")
 	toolsCSV := flag.String("tools", "", "comma-separated tool whitelist")
 	flag.Parse()
+
+	if *regionMode {
+		runRegion(*out)
+		return
+	}
 
 	if *in == "" || *out == "" {
 		log.Error().Msg("--in and --out are required")
@@ -81,6 +89,33 @@ func main() {
 		}
 		if err := encodePNG(*out, result); err != nil {
 			log.Error().Err(err).Str("out", *out).Msg("encode output")
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}()
+	app.Main()
+}
+
+// runRegion runs the interactive region selector. On confirm it writes a single
+// "x,y,w,h" line to outPath and exits 0; on cancel it exits 64 without writing;
+// on error it logs and exits 1. Mirrors the editor's IPC exit-code contract.
+func runRegion(outPath string) {
+	if outPath == "" {
+		log.Error().Msg("--out is required with --region")
+		os.Exit(1)
+	}
+	go func() {
+		rect, ok, rerr := region.Run()
+		if rerr != nil {
+			log.Error().Err(rerr).Msg("region selector")
+			os.Exit(1)
+		}
+		if !ok {
+			os.Exit(64)
+		}
+		line := fmt.Sprintf("%d,%d,%d,%d", rect.Min.X, rect.Min.Y, rect.Dx(), rect.Dy())
+		if err := os.WriteFile(outPath, []byte(line), 0o600); err != nil {
+			log.Error().Err(err).Str("out", outPath).Msg("write region")
 			os.Exit(1)
 		}
 		os.Exit(0)

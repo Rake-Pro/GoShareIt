@@ -30,6 +30,7 @@ type Recorder struct {
 	mu        sync.Mutex
 	recording bool
 	frames    []image.Image
+	rect      image.Rectangle // empty => full frame
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
@@ -51,6 +52,13 @@ func New(c capture.Capturer, fps int, maxFrames int) *Recorder {
 
 // Start begins sampling frames for the GIF mode. Only capture.GIF is accepted.
 func (r *Recorder) Start(ctx context.Context, mode capture.Mode) error {
+	return r.StartRegion(ctx, mode, image.Rectangle{})
+}
+
+// StartRegion begins sampling frames cropped to rect (screen pixel coords,
+// top-left origin). An empty rect records the full frame, equivalent to Start.
+// Only capture.GIF is accepted.
+func (r *Recorder) StartRegion(ctx context.Context, mode capture.Mode, rect image.Rectangle) error {
 	if mode != capture.GIF {
 		return fmt.Errorf("gifrec: unsupported mode %s (only GIF)", mode)
 	}
@@ -61,6 +69,7 @@ func (r *Recorder) Start(ctx context.Context, mode capture.Mode) error {
 	}
 	r.recording = true
 	r.frames = nil
+	r.rect = rect.Canon()
 
 	runCtx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
@@ -71,11 +80,11 @@ func (r *Recorder) Start(ctx context.Context, mode capture.Mode) error {
 	maxFrames := r.maxFrames
 	intervalMS := 1000 / fps
 
-	go r.loop(runCtx, done, intervalMS, maxFrames)
+	go r.loop(runCtx, done, intervalMS, maxFrames, r.rect)
 	return nil
 }
 
-func (r *Recorder) loop(ctx context.Context, done chan struct{}, intervalMS, maxFrames int) {
+func (r *Recorder) loop(ctx context.Context, done chan struct{}, intervalMS, maxFrames int, rect image.Rectangle) {
 	defer close(done)
 	tick := time.NewTicker(time.Duration(intervalMS) * time.Millisecond)
 	defer tick.Stop()
@@ -91,6 +100,9 @@ func (r *Recorder) loop(ctx context.Context, done chan struct{}, intervalMS, max
 			img, err := png.Decode(bytes.NewReader(res.Bytes))
 			if err != nil {
 				continue
+			}
+			if !rect.Empty() {
+				img = cropImage(img, rect)
 			}
 			r.mu.Lock()
 			if len(r.frames) < maxFrames {
@@ -160,6 +172,23 @@ func (r *Recorder) Stop(ctx context.Context) (capture.Result, error) {
 		Mime:  "image/gif",
 		Kind:  capture.KindVideo,
 	}, nil
+}
+
+// cropImage returns the portion of src inside rect (intersected with src's
+// bounds) as a new origin-normalized RGBA image. Pure Go pixel copy; if the
+// intersection is empty it returns src unchanged.
+func cropImage(src image.Image, rect image.Rectangle) image.Image {
+	sb := src.Bounds()
+	// rect is in screen pixels with a top-left origin; src frames are full-screen
+	// captures whose bounds also originate at sb.Min, so translate rect into src
+	// space before intersecting.
+	r := rect.Add(sb.Min).Intersect(sb)
+	if r.Empty() {
+		return src
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
+	draw.Draw(dst, dst.Bounds(), src, r.Min, draw.Src)
+	return dst
 }
 
 // toPaletted converts an arbitrary image into a paletted image using the Plan9

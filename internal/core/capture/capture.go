@@ -5,6 +5,7 @@ package capture
 import (
 	"context"
 	"errors"
+	"image"
 )
 
 // Mode identifies what kind of capture the user requested.
@@ -107,4 +108,15 @@ type Recorder interface {
 
 	// Capabilities advertises which video modes this Recorder supports.
 	Capabilities() Caps
+}
+
+// RegionRecorder is a Recorder that can additionally crop its recording to a
+// rectangle. The base Recorder interface is unchanged; recorders opt in by also
+// implementing StartRegion. Callers use a type assertion to detect support.
+type RegionRecorder interface {
+	Recorder
+
+	// StartRegion begins recording cropped to rect (screen pixel coords,
+	// top-left origin). An empty rect means full screen (equivalent to Start).
+	StartRegion(ctx context.Context, mode Mode, rect image.Rectangle) error
 }

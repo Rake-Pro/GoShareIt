@@ -28,6 +28,7 @@ import "C"
 import (
 	"context"
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"sync"
@@ -48,14 +49,12 @@ type Recorder struct {
 // NewRecorder returns an AVFoundation-backed macOS screen Recorder.
 func NewRecorder() *Recorder { return &Recorder{} }
 
-// Capabilities advertises VideoFull only. VideoRegion is accepted by Start but
-// currently records the full display (no rect is supplied to the Recorder and
-// interactive video-region selection needs an overlay we do not yet have), so
-// it is not advertised as a real capability.
-// TODO(P3b): implement VideoRegion crop (AVCaptureScreenInput.cropRect) once an
-// interactive region overlay can feed Start a rect, then advertise it here.
+// Capabilities advertises VideoFull and VideoRegion. Region cropping is applied
+// via AVCaptureScreenInput.cropRect when StartRegion is given a non-empty rect
+// (see StartRegion for the coordinate conversion); an empty rect records the
+// full display.
 func (r *Recorder) Capabilities() capture.Caps {
-	return capture.Caps{Modes: []capture.Mode{capture.VideoFull}}
+	return capture.Caps{Modes: []capture.Mode{capture.VideoFull, capture.VideoRegion}}
 }
 
 // Recording reports whether a recording is currently in progress.
@@ -65,10 +64,32 @@ func (r *Recorder) Recording() bool {
 	return r.recording
 }
 
-// Start begins recording the main display to a temp .mp4 and returns once the
-// OS recorder is running. A second Start while recording returns
-// capture.ErrAlreadyRecording.
-func (r *Recorder) Start(_ context.Context, mode capture.Mode) error {
+// Start begins recording the full main display to a temp .mp4 and returns once
+// the OS recorder is running. It is equivalent to StartRegion with an empty
+// rect. A second Start while recording returns capture.ErrAlreadyRecording.
+func (r *Recorder) Start(ctx context.Context, mode capture.Mode) error {
+	return r.StartRegion(ctx, mode, image.Rectangle{})
+}
+
+// StartRegion begins recording either the full main display (empty rect) or a
+// sub-rectangle of it to a temp .mp4, returning once the OS recorder is running.
+// A second StartRegion while recording returns capture.ErrAlreadyRecording.
+//
+// rect is in screen PIXEL coordinates with a TOP-LEFT origin (the convention of
+// the region overlay). AVCaptureScreenInput.cropRect, however, is a CGRect in
+// display POINTS with a BOTTOM-LEFT origin. The C shim
+// (gsi_recorder_start_region) performs that conversion: it divides the pixel
+// rect by the main display's backing scale factor to get points, and flips Y
+// against the display's point height (cropY = displayHeightPoints - rectMaxY/
+// scale). A zero/empty rect (w<=0 || h<=0) is passed through as "no crop" and
+// records the full display, matching Start.
+//
+// #1 ON-DEVICE RISK: this coordinate/scale conversion is unverified on real
+// hardware - on Retina displays (scale 2) and multi-display setups the cropRect
+// math (scale factor source, Y-flip reference height) is the most likely thing
+// to be subtly wrong. Verify the recorded area matches the selected rect on a
+// real Mac before trusting it.
+func (r *Recorder) StartRegion(_ context.Context, mode capture.Mode, rect image.Rectangle) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.recording {
@@ -76,7 +97,7 @@ func (r *Recorder) Start(_ context.Context, mode capture.Mode) error {
 	}
 	switch mode {
 	case capture.VideoFull, capture.VideoRegion:
-		// VideoRegion falls back to full-display capture; see Capabilities.
+		// supported; empty rect => full display.
 	default:
 		return fmt.Errorf("darwin recorder: unsupported mode %s", mode)
 	}
@@ -85,7 +106,10 @@ func (r *Recorder) Start(_ context.Context, mode capture.Mode) error {
 	cpath := C.CString(path)
 	defer C.free(unsafe.Pointer(cpath))
 
-	if rc := C.gsi_recorder_start(cpath); rc != 0 {
+	// An empty rect records the full display (w/h <= 0 => no crop in the shim).
+	rc := C.gsi_recorder_start_region(cpath,
+		C.int(rect.Min.X), C.int(rect.Min.Y), C.int(rect.Dx()), C.int(rect.Dy()))
+	if rc != 0 {
 		return fmt.Errorf("darwin recorder: start failed (%d): %s", int(rc), C.GoString(C.gsi_recorder_last_error()))
 	}
 

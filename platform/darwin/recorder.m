@@ -77,6 +77,11 @@ static AVCaptureMovieFileOutput *g_output = nil;
 static GSIRecorderDelegate *g_delegate = nil;
 
 int gsi_recorder_start(const char *out_path) {
+    // Full-display recording: pass a non-positive size so no crop is applied.
+    return gsi_recorder_start_region(out_path, 0, 0, 0, 0);
+}
+
+int gsi_recorder_start_region(const char *out_path, int x, int y, int w, int h) {
     @autoreleasepool {
         gsi_set_error(nil);
         if (g_session != nil) {
@@ -97,10 +102,52 @@ int gsi_recorder_start(const char *out_path) {
         }
         input.minFrameDuration = CMTimeMake(1, 30); // ~30 fps cap
         input.capturesCursor = YES;
-        // NOTE: VideoRegion cropping would set input.cropRect here. Start()
-        // receives no rect (the Recorder interface passes only a Mode), so we
-        // record the full display for both VideoFull and VideoRegion. See the
-        // TODO in recorder.go; Capabilities advertises VideoFull only.
+
+        // VideoRegion cropping. The incoming rect (x,y,w,h) is in screen PIXELS
+        // with a TOP-LEFT origin. AVCaptureScreenInput.cropRect is a CGRect in
+        // display POINTS with a BOTTOM-LEFT origin, so we must (a) divide by the
+        // backing scale factor to go pixels->points and (b) flip Y against the
+        // display's point height.
+        //
+        // scale = displayPixelHeight / displayPointHeight, derived from the
+        // current display mode (CGDisplayModeGetPixelHigh vs CGDisplayPixelsHigh).
+        // On a Retina display scale is 2; on a non-Retina display it is 1.
+        //
+        // ON-DEVICE RISK: this conversion is unverified on real hardware. The
+        // scale-factor source and the Y-flip reference height are the most
+        // likely things to be subtly wrong (esp. Retina + multi-display). Verify
+        // the recorded area matches the selected rect on a Mac.
+        if (w > 0 && h > 0) {
+            size_t pixelHigh = CGDisplayPixelsHigh(displayID);
+            CGDisplayModeRef mode = CGDisplayCopyDisplayMode(displayID);
+            double scale = 1.0;
+            if (mode != NULL) {
+                size_t modePixelHigh = CGDisplayModeGetPixelHeight(mode);
+                size_t modePointHigh = CGDisplayModeGetHeight(mode);
+                if (modePointHigh > 0 && modePixelHigh > 0) {
+                    scale = (double)modePixelHigh / (double)modePointHigh;
+                }
+                CGDisplayModeRelease(mode);
+            }
+            if (scale <= 0.0) {
+                scale = 1.0;
+            }
+
+            double pxX = (double)x;
+            double pxY = (double)y; // top-left origin, pixels
+            double pxW = (double)w;
+            double pxH = (double)h;
+
+            double ptX = pxX / scale;
+            double ptW = pxW / scale;
+            double ptH = pxH / scale;
+            // Flip Y: bottom-left origin point Y = displayHeightPoints - rectBottomPixels/scale,
+            // where rectBottomPixels = y + h (top-left pixel Y of the rect's bottom edge).
+            double displayPointHigh = (double)pixelHigh / scale;
+            double ptY = displayPointHigh - ((pxY + pxH) / scale);
+
+            input.cropRect = CGRectMake(ptX, ptY, ptW, ptH);
+        }
 
         AVCaptureSession *session = [[AVCaptureSession alloc] init];
         if ([session canAddInput:input]) {

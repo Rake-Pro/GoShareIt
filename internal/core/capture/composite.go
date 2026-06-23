@@ -3,6 +3,7 @@ package capture
 import (
 	"context"
 	"fmt"
+	"image"
 	"sync"
 )
 
@@ -42,6 +43,40 @@ func (c *compositeRecorder) Start(ctx context.Context, mode Mode) error {
 		return fmt.Errorf("capture: mode %s unsupported", mode)
 	}
 	if err := target.Start(ctx, mode); err != nil {
+		return err
+	}
+	c.active = target
+	return nil
+}
+
+// StartRegion routes to the active sub-recorder by mode. If that sub-recorder
+// implements RegionRecorder it is asked to crop to rect; otherwise it falls back
+// to a full-screen Start. An empty rect always means full screen.
+func (c *compositeRecorder) StartRegion(ctx context.Context, mode Mode, rect image.Rectangle) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.active != nil && c.active.Recording() {
+		return ErrAlreadyRecording
+	}
+	var target Recorder
+	switch mode {
+	case GIF:
+		target = c.gif
+	case VideoRegion, VideoFull:
+		target = c.video
+	default:
+		return fmt.Errorf("capture: mode %s unsupported", mode)
+	}
+	if target == nil {
+		return fmt.Errorf("capture: mode %s unsupported", mode)
+	}
+	var err error
+	if rr, ok := target.(RegionRecorder); ok && !rect.Empty() {
+		err = rr.StartRegion(ctx, mode, rect)
+	} else {
+		err = target.Start(ctx, mode)
+	}
+	if err != nil {
 		return err
 	}
 	c.active = target

@@ -5,10 +5,12 @@ package windows
 import (
 	"context"
 	"fmt"
+	"image"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -46,12 +48,12 @@ func NewRecorder() *Recorder {
 	return &Recorder{}
 }
 
-// Capabilities advertises the video modes this Recorder supports. Only full
-// desktop recording is wired in P3a; VideoRegion is mapped to full-desktop too
-// (Windows has no built-in interactive video-region picker - see Start), so it
-// is not advertised as a distinct capability. GIF output is deferred to P3b.
+// Capabilities advertises the video modes this Recorder supports. Both full
+// desktop and region recording are wired: VideoRegion crops via gdigrab's
+// -offset_x/-offset_y/-video_size flags when StartRegion is given a non-empty
+// rect. GIF output is deferred to P3b.
 func (r *Recorder) Capabilities() capture.Caps {
-	return capture.Caps{Modes: []capture.Mode{capture.VideoFull}}
+	return capture.Caps{Modes: []capture.Mode{capture.VideoFull, capture.VideoRegion}}
 }
 
 // Recording reports whether a recording is currently in progress.
@@ -62,18 +64,29 @@ func (r *Recorder) Recording() bool {
 }
 
 // Start spawns ffmpeg to record the full desktop to a temp mp4. It returns once
-// the process is launched; it does not block for the recording duration.
+// the process is launched; it does not block for the recording duration. It is
+// equivalent to StartRegion with an empty rect.
 //
-// mode handling: VideoFull records the whole virtual desktop. VideoRegion is
-// accepted but, lacking a Windows interactive video-region picker, also records
-// the full desktop for P3a.
-// TODO(P3b): add region selection - gdigrab supports -offset_x/-offset_y and
-// -video_size WxH for a sub-rect; wire those once a picker (or stored rect from
-// the still-image snip) is available.
+// mode handling: VideoFull records the whole virtual desktop. VideoRegion
+// records the full desktop unless a rect is supplied via StartRegion.
 func (r *Recorder) Start(ctx context.Context, mode capture.Mode) error {
+	return r.StartRegion(ctx, mode, image.Rectangle{})
+}
+
+// StartRegion spawns ffmpeg to record either the full desktop (empty rect) or a
+// sub-rectangle of it. rect is in screen pixel coordinates with a top-left
+// origin; an empty rect (rect.Empty()) records the whole virtual desktop,
+// matching Start's behavior.
+//
+// For a non-empty rect, gdigrab crops with -offset_x/-offset_y (the top-left
+// origin of the grab) and -video_size WxH. Because the output pixel format is
+// yuv420p, both width and height must be even; odd dimensions are rounded DOWN
+// to the nearest even value (libx264 rejects odd dimensions for yuv420p). The
+// rounding can drop up to one pixel off the right/bottom edge of the selection.
+func (r *Recorder) StartRegion(ctx context.Context, mode capture.Mode, rect image.Rectangle) error {
 	switch mode {
 	case capture.VideoFull, capture.VideoRegion:
-		// supported (region falls back to full desktop for now)
+		// supported
 	default:
 		return fmt.Errorf("windows recorder: unsupported mode: %s", mode)
 	}
@@ -98,12 +111,27 @@ func (r *Recorder) Start(ctx context.Context, mode capture.Mode) error {
 		"-y",
 		"-f", "gdigrab",
 		"-framerate", recordFramerate,
+	}
+	if !rect.Empty() {
+		// yuv420p requires even dimensions; round width/height down to even.
+		w := rect.Dx() &^ 1
+		h := rect.Dy() &^ 1
+		if w <= 0 || h <= 0 {
+			return fmt.Errorf("windows recorder: region too small after even-rounding: %dx%d", w, h)
+		}
+		args = append(args,
+			"-offset_x", strconv.Itoa(rect.Min.X),
+			"-offset_y", strconv.Itoa(rect.Min.Y),
+			"-video_size", fmt.Sprintf("%dx%d", w, h),
+		)
+	}
+	args = append(args,
 		"-i", "desktop",
 		"-c:v", "libx264",
 		"-preset", "ultrafast",
 		"-pix_fmt", "yuv420p",
 		out,
-	}
+	)
 	// ctx is NOT passed to CommandContext: cancellation must trigger a clean 'q'
 	// stop (handled below), not the hard SIGKILL that exec.CommandContext sends,
 	// which would corrupt the mp4. We watch ctx separately.

@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"image"
 	"path/filepath"
 	"testing"
 
@@ -159,7 +160,7 @@ func TestStopRecordingRunsThroughPipeline(t *testing.T) {
 	if app.Recording() {
 		t.Fatal("Recording = true before start")
 	}
-	if err := app.StartRecording(context.Background(), capture.VideoFull); err != nil {
+	if err := app.StartRecording(context.Background(), capture.VideoFull, image.Rectangle{}); err != nil {
 		t.Fatalf("StartRecording: %v", err)
 	}
 	if !app.Recording() {
@@ -214,7 +215,7 @@ func TestRecordingUnsupportedWhenNilRecorder(t *testing.T) {
 	if app.Recording() {
 		t.Error("Recording = true with nil recorder")
 	}
-	if err := app.StartRecording(context.Background(), capture.VideoFull); err == nil {
+	if err := app.StartRecording(context.Background(), capture.VideoFull, image.Rectangle{}); err == nil {
 		t.Error("StartRecording with nil recorder: want error")
 	}
 	if _, err := app.StopRecording(context.Background()); err == nil {
@@ -311,7 +312,7 @@ func TestPipelineEditSkippedForVideo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.StartRecording(context.Background(), capture.VideoFull); err != nil {
+	if err := app.StartRecording(context.Background(), capture.VideoFull, image.Rectangle{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := app.StopRecording(context.Background()); err != nil {
