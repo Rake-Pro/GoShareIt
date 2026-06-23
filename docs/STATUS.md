@@ -1,6 +1,7 @@
 # GoShareIt - Project Status & Remaining Work
 
-Snapshot date: 2026-06-23. Last commit at pause: `3363aee` (P4a). Branch: `main` (pushed to origin).
+Snapshot date: 2026-06-24. Last commit: `1f45824` (P4b). Branch: `main` (pushed to origin).
+P1-P4b code-complete; macOS recording + Gio editor still need on-device verification. See "Recent fixes" and "P3b design forks" below.
 
 GoShareIt is a ShareX-style screenshot/recording + Nextcloud-upload tool. Goal: 1:1 ShareX
 screenshot-capture parity on **macOS and Windows from one Go codebase**. Architecture, rationale,
@@ -26,8 +27,8 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 | P2 | Windows screenshots (kbinani/GDI, ms-screenclip, RegisterHotKey, systray, toast) | **Code DONE; `GOOS=windows` build verified; UNTESTED on real Windows** |
 | P3a | Recording video: macOS native AVFoundation->mp4 (no ffmpeg), Windows ffmpeg gdigrab; `Recorder` Start/Stop, record hotkey + tray toggle | **Code DONE; linux+windows build verified; cgo/recording UNTESTED on device** |
 | P4a | Annotation editor MVP: Gio out-of-process (crop/arrow/rect/text, undo, confirm/cancel); pure-Go `annotate` ops | **Code DONE; builds verified; Gio UI UNTESTED on device** |
-| P3b | GIF + video region crop | **NOT STARTED** |
-| P4b | Editor: blur/pixelate, highlight, step-numbers, freehand | **NOT STARTED** |
+| P4b | Editor: blur, pixelate, highlight, step-numbers, line, freehand | **Code DONE; 17 annotate pixel tests pass (CGO off); GOOS=windows build verified; Gio UI UNTESTED on device** |
+| P3b | GIF + video region crop | **NOT STARTED - has design forks, see below** |
 | P4c | Editor: in-window copy/save/upload buttons, full ShareX/Greenshot parity | **NOT STARTED** |
 
 ## On-device validation still owed (nothing below has run on real hardware)
@@ -44,19 +45,43 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
   mapping; drag-to-draw; single-line text via `widget.Editor`; crop coordinate folding; the bundled
   `goshareit-editor` beside the host in `Contents/MacOS/` is found by the launcher.
 
+## Recent fixes (2026-06-24, on top of P1-P4b)
+
+- **macOS TCC staleness FIXED at the root:** `dev-build.sh` now auto-discovers the `GoShareIt Dev`
+  cert and always signs, so Accessibility/Screen Recording/Input Monitoring grants persist across
+  rebuilds (the recurring "remove and re-add" dance was caused by shipping UNSIGNED bundles). Plus a
+  darwin permission preflight (`platform/darwin/permissions.{go,m}`, called from `wire_darwin.go`)
+  that requests all three on startup so the user gets real prompts. (cgo - verify on a Mac.)
+- **Windows hotkey mapping FIXED:** `Cmd/Command/Super/Meta` now map to `Ctrl` (not OS-reserved `Win`),
+  so a shared macOS config registers on Windows. `Win` still maps to the logo key.
+- **Recorder temp-leak FIXED:** both recorders delete the temp mp4 after reading bytes.
+- **Editor text UX FIXED:** selecting the Text tool focuses the toolbar field; it clears after placing.
+- **Tray:** separate greyed Start/Stop recording items; hotkeys shown on every menu label.
+- **Logging:** zerolog everywhere (first-run msg + editor errors converted).
+
 ## Known issues / TODOs (in priority-ish order)
 
-1. **Windows hotkey defaults are OS-reserved.** macOS `Cmd+Shift+{1,9,0,R}` map to `Win+Shift+{...}` on
-   Windows, which Windows reserves -> `RegisterHotKey` will likely fail. Add per-OS default hotkeys (or map
-   `Cmd`->`Ctrl` on Windows) in config/wiring before Windows testing.
-2. **Recorder temp files leak.** Both `platform/darwin/recorder.go` and `platform/windows/recorder.go` read
-   the recorded `.mp4` into bytes but do not delete the temp file afterward (unless SaveLocal). Add cleanup.
-3. **`LastRegion` falls back to interactive** on both macOS (`screencapture -i` gives no rect) and Windows
-   (ms-screenclip gives no rect). Needs a custom overlay to capture the rect. TODO(P2/P3b).
-4. **Video region records full display** on both platforms (no interactive video-region picker yet). P3b.
-5. **Menu-bar uses a text title, no icon.** Add an `.icns`/template icon (`build/macos/`, see `bundle.sh`).
-6. **First-run via `open` is silent** (stderr hidden). A GUI first-run dialog would help; low priority.
-7. **Notifier OpenURL/thumbnail ignored** on both platforms (P1 limitation).
+1. **`LastRegion` falls back to interactive** on both macOS (`screencapture -i` gives no rect) and Windows
+   (ms-screenclip gives no rect). Needs a custom overlay to capture the rect. TODO(P3b).
+2. **Video region records full display** on both platforms (no interactive video-region picker yet). P3b.
+3. **Menu-bar uses a text title, no icon.** Add an `.icns`/template icon - HELD pending a design decision
+   (generated glyph vs user-supplied `.icns`); `systray.SetIcon` on both trays + `build/macos/`.
+4. **First-run via `open` is silent** (stderr hidden). A GUI first-run dialog would help; low priority.
+5. **Notifier OpenURL/thumbnail ignored** on both platforms (P1 limitation).
+
+## P3b design forks (decide before implementing)
+
+- **GIF on macOS:** Windows can transcode to GIF via ffmpeg (palettegen) cleanly, but the Mac side
+  deliberately has no ffmpeg, and decoding the AVFoundation mp4 to frames in pure Go is impractical
+  (no Go h264 decoder). Options: (a) a frame-sampling recorder that grabs screenshots every N ms and
+  encodes with pure-Go `image/gif` (cross-platform, no ffmpeg, gif-encode is unit-testable) - RECOMMENDED;
+  (b) bundle a small ffmpeg on mac just for transcode (contradicts the no-ffmpeg-on-mac decision).
+  Also: an animated GIF's clipboard link must use `/download`, not `/preview` (preview is a static frame) -
+  the uploader currently routes any `image/*` to `/preview`, so it needs `png/jpeg -> /preview`,
+  `gif/video -> /download`.
+- **Video region crop:** needs a rect handed to `Recorder.Start` (the frozen interface takes only a mode),
+  so either extend the interface or add an interactive region overlay first. Same overlay would fix
+  `LastRegion`.
 
 ## Build / run quick reference
 
