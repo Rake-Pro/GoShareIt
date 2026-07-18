@@ -30,7 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           # setup-go enables module + build caching keyed on go.sum by default.
           cache: true
 
@@ -74,7 +74,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.24"
+          go-version: "1.26"
           cache: true
 
       - name: Build host + editor (cgo on)
