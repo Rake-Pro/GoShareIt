@@ -20,6 +20,10 @@ nextcloud:
   remote_dir: ""   # "" = account files root
 
 upload:
+  # false = local-only mode: nothing leaves this machine, the whole nextcloud
+  # section becomes optional, and after-upload behavior is skipped. Toggle
+  # freely; credentials on disk are kept for when it is re-enabled.
+  enabled: true
   direct_link: true                                   # copy the raw-bytes /download link
   filename_template: "goshareit_{datetime}_{rand}.{ext}"
   share_expire_days: 0                                # 0 = never expire
