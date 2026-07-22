@@ -187,6 +187,17 @@ var (
 		"f13": hotkey.KeyF13, "f14": hotkey.KeyF14, "f15": hotkey.KeyF15, "f16": hotkey.KeyF16,
 		"f17": hotkey.KeyF17, "f18": hotkey.KeyF18, "f19": hotkey.KeyF19, "f20": hotkey.KeyF20,
 	}
+	// keyPunct maps punctuation (US layout) to raw VK_OEM_* codes; x/hotkey
+	// has no named constants for these. Same token set as the darwin backend.
+	keyPunct = map[string]hotkey.Key{
+		"`": 0xC0, "grave": 0xC0, "backtick": 0xC0,
+		"-": 0xBD, "minus": 0xBD,
+		"=": 0xBB, "equals": 0xBB,
+		"[": 0xDB, "]": 0xDD,
+		";": 0xBA, "'": 0xDE,
+		",": 0xBC, ".": 0xBE, "/": 0xBF, "\\": 0xDC,
+		"space": hotkey.KeySpace,
+	}
 )
 
 func keyFor(s string) (hotkey.Key, bool) {
@@ -198,6 +209,9 @@ func keyFor(s string) (hotkey.Key, bool) {
 		return k, true
 	}
 	if k, ok := keyFns[l]; ok {
+		return k, true
+	}
+	if k, ok := keyPunct[l]; ok {
 		return k, true
 	}
 	switch l {
