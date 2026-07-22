@@ -6,15 +6,29 @@ feature is planned, started, or shipped (shipped items move to
 
 ## On-device validation owed
 
+Verified on real hardware: Windows install (setup.exe), first-run onboarding,
+tray icon, screenshot capture, upload; macOS tray icon, settings UI
+(save/restart flow), TCC permissions (granted and persisting under the signed
+build), screenshot capture, upload, local-only mode + upload toggle, and the
+updater check (with a PAT, correctly reports up-to-date).
+
 - macOS: recording (AVFoundation cgo), annotation editor UI, region selector
-  overlay + cropRect coordinate accuracy (Retina scale / Y-flip), settings UI,
-  updater apply/relaunch loop, edit-variant and alternative hotkeys.
+  overlay + cropRect coordinate accuracy (Retina scale / Y-flip), updater
+  apply/relaunch loop, edit-variant and alternative/punctuation hotkeys.
 - Windows: annotation editor UI, recording (ffmpeg), toast notifications,
-  region overlay coordinates, settings UI beyond first-run, updater apply
-  loop, PrintScreen hotkey chords.
+  region overlay coordinates, settings UI and editor beyond first-run,
+  updater apply loop, PrintScreen hotkey chords.
+- Both: browser sign-in (Nextcloud Login Flow v2) end-to-end.
 
 ## Features
 
+- Editor: investigate on-device report that a blur drag showed nothing (the
+  designed behavior is a translucent grey box + white outline as an
+  approximate preview; the real blur applies on Confirm). Needs the
+  diagnostic answers: do vector tools draw live, and does Confirm produce a
+  blurred output despite the missing preview?
+- Editor: live raster previews for blur/pixelate (render through the
+  annotate ops instead of the approximate grey-box preview).
 - In-editor copy / save / upload buttons (finish the annotation workflow).
 - LastRegion capture: reuse the last selected rectangle without re-picking
   (store the overlay's rect, feed `screencapture -R` / `CaptureRect`).

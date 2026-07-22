@@ -2,9 +2,28 @@
 
 A cross-platform screenshot and screen-recording tool for macOS and Windows.
 Capture a region, window, or full screen; optionally annotate it (crop, arrow,
-text, blur, and more); the result is uploaded to Nextcloud, a public share link
-is created, and the direct download URL is copied to your clipboard. Ships as a
+text, blur, and more); by default the result is uploaded to Nextcloud, a
+public share link is created, and the direct download URL is copied to your
+clipboard - or run entirely in local-only mode with uploads off. Ships as a
 self-updating menu-bar/tray app.
+
+## Binaries and first run
+
+GoShareIt ships as three sibling binaries:
+
+- `goshareit` - the menu-bar/tray host (always running; owns hotkeys, capture,
+  upload).
+- `goshareit-editor` - the out-of-process annotation editor and region
+  selector overlay, launched by the host as needed.
+- `goshareit-settings` - the settings UI (Wails), launched from the tray
+  ("Settings...") or automatically on first run.
+
+All app state (config, secrets, logs, history) lives in one per-user root:
+`~/.goshareit` on macOS/Linux, `%USERPROFILE%\goshareit` on Windows. On an
+unconfigured install the host opens the settings UI instead of exiting, so
+first run is: install, launch, fill in (or skip) Nextcloud details in the
+settings window, save. Nothing is required to get started - local-only mode
+(below) works with zero configuration.
 
 ## Architecture: pure-Go core + thin OS shells
 
@@ -47,8 +66,16 @@ build is for the portable core and CI only; it has no real capture backend.
 
 ## Configuration
 
-Copy `config.example.yaml` to `config.yaml` (gitignored) and edit. The config
-path can be overridden with `GOSHAREIT_CONFIG_PATH`.
+The easiest path is the **settings UI** (`goshareit-settings`, opened from the
+tray or automatically on first run): every option is editable there, including
+"Sign in with browser" (Nextcloud Login Flow v2, OIDC/SSO-compatible) which
+sets up the server credentials without ever typing a password into a text
+field. Saving restarts the host automatically.
+
+For manual/headless setup, edit the YAML directly: copy `config.example.yaml`
+to `config.yaml` in the app root (`~/.goshareit` on macOS/Linux,
+`%USERPROFILE%\goshareit` on Windows) and edit. The config path can be
+overridden with `GOSHAREIT_CONFIG_PATH`.
 
 The Nextcloud app password is **never** stored inline. Set exactly one of:
 
@@ -58,7 +85,16 @@ The Nextcloud app password is **never** stored inline. Set exactly one of:
 
 Generate a Nextcloud app password under Settings -> Security -> Devices & sessions.
 
+Set `upload.enabled: false` (or toggle "Upload captures" in settings, or the
+tray "Uploads: On/Off" item, or the `upload_toggle` hotkey) for **local-only
+mode**: nothing leaves the machine and the whole Nextcloud section becomes
+optional. Captures still save locally / copy to clipboard / notify per your
+after-capture settings.
+
 ## Validated upload flow
+
+Applies when `upload.enabled: true` (the default; off = local-only mode, see
+above).
 
 1. **WebDAV PUT** to
    `{base_url}/remote.php/dav/files/{dav_user}/{remote_dir}/{name}` with HTTP
@@ -75,30 +111,39 @@ Generate a Nextcloud app password under Settings -> Security -> Devices & sessio
    - `PublicURL = {base_url}/s/{token}` - viewer page, stored in history
    - `ShareToken = token`
 
-## Packaging & Release
+## Releases and self-update
 
-Packaging, CI, and macOS signing/notarization tooling lives under `.github/`,
-`build/macos/`, `scripts/`, and `docs/`. The macOS app ships as a signed,
-notarized `.app` (menubar-only, `LSUIElement`).
+Releases are cut by CI (merge to `prod` mints the next semver tag and builds
+all three platforms in one run - see [docs/RELEASE.md](docs/RELEASE.md) for
+the full flow): a macOS universal `.dmg`/`.zip`, a Windows Inno Setup
+installer + `.zip`, and an experimental Linux `.tar.gz`, plus a
+`checksums.txt`. The macOS `.app` is codesigned in CI (menubar-only,
+`LSUIElement`); notarization is not yet wired up (see docs/RELEASE.md for the
+current signing state).
 
-- [docs/RELEASE.md](docs/RELEASE.md) - release runbook (cert + notary profile
-  prerequisites, the `make release` flow, verification).
+The app self-updates: `goshareit` polls the GitHub Releases API on an
+interval, and the tray "Check for Updates" item lets you check and install
+on demand.
+
+- [docs/RELEASE.md](docs/RELEASE.md) - the CI release path, signing secrets,
+  and the local `make release` runbook.
 - [docs/PERMISSIONS.md](docs/PERMISSIONS.md) - the Screen Recording and
   Accessibility/Input Monitoring permissions the app needs and how to grant them.
 
 ### Make targets
 
-| Target         | What it does                                            |
-|----------------|---------------------------------------------------------|
-| `test`         | build/test the pure-Go core (`CGO_ENABLED=0`)           |
-| `vet`          | `go vet ./...`                                           |
-| `fmt-check`    | fail if any file is not gofmt-clean                     |
-| `build-darwin` | build the cgo binary for the host arch into `dist/`     |
-| `bundle`       | assemble `dist/GoShareIt.app`                           |
-| `sign`         | codesign with Hardened Runtime + entitlements           |
-| `notarize`     | submit to Apple notary service and staple the ticket    |
-| `release`      | `bundle` -> `sign` -> `notarize` -> staple              |
-| `clean`        | remove `dist/`                                          |
+| Target         | What it does                                                     |
+|----------------|-------------------------------------------------------------------|
+| `test`         | build/test the pure-Go core (`CGO_ENABLED=0`)                    |
+| `vet`          | `go vet ./...`                                                    |
+| `fmt-check`    | fail if any file is not gofmt-clean                               |
+| `build-darwin` | build the cgo host, editor, and settings binaries for the host arch into `dist/` |
+| `bundle`       | assemble `dist/GoShareIt.app` from those binaries                 |
+| `sign`         | codesign with Hardened Runtime + entitlements                     |
+| `notarize`     | submit to Apple notary service and staple the ticket              |
+| `release`      | `bundle` -> `sign` -> `notarize` -> staple                        |
+| `dev` / `dev-run` | local dev loop: build -> bundle -> sign with a local identity (`dev-run` also launches it) |
+| `clean`        | remove `dist/`                                                    |
 
 Signing/notarization require `DEVELOPER_ID_APP`, `TEAM_ID`, `AC_NOTARY_PROFILE`,
 and `BUNDLE_ID` (see docs/RELEASE.md).
