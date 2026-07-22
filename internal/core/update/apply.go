@@ -207,14 +207,37 @@ func writeFile(path string, r io.Reader, mode os.FileMode) error {
 	return nil
 }
 
-// Relaunch starts the updated app detached from this process. The caller is
-// expected to quit right after.
-func Relaunch(path string) error {
+// SelfLaunchPath returns what Relaunch should start to re-run the current
+// app: the enclosing .app bundle on darwin, else the executable itself.
+func SelfLaunchPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("update: locate executable: %w", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", fmt.Errorf("update: resolve executable: %w", err)
+	}
+	if runtime.GOOS == "darwin" {
+		if bundle := bundleRoot(exe); bundle != "" {
+			return bundle, nil
+		}
+	}
+	return exe, nil
+}
+
+// Relaunch starts the app detached from this process, forwarding args (on
+// darwin via `open --args`). The caller is expected to quit right after.
+func Relaunch(path string, args ...string) error {
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		cmd = exec.Command("open", "-n", path)
+		openArgs := []string{"-n", path}
+		if len(args) > 0 {
+			openArgs = append(append(openArgs, "--args"), args...)
+		}
+		cmd = exec.Command("open", openArgs...)
 	} else {
-		cmd = exec.Command(path)
+		cmd = exec.Command(path, args...)
 	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("update: relaunch %s: %w", path, err)

@@ -17,12 +17,14 @@
 GO          ?= go
 VERSION     ?= 0.0.0-dev
 BUNDLE_ID   ?= pro.rake.goshareit
-DIST        := dist
-BIN         := $(DIST)/goshareit
-EDITOR_BIN  := $(DIST)/goshareit-editor
-APP         := $(DIST)/GoShareIt.app
-CMD         := ./cmd/goshareit
-EDITOR_CMD  := ./cmd/goshareit-editor
+DIST         := dist
+BIN          := $(DIST)/goshareit
+EDITOR_BIN   := $(DIST)/goshareit-editor
+SETTINGS_BIN := $(DIST)/goshareit-settings
+APP          := $(DIST)/GoShareIt.app
+CMD          := ./cmd/goshareit
+EDITOR_CMD   := ./cmd/goshareit-editor
+SETTINGS_CMD := ./cmd/goshareit-settings
 
 # Host architecture for the darwin build (arm64 on Apple Silicon, amd64 on Intel).
 HOST_ARCH := $(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
@@ -50,14 +52,15 @@ vet: ## go vet the module.
 fmt-check: ## Fail if any file is not gofmt-clean.
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 
-build-darwin: ## Build the cgo host + editor binaries for the host arch into dist/.
+build-darwin: ## Build the cgo host + editor + settings binaries for the host arch into dist/.
 	@mkdir -p $(DIST)
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(CMD)
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(EDITOR_BIN) $(EDITOR_CMD)
-	@echo "built $(BIN) and $(EDITOR_BIN) (darwin/$(HOST_ARCH))"
+	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -tags desktop,production -ldflags "$(LDFLAGS)" -o $(SETTINGS_BIN) $(SETTINGS_CMD)
+	@echo "built $(BIN), $(EDITOR_BIN) and $(SETTINGS_BIN) (darwin/$(HOST_ARCH))"
 
-bundle: build-darwin ## Assemble dist/GoShareIt.app (host + editor) from the built binaries.
-	VERSION=$(VERSION) BUNDLE_ID=$(BUNDLE_ID) BIN=$(BIN) EDITOR_BIN=$(EDITOR_BIN) APP=$(APP) \
+bundle: build-darwin ## Assemble dist/GoShareIt.app (host + editor + settings) from the built binaries.
+	VERSION=$(VERSION) BUNDLE_ID=$(BUNDLE_ID) BIN=$(BIN) EDITOR_BIN=$(EDITOR_BIN) SETTINGS_BIN=$(SETTINGS_BIN) APP=$(APP) \
 		scripts/bundle.sh
 
 sign: ## Codesign the .app (needs DEVELOPER_ID_APP).

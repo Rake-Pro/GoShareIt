@@ -118,6 +118,23 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 - **Untested on device:** the whole updater apply/relaunch path, the Inno installer, and signed-in-CI
   bundles have never run on real hardware (same caveat as P2-P4b).
 
+## Tray icon + settings UI (added 2026-07-22)
+
+- **Tray icon shipped:** embedded glyph (capture corners + dot, `internal/icon`, regenerate via
+  `scripts/gen-tray-icon.py`): black template PNG on macOS (adaptive menu bar), multi-size ICO on
+  Windows. Text-title fallback stays when icon bytes are absent. Closes the long-standing TODO #3.
+- **Settings UI:** `goshareit-settings` - a THIRD sibling binary (Wails v2 + vanilla-JS embedded
+  frontend, no node build; v3 was still alpha). Same out-of-process pattern as the editor. Tray gains
+  "Settings...". Backend `internal/settings.Service` (pure Go, linux-tested): Load = raw config parse
+  (config.LoadRaw - no validation, editable while incomplete), Save = write secrets to their files +
+  marshal YAML (comments not preserved) + full config.Load validation so errors surface in the UI.
+  Secrets are write-only (never returned to the frontend). Host restarts itself (update.Relaunch)
+  when the settings process exits with a changed config mtime.
+- **Build notes:** wails v2 windows is CGO-free (cross-compiles from linux); production builds need
+  `-tags desktop,production`. Settings binary is bundled in the .app, the windows zip + Inno installer,
+  and lipo'd universal on macOS. Linux: excluded (//go:build darwin||windows).
+- **Untested on device:** everything GUI (wails window, icon rendering, restart-on-save loop).
+
 ## Build / run quick reference
 
 - Local macOS dev loop: `make dev-run` (build host+editor -> bundle `.app` -> sign with

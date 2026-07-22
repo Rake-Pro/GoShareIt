@@ -29,7 +29,10 @@ func NewTray() *Tray { return &Tray{items: map[string]*systray.MenuItem{}} }
 // it calls systray.Quit, which unwinds systray.Run and returns.
 func (t *Tray) Run(ctx context.Context, spec tray.MenuSpec) error {
 	ready := func() {
-		if spec.Tooltip != "" {
+		if len(spec.Icon) > 0 {
+			systray.SetIcon(spec.Icon)
+			systray.SetTooltip(spec.Tooltip)
+		} else if spec.Tooltip != "" {
 			systray.SetTitle(spec.Tooltip)
 			systray.SetTooltip(spec.Tooltip)
 		}

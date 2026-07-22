@@ -55,6 +55,16 @@ else
 	echo "  ! editor helper not found ($EDITOR_BIN); annotation editor will be unavailable" >&2
 fi
 
+# Settings UI helper (Wails), same sibling-binary pattern. Optional.
+SETTINGS_BIN="${SETTINGS_BIN:-dist/goshareit-settings}"
+if [ -f "$SETTINGS_BIN" ]; then
+	cp "$SETTINGS_BIN" "$MACOS_DIR/goshareit-settings"
+	chmod +x "$MACOS_DIR/goshareit-settings"
+	echo "  + bundled settings helper: goshareit-settings"
+else
+	echo "  ! settings helper not found ($SETTINGS_BIN); Settings menu will be unavailable" >&2
+fi
+
 # Info.plist with placeholders substituted. Use a temp file then move.
 sed -e "s|__VERSION__|$VERSION|g" \
     -e "s|__BUNDLE_ID__|$BUNDLE_ID|g" \

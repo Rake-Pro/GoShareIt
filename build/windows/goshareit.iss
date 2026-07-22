@@ -32,6 +32,7 @@ Name: "startup"; Description: "Start GoShareIt when you log in"; Flags: unchecke
 [Files]
 Source: "{#BinDir}\goshareit.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BinDir}\goshareit-editor.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BinDir}\goshareit-settings.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\GoShareIt"; Filename: "{app}\goshareit.exe"

@@ -15,7 +15,11 @@ type MenuItem struct {
 // MenuSpec describes the tray menu to display.
 type MenuSpec struct {
 	Tooltip string
-	Items   []MenuItem
+	// Icon holds platform-appropriate icon bytes: a black+alpha template PNG on
+	// darwin (adaptive menu bar rendering), an ICO on windows. Empty -> the
+	// tray falls back to a text title.
+	Icon  []byte
+	Items []MenuItem
 }
 
 // Tray runs the system tray until ctx is cancelled.

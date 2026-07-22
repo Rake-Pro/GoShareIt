@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GoShareIt Settings</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1c1e21; --muted: #6b7280;
+    --border: #d7dade; --accent: #0a84ff; --ok: #1f9d55; --err: #d64545;
+    --input-bg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1d21; --panel: #24272c; --text: #e8eaed; --muted: #9aa0a8;
+      --border: #3a3e45; --accent: #409cff; --ok: #34c07a; --err: #ff6b6b;
+      --input-bg: #1e2126;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+  }
+  header {
+    padding: 14px 20px 10px; display: flex; align-items: baseline; gap: 10px;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .path { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+  main { padding: 0 20px 90px; }
+  section {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 12px; padding: 12px 16px 14px;
+  }
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .row label.name { flex: 0 0 170px; color: var(--text); }
+  .row .hint { color: var(--muted); font-size: 11px; }
+  input[type=text], input[type=password], input[type=number], select {
+    flex: 1; min-width: 0; background: var(--input-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+    font: inherit; -webkit-user-select: text; user-select: text;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); }
+  .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1; }
+  .checks label { display: inline-flex; align-items: center; gap: 5px; color: var(--text); }
+  footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding: 12px 20px; display: flex; align-items: center; gap: 14px;
+  }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 8px 22px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { flex: 1; font-size: 12px; white-space: pre-wrap; }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+  .ver { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<header><h1>GoShareIt Settings</h1><span class="path" id="cfgpath"></span></header>
+<main id="form"></main>
+<footer>
+  <div id="status"></div>
+  <span class="ver" id="ver"></span>
+  <button id="save">Save</button>
+</footer>
+<script>
+"use strict";
+
+// Declarative form schema. path = dot-path into the Config object (Go field
+// names, since config.Config has no json tags). Special types "secret:*" map
+// to the write-only SaveRequest fields.
+const SCHEMA = [
+  { title: "Nextcloud", fields: [
+    { p: "Nextcloud.BaseURL",   l: "Server URL",   t: "text", hint: "https://cloud.example.com" },
+    { p: "Nextcloud.Username",  l: "Username",     t: "text" },
+    { p: "Nextcloud.DavUser",   l: "DAV user",     t: "text", hint: "blank = derived from username" },
+    { p: "Nextcloud.RemoteDir", l: "Remote folder",t: "text", hint: "blank = files root" },
+    { p: "@password",           l: "App password", t: "secret" },
+  ]},
+  { title: "Upload", fields: [
+    { p: "Upload.FilenameTemplate", l: "Filename template", t: "text", hint: "{date} {time} {datetime} {rand} {ext}" },
+    { p: "Upload.ShareExpireDays",  l: "Share expiry (days)", t: "number", hint: "0 = never" },
+    { p: "Upload.SharePassword",    l: "Share password", t: "text", hint: "blank = none" },
+    { p: "Upload.DirectLink",       l: "Direct preview link", t: "bool" },
+  ]},
+  { title: "After capture", fields: [
+    { p: "AfterCapture.CopyImageToClipboard", l: "Copy image to clipboard", t: "bool" },
+    { p: "AfterCapture.SaveLocal", l: "Keep a local copy", t: "bool" },
+    { p: "AfterCapture.SaveDir",   l: "Local save folder", t: "text" },
+  ]},
+  { title: "After upload", fields: [
+    { p: "AfterUpload.CopyURLToClipboard", l: "Copy link to clipboard", t: "bool" },
+    { p: "AfterUpload.Notify", l: "Show notification", t: "bool" },
+  ]},
+  { title: "Hotkeys", fields: [
+    { p: "Hotkeys.Region",     l: "Capture region", t: "text", hint: "e.g. Cmd+Shift+1 (Cmd maps to Ctrl on Windows)" },
+    { p: "Hotkeys.FullScreen", l: "Capture full screen", t: "text" },
+    { p: "Hotkeys.Window",     l: "Capture window", t: "text" },
+    { p: "Hotkeys.Record",     l: "Toggle recording", t: "text" },
+    { p: "Hotkeys.Quit",       l: "Quit", t: "text" },
+  ]},
+  { title: "Editor", fields: [
+    { p: "Editor.Enabled", l: "Open editor after capture", t: "bool" },
+    { p: "Editor.OnModes", l: "For capture modes", t: "checks", opts: ["region", "fullscreen", "window"] },
+    { p: "Editor.Tools",   l: "Tools", t: "checks",
+      opts: ["crop","arrow","rect","ellipse","line","freehand","text","blur","pixelate","highlight","step"] },
+    { p: "Editor.DefaultTool", l: "Default tool", t: "select",
+      opts: ["crop","arrow","rect","ellipse","line","freehand","text","blur","pixelate","highlight","step"] },
+    { p: "Editor.Color",       l: "Color", t: "text", hint: "#rrggbb" },
+    { p: "Editor.StrokeWidth", l: "Stroke width", t: "number" },
+  ]},
+  { title: "Updates", fields: [
+    { p: "Update.Enabled", l: "Check for updates", t: "bool" },
+    { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number" },
+    { p: "@token", l: "GitHub token", t: "secret",
+      hint: "read-only PAT; only needed while the repo is private" },
+  ]},
+  { title: "Logging", fields: [
+    { p: "Logging.Level", l: "Level", t: "select", opts: ["trace","debug","info","warn","error"] },
+  ]},
+];
+
+const $ = (id) => document.getElementById(id);
+let model = null;
+
+const get = (obj, path) => path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
+const set = (obj, path, v) => {
+  const keys = path.split("."); const last = keys.pop();
+  keys.reduce((o, k) => (o[k] ??= {}), obj)[last] = v;
+};
+
+function fieldId(p) { return "f_" + p.replace(/[.@]/g, "_"); }
+
+function render() {
+  const cfg = model.config;
+  const root = $("form");
+  root.innerHTML = "";
+  for (const sec of SCHEMA) {
+    const s = document.createElement("section");
+    s.innerHTML = `<h2>${sec.title}</h2>`;
+    for (const f of sec.fields) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const id = fieldId(f.p);
+      let control = "";
+      const val = f.p.startsWith("@") ? "" : get(cfg, f.p);
+      if (f.t === "text") {
+        control = `<input type="text" id="${id}" value="${esc(val ?? "")}">`;
+      } else if (f.t === "number") {
+        control = `<input type="number" id="${id}" min="0" step="1" value="${Number(val ?? 0)}">`;
+      } else if (f.t === "bool") {
+        const on = f.p === "Update.Enabled" ? (val !== false) : !!val;
+        control = `<input type="checkbox" id="${id}" ${on ? "checked" : ""}>`;
+      } else if (f.t === "select") {
+        control = `<select id="${id}">` + f.opts.map(o =>
+          `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") + `</select>`;
+      } else if (f.t === "checks") {
+        const cur = new Set(val || []);
+        control = `<div class="checks">` + f.opts.map(o =>
+          `<label><input type="checkbox" data-group="${id}" value="${o}" ${cur.has(o) ? "checked" : ""}>${o}</label>`).join("") + `</div>`;
+      } else if (f.t === "secret") {
+        const envVar = f.p === "@password" ? (model.config.Nextcloud.PasswordEnv || "") : "";
+        if (envVar) {
+          // Env-sourced secrets are read-only here; Save() rejects file writes.
+          control = `<input type="password" id="${id}" disabled placeholder="(managed by env var ${esc(envVar)})">`;
+        } else {
+          const has = f.p === "@password" ? model.hasPassword : model.hasToken;
+          control = `<input type="password" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
+        }
+      }
+      row.innerHTML = `<label class="name">${f.l}</label>${control}` +
+        (f.hint ? `<span class="hint">${f.hint}</span>` : "");
+      s.appendChild(row);
+    }
+    root.appendChild(s);
+  }
+  $("cfgpath").textContent = model.configPath;
+  $("ver").textContent = "v" + model.version;
+}
+
+function collect() {
+  const cfg = model.config;
+  let newPassword = "", newToken = "";
+  for (const sec of SCHEMA) {
+    for (const f of sec.fields) {
+      const id = fieldId(f.p);
+      if (f.t === "secret") {
+        const v = $(id).value;
+        if (f.p === "@password") newPassword = v; else newToken = v;
+        continue;
+      }
+      if (f.t === "checks") {
+        const vals = [...document.querySelectorAll(`input[data-group="${id}"]:checked`)].map(x => x.value);
+        set(cfg, f.p, vals);
+      } else if (f.t === "bool") {
+        set(cfg, f.p, $(id).checked);
+      } else if (f.t === "number") {
+        // Clamp to a non-negative integer: Go int fields reject floats at the
+        // JSON bridge, and the config validator rejects negatives.
+        set(cfg, f.p, Math.max(0, Math.round(Number($(id).value) || 0)));
+      } else {
+        set(cfg, f.p, $(id).value);
+      }
+    }
+  }
+  return { config: cfg, newPassword, newToken };
+}
+
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
+
+function status(msg, cls) { const el = $("status"); el.textContent = msg; el.className = cls || ""; }
+
+function svc() {
+  return window.go && window.go.settings && window.go.settings.Service;
+}
+
+async function init() {
+  if (!svc()) { status("Wails runtime not available (browser preview?)", "err"); return; }
+  try {
+    model = await svc().Load();
+    render();
+  } catch (e) {
+    status("Load failed: " + e, "err");
+  }
+}
+
+$("save").addEventListener("click", async () => {
+  if (!model) return;
+  $("save").disabled = true;
+  status("Saving...");
+  try {
+    await svc().Save(collect());
+    status("Saved. GoShareIt restarts to apply when you close this window.", "ok");
+    model = await svc().Load();
+    render();
+  } catch (e) {
+    status(String(e), "err");
+  } finally {
+    $("save").disabled = false;
+  }
+});
+
+window.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

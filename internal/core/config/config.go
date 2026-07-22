@@ -125,12 +125,46 @@ func expandHome(p string) string {
 	return p
 }
 
+// NewDefault returns an empty Config with defaults applied (no file read).
+func NewDefault() *Config {
+	var c Config
+	c.applyDefaults()
+	return &c
+}
+
+// LoadRaw parses the config file and applies defaults, but skips secret
+// resolution and validation. The settings UI uses it so an incomplete or
+// not-yet-valid config is still editable.
+func LoadRaw(path string) (*Config, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: read %s: %w", path, err)
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		return nil, fmt.Errorf("config: parse %s: %w", path, err)
+	}
+	cfg.applyDefaults()
+	return &cfg, nil
+}
+
+// ExpandHome exposes tilde expansion for callers that handle config-relative
+// secret paths (the settings service).
+func ExpandHome(p string) string { return expandHome(p) }
+
 // Load reads and validates config from path. If the GOSHAREIT_CONFIG_PATH env
 // var is set it overrides path. Defaults are applied before validation.
 func Load(path string) (*Config, error) {
 	if env := os.Getenv(EnvConfigPath); env != "" {
 		path = env
 	}
+	return LoadFile(path)
+}
+
+// LoadFile is Load without the env-var override: it validates exactly the
+// given file. The settings service uses it to vet a candidate config before
+// installing it, where the override would silently validate the wrong file.
+func LoadFile(path string) (*Config, error) {
 	if path == "" {
 		return nil, fmt.Errorf("config: no path provided")
 	}

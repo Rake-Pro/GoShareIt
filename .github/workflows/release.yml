@@ -126,14 +126,16 @@ jobs:
           for arch in arm64 amd64; do
             CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-$arch" ./cmd/goshareit
             CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-editor-$arch" ./cmd/goshareit-editor
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags desktop,production -ldflags "$ldflags" -o "dist/goshareit-settings-$arch" ./cmd/goshareit-settings
           done
           lipo -create -output dist/goshareit dist/goshareit-arm64 dist/goshareit-amd64
           lipo -create -output dist/goshareit-editor dist/goshareit-editor-arm64 dist/goshareit-editor-amd64
+          lipo -create -output dist/goshareit-settings dist/goshareit-settings-arm64 dist/goshareit-settings-amd64
 
       - name: Assemble GoShareIt.app
         run: |
           VERSION="${VERSION}" BIN=dist/goshareit EDITOR_BIN=dist/goshareit-editor \
-            APP=dist/GoShareIt.app scripts/bundle.sh
+            SETTINGS_BIN=dist/goshareit-settings APP=dist/GoShareIt.app scripts/bundle.sh
 
       - name: Check signing secrets
         id: secrets
@@ -214,12 +216,13 @@ jobs:
           ldflags="-H windowsgui -X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit.exe ./cmd/goshareit
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit-editor.exe ./cmd/goshareit-editor
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -ldflags "$ldflags" -o dist/windows/goshareit-settings.exe ./cmd/goshareit-settings
 
       - name: Package zip (updater feed)
         shell: bash
         run: |
           mkdir -p out
-          7z a "out/GoShareIt_${VERSION}_windows_amd64.zip" ./dist/windows/goshareit.exe ./dist/windows/goshareit-editor.exe
+          7z a "out/GoShareIt_${VERSION}_windows_amd64.zip" ./dist/windows/goshareit.exe ./dist/windows/goshareit-editor.exe ./dist/windows/goshareit-settings.exe
 
       # pwsh, not bash: git-bash rewrites /D... /O... switches as POSIX paths.
       # iscc ships preinstalled on the runner image; choco only as fallback.

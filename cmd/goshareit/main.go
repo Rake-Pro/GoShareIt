@@ -111,7 +111,9 @@ func main() {
 		}
 	}
 
-	if err := run(ctx, app, updates, cancel); err != nil {
+	settingsL := &settingsLauncher{configPath: cfgFile, app: app, quit: cancel}
+
+	if err := run(ctx, app, updates, settingsL, cancel); err != nil {
 		logger.Fatal().Err(err).Msg("run")
 	}
 }
@@ -119,7 +121,7 @@ func main() {
 // run wires hotkeys and the tray, then blocks until ctx is cancelled. It is
 // portable: the tray runs on the main goroutine (required by some OSes) while
 // the hotkey manager runs alongside.
-func run(ctx context.Context, app *core.App, updates *updateController, quit func()) error {
+func run(ctx context.Context, app *core.App, updates *updateController, settingsL *settingsLauncher, quit func()) error {
 	cfg := app.Config()
 	tr := app.Tray()
 
@@ -269,11 +271,14 @@ func run(ctx context.Context, app *core.App, updates *updateController, quit fun
 			tray.MenuItem{ID: "record-stop", Title: label("Stop Recording", cfg.Hotkeys.Record), OnClick: stopRec, Disabled: true},
 		)
 	}
+	items = append(items, tray.MenuItem{Separator: true})
+	if settingsL != nil {
+		items = append(items, tray.MenuItem{ID: "settings", Title: "Settings...", OnClick: func() {
+			go settingsL.open(ctx)
+		}})
+	}
 	if updates != nil {
-		items = append(items,
-			tray.MenuItem{Separator: true},
-			updates.menuItem(ctx),
-		)
+		items = append(items, updates.menuItem(ctx))
 		updates.start(ctx)
 	}
 	items = append(items,
@@ -283,7 +288,7 @@ func run(ctx context.Context, app *core.App, updates *updateController, quit fun
 			quit()
 		}},
 	)
-	spec := tray.MenuSpec{Tooltip: "GoShareIt", Items: items}
+	spec := tray.MenuSpec{Tooltip: "GoShareIt", Icon: trayIcon(), Items: items}
 	if err := tr.Run(ctx, spec); err != nil && ctx.Err() == nil {
 		return err
 	}
