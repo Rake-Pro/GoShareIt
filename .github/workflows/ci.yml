@@ -1,0 +1,126 @@
+# CI for GoShareIt.
+#
+# Two jobs:
+#   core         - builds/tests the pure-Go core on linux with cgo OFF.
+#   macos-build  - proves the darwin/cgo shells compile for arm64 and amd64.
+#                  Signing/notarization are gated behind secrets being present
+#                  and are NOT run by default (they need an Apple Developer cert).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Pure-Go core: build, vet, test, gofmt. CGO disabled so this matches the
+  # portable build contract of internal/core/... .
+  # ---------------------------------------------------------------------------
+  core:
+    name: core (linux, CGO off)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          # setup-go enables module + build caching keyed on go.sum by default.
+          cache: true
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: go build ./...
+
+      - name: Cross-build Windows (host + editor + settings, CGO off)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          go build ./...
+          # Settings ships with the wails production tags; prove that variant too.
+          go build -tags desktop,production ./cmd/goshareit-settings
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: gofmt check
+        # Fails if any file is not gofmt-clean.
+        run: test -z "$(gofmt -l .)"
+
+  # ---------------------------------------------------------------------------
+  # macOS cgo build matrix. This compiles the full app (cmd/goshareit) with cgo
+  # for both Apple Silicon and Intel, proving the darwin shells that depend on
+  # golang.design/x/clipboard, golang.design/x/hotkey and fyne.io/systray build.
+  # ---------------------------------------------------------------------------
+  macos-build:
+    name: macos-build (${{ matrix.goarch }}, cgo)
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [arm64, amd64]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Build host + editor + settings (cgo on)
+        env:
+          CGO_ENABLED: "1"
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -o /tmp/goshareit-${{ matrix.goarch }} ./cmd/goshareit
+          go build -o /tmp/goshareit-editor-${{ matrix.goarch }} ./cmd/goshareit-editor
+          # UniformTypeIdentifiers: wails v2 references UTType, which newer
+          # Xcode SDKs no longer link transitively.
+          CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
+            go build -tags desktop,production -o /tmp/goshareit-settings-${{ matrix.goarch }} ./cmd/goshareit-settings
+
+      # Signing is intentionally NOT performed in CI by default. It only runs
+      # when the signing secrets are configured, so forks/PRs build cleanly.
+      - name: Check for signing secrets
+        id: secrets
+        env:
+          DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
+        run: |
+          if [ -n "$DEVELOPER_ID_APP" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Signing secrets absent; skipping sign/notarize (expected on PRs)."
+          fi
+
+      # Placeholder gate. Real signing/notarization would import the cert into a
+      # temporary keychain here, then run `make release`. Left disabled until the
+      # repo provides the secrets below.
+      - name: Sign & notarize (gated)
+        if: steps.secrets.outputs.present == 'true'
+        run: echo "Signing path would run here (see docs/RELEASE.md)."
+
+  # ---------------------------------------------------------------------------
+  # Aggregate gate. The prod branch protection requires a check literally named
+  # "build" (promotion-flow standard), so this fans in every real job.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build
+    needs: [core, macos-build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "all builds green"
