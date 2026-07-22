@@ -6,6 +6,14 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Fixed
+- Blur is now redaction-grade: the stroke setting acts as a strength
+  multiplier and the kernel gets a region-scaled minimum radius, so
+  screenshot-scale text inside a blurred region is destroyed rather than
+  softened (found on-device: white-on-black text stayed readable). Guarded
+  by a worst-case fine-detail test, plus an env-gated visual harness
+  (TestVisualSample) for eyeballing strength against real captures.
+
 ### Changed
 - Windows tray icon replaced with the product logo (shutter aperture + G
   mark, full-color multi-size ICO). The macOS menu bar keeps the monochrome

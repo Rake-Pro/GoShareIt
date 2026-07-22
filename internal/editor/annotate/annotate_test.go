@@ -320,3 +320,28 @@ func TestRenderNilShapeSkipped(t *testing.T) {
 		t.Fatalf("nil shape should change nothing, changed %d", n)
 	}
 }
+
+// Blur must be redaction-grade: fine detail (text-scale high frequency)
+// inside the region must be destroyed, not softened. 1px alternating
+// stripes are the worst case - after blurring, per-row contrast must
+// collapse to near-uniform.
+func TestBlurRedactsFineDetail(t *testing.T) {
+	w, h := 240, 80
+	base := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			c := color.RGBA{0, 0, 0, 255}
+			if x%2 == 0 {
+				c = color.RGBA{255, 255, 255, 255}
+			}
+			base.Set(x, y, c)
+		}
+	}
+	before := rowVariance(base, h/2, 20, w-20)
+	shapes := []Shape{BlurRegion{Rect: image.Rect(0, 0, w, h), Radius: 3}}
+	out, _ := Render(base, nil, shapes)
+	after := rowVariance(out, h/2, 20, w-20)
+	if after > before/100 {
+		t.Fatalf("blur left legible detail: variance before=%.1f after=%.1f (want <1%%)", before, after)
+	}
+}

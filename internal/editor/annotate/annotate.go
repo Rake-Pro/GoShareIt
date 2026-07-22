@@ -365,9 +365,28 @@ func (b BlurRegion) draw(dst draw.Image) {
 	if rect.Empty() {
 		return
 	}
+	// Blur is a redaction tool: the output must destroy legible text, not
+	// soften it. Radius acts as a strength multiplier (x4), with a floor
+	// scaled to the region size so screenshot-scale text (Retina 2x glyphs)
+	// is unreadable even at the smallest stroke setting.
 	radius := b.Radius
 	if radius < 1 {
 		radius = 4
+	}
+	radius *= 4
+	minR := rect.Dx()
+	if rect.Dy() < minR {
+		minR = rect.Dy()
+	}
+	minR /= 4
+	if minR > 48 {
+		minR = 48
+	}
+	if minR < 12 {
+		minR = 12
+	}
+	if radius < minR {
+		radius = minR
 	}
 	region := subImageRGBA(dst, rect)
 	for pass := 0; pass < 3; pass++ {
