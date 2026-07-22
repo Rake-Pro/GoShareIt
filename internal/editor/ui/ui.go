@@ -497,7 +497,8 @@ func (e *editor) buildShapes() []annotate.Shape {
 		case kLine:
 			out = append(out, annotate.Line{From: s.p0.Sub(off), To: s.p1.Sub(off), Color: s.col, Stroke: s.stroke})
 		case kBlur:
-			// Stroke doubles as blur strength (kernel radius).
+			// Stroke acts as a blur-strength multiplier; annotate enforces a
+			// region-scaled redaction floor on top.
 			out = append(out, annotate.BlurRegion{Rect: rectOf(s.p0, s.p1).Sub(off), Radius: s.stroke})
 		case kPixelate:
 			// Stroke scales the mosaic block size.
