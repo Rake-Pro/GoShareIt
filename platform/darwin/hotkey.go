@@ -191,6 +191,18 @@ var (
 		"f13": hotkey.KeyF13, "f14": hotkey.KeyF14, "f15": hotkey.KeyF15, "f16": hotkey.KeyF16,
 		"f17": hotkey.KeyF17, "f18": hotkey.KeyF18, "f19": hotkey.KeyF19, "f20": hotkey.KeyF20,
 	}
+	// keyPunct maps punctuation (US layout) to raw Carbon kVK_ANSI_* codes;
+	// x/hotkey has no named constants for these. "+" is unaddressable (the
+	// chord separator).
+	keyPunct = map[string]hotkey.Key{
+		"`": 0x32, "grave": 0x32, "backtick": 0x32,
+		"-": 0x1B, "minus": 0x1B,
+		"=": 0x18, "equals": 0x18,
+		"[": 0x21, "]": 0x1E,
+		";": 0x29, "'": 0x27,
+		",": 0x2B, ".": 0x2F, "/": 0x2C, "\\": 0x2A,
+		"space": hotkey.KeySpace,
+	}
 )
 
 func keyFor(s string) (hotkey.Key, bool) {
@@ -202,6 +214,9 @@ func keyFor(s string) (hotkey.Key, bool) {
 		return k, true
 	}
 	if k, ok := keyFns[l]; ok {
+		return k, true
+	}
+	if k, ok := keyPunct[l]; ok {
 		return k, true
 	}
 	switch l {

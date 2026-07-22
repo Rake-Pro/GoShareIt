@@ -31,7 +31,14 @@ feature is planned, started, or shipped (shipped items move to
 
 - App icons: .icns for the macOS bundle, .ico for the Windows exe (tray glyph
   exists; app-level icons do not).
-- macOS signing + notarization in CI (secrets-gated path exists, unused).
+- Replace the interim self-signed macOS cert with a real Developer ID
+  Application cert: the current CI secrets carry a self-signed "RakePro-Dev"
+  identity (TeamIdentifier not set - fine for TCC persistence on personal
+  machines, zero Gatekeeper credit). Create the cert via Xcode/portal
+  (Account Holder), re-export the p12, replace MACOS_CERT_P12(+_PASSWORD)
+  and DEVELOPER_ID_APP; expect one TCC re-grant on the identity change.
+- macOS notarization in CI (secrets-gated path exists; add AC_APPLE_ID /
+  AC_PASSWORD / TEAM_ID once the real cert is in).
 - Windows Authenticode signing (SmartScreen).
 - Public release: repo audit pass, then public visibility; updater switches
   to anonymous GitHub API automatically.

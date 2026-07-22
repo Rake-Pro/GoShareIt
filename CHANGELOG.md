@@ -7,6 +7,8 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 ## [Unreleased]
 
 ### Added
+- Hotkey parser: punctuation keys on both OSes (` - = [ ] ; ' , . / \ and
+  Space, plus word aliases like `backtick`/`minus`), US layout.
 - Upload toggle hotkey (`hotkeys.upload_toggle`) and a tray "Uploads: On/Off"
   item: flip local-only mode instantly. Enabling is refused (with a
   notification) when no server is configured; the state persists to the
