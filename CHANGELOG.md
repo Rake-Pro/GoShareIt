@@ -7,6 +7,15 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 ## [Unreleased]
 
 ### Added
+- Upload toggle hotkey (`hotkeys.upload_toggle`) and a tray "Uploads: On/Off"
+  item: flip local-only mode instantly. Enabling is refused (with a
+  notification) when no server is configured; the state persists to the
+  config file and takes effect immediately for the next capture.
+- Release builds now ad-hoc sign the whole macOS bundle when Developer ID
+  secrets are absent, so TCC permission grants (Screen Recording,
+  Accessibility) persist within an install instead of re-prompting on every
+  capture. Grants still need one re-approval after each update until real
+  code signing lands.
 - `upload.enabled` toggle (settings: "Upload captures"): off = local-only
   mode. Nothing leaves the machine, the Nextcloud section and credentials
   become fully optional (empty password file no longer blocks saving), the

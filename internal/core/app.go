@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"sync/atomic"
 
 	"github.com/rs/zerolog"
 
@@ -39,6 +40,11 @@ type App struct {
 	log     zerolog.Logger
 	history *history.History
 
+	// uploadEnabled is the live upload switch: seeded from config, flippable
+	// at runtime (hotkey/tray). Atomic because captures read it from hotkey
+	// goroutines while the toggle writes it.
+	uploadEnabled atomic.Bool
+
 	capturer  capture.Capturer
 	recorder  capture.Recorder // may be nil
 	uploader  upload.Uploader
@@ -64,7 +70,7 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 	if editor == nil {
 		editor = edit.NoopEditor{}
 	}
-	return &App{
+	a := &App{
 		cfg:       cfg,
 		log:       log,
 		history:   hist,
@@ -76,7 +82,22 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 		tray:      p.Tray,
 		hotkeys:   p.Hotkeys,
 		editor:    editor,
-	}, nil
+	}
+	a.uploadEnabled.Store(cfg.UploadEnabled())
+	return a, nil
+}
+
+// UploadEnabled reports the live upload switch.
+func (a *App) UploadEnabled() bool { return a.uploadEnabled.Load() }
+
+// SetUploadEnabled flips the live upload switch (persistence is the caller's
+// concern - see the cmd layer's toggle handler).
+func (a *App) SetUploadEnabled(v bool) { a.uploadEnabled.Store(v) }
+
+// UploadConfigured reports whether the config carries everything an upload
+// needs; the toggle refuses to enable uploads without it.
+func (a *App) UploadConfigured() bool {
+	return a.cfg.Nextcloud.BaseURL != "" && a.cfg.Nextcloud.Username != "" && a.cfg.Password() != ""
 }
 
 // Config exposes the loaded config (read-only use).

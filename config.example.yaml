@@ -50,6 +50,7 @@ hotkeys:
   region_edit: ""         # like region, but always opens the editor
   fullscreen_edit: ""
   window_edit: ""
+  upload_toggle: ""    # flip uploads on/off (also in the tray menu)
   record: "Cmd+Shift+R"   # toggle screen recording (only on builds that support it)
   quit: "Cmd+Shift+Q"
 

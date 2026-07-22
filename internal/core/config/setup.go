@@ -51,6 +51,7 @@ hotkeys:
   region_edit: ""
   fullscreen_edit: ""
   window_edit: ""
+  upload_toggle: ""
   record: "{mod}+Shift+R"
   quit: "{mod}+Shift+Q"
 

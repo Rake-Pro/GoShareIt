@@ -82,8 +82,29 @@ type HotkeysConfig struct {
 	RegionEdit     string `yaml:"region_edit"`
 	FullScreenEdit string `yaml:"fullscreen_edit"`
 	WindowEdit     string `yaml:"window_edit"`
+	UploadToggle   string `yaml:"upload_toggle"`
 	Record         string `yaml:"record"`
 	Quit           string `yaml:"quit"`
+}
+
+// SetUploadEnabledFile flips upload.enabled in the config file in place so a
+// runtime toggle survives restart. Comments are not preserved (same tradeoff
+// as the settings UI writer).
+func SetUploadEnabledFile(path string, enabled bool) error {
+	cfg, err := LoadRaw(path)
+	if err != nil {
+		return err
+	}
+	cfg.Upload.Enabled = &enabled
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("config: marshal: %w", err)
+	}
+	header := "# GoShareIt configuration. Managed by the settings UI; comments are not preserved.\n"
+	if err := os.WriteFile(path, append([]byte(header), out...), 0o600); err != nil {
+		return fmt.Errorf("config: write %s: %w", path, err)
+	}
+	return nil
 }
 
 // EditorConfig controls the optional post-capture annotation editor. When

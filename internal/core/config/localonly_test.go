@@ -78,3 +78,33 @@ func TestLocalOnlyStillResolvesExistingSecret(t *testing.T) {
 		t.Errorf("password = %q, want pw-x", cfg.Password())
 	}
 }
+
+// SetUploadEnabledFile persists the runtime toggle in place.
+func TestSetUploadEnabledFile(t *testing.T) {
+	p := writeCfg(t, "upload:\n  enabled: true\nhotkeys:\n  region: \"Cmd+Shift+1\"\n")
+	if err := SetUploadEnabledFile(p, false); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UploadEnabled() {
+		t.Error("upload still enabled after SetUploadEnabledFile(false)")
+	}
+	if cfg.Hotkeys.Region != "Cmd+Shift+1" {
+		t.Errorf("unrelated field lost: region = %q", cfg.Hotkeys.Region)
+	}
+	if err := SetUploadEnabledFile(p, true); err != nil {
+		t.Fatal(err)
+	}
+	// Strict Load would now (correctly) demand credentials; raw parse is
+	// enough to verify the flag round-trip.
+	again, err := LoadRaw(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.UploadEnabled() {
+		t.Error("upload not re-enabled")
+	}
+}
