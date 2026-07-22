@@ -25,6 +25,7 @@ nextcloud:
   remote_dir: ""
 
 upload:
+  enabled: true           # false = local-only mode (Nextcloud section optional)
   direct_link: true
   filename_template: "goshareit_{datetime}_{rand}.{ext}"
   share_expire_days: 0
@@ -50,6 +51,7 @@ hotkeys:
   region_edit: ""
   fullscreen_edit: ""
   window_edit: ""
+  upload_toggle: ""
   record: "{mod}+Shift+R"
   quit: "{mod}+Shift+Q"
 

@@ -63,6 +63,26 @@ func (a *App) processResult(ctx context.Context, res capture.Result) (upload.Upl
 	// 3. Name.
 	fname := name.Render(a.cfg.Upload.FilenameTemplate, extFor(res))
 
+	// 4a. Local-only mode: uploads toggled off. History and notification still
+	// happen; the after-upload URL copy has nothing to copy and is skipped.
+	if !a.UploadEnabled() {
+		if err := a.history.Append(history.Entry{Name: fname, Time: time.Now()}); err != nil {
+			a.log.Warn().Err(err).Msg("history append failed")
+		}
+		if a.cfg.AfterUpload.Notify && a.notifier != nil {
+			body := fname
+			if a.cfg.AfterCapture.SaveLocal {
+				body = fname + " (saved locally)"
+			}
+			n := notify.Notification{Title: "GoShareIt", Body: body, ThumbnailPath: res.Path}
+			if err := a.notifier.Notify(n); err != nil {
+				a.log.Warn().Err(err).Msg("notify failed")
+			}
+		}
+		a.log.Info().Str("name", fname).Msg("capture complete (uploads disabled)")
+		return upload.UploadResult{}, nil
+	}
+
 	// 4. Upload.
 	up, err := a.uploader.Upload(ctx, fname, bytes.NewReader(res.Bytes), int64(len(res.Bytes)), res.Mime)
 	if err != nil {

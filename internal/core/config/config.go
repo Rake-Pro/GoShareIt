@@ -41,12 +41,21 @@ type NextcloudConfig struct {
 	RemoteDir    string `yaml:"remote_dir"`
 }
 
-// UploadConfig controls naming and sharing.
+// UploadConfig controls whether captures upload at all, plus naming and
+// sharing. Enabled defaults to true; false = local-only mode, where the
+// Nextcloud section (server, credentials) is not required at all and can be
+// toggled back on later.
 type UploadConfig struct {
+	Enabled          *bool  `yaml:"enabled"`
 	DirectLink       bool   `yaml:"direct_link"`
 	FilenameTemplate string `yaml:"filename_template"`
 	ShareExpireDays  int    `yaml:"share_expire_days"`
 	SharePassword    string `yaml:"share_password"`
+}
+
+// UploadEnabled reports the effective upload state (default true).
+func (c *Config) UploadEnabled() bool {
+	return c.Upload.Enabled == nil || *c.Upload.Enabled
 }
 
 // AfterCaptureConfig controls post-capture, pre-upload behavior.
@@ -73,8 +82,29 @@ type HotkeysConfig struct {
 	RegionEdit     string `yaml:"region_edit"`
 	FullScreenEdit string `yaml:"fullscreen_edit"`
 	WindowEdit     string `yaml:"window_edit"`
+	UploadToggle   string `yaml:"upload_toggle"`
 	Record         string `yaml:"record"`
 	Quit           string `yaml:"quit"`
+}
+
+// SetUploadEnabledFile flips upload.enabled in the config file in place so a
+// runtime toggle survives restart. Comments are not preserved (same tradeoff
+// as the settings UI writer).
+func SetUploadEnabledFile(path string, enabled bool) error {
+	cfg, err := LoadRaw(path)
+	if err != nil {
+		return err
+	}
+	cfg.Upload.Enabled = &enabled
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("config: marshal: %w", err)
+	}
+	header := "# GoShareIt configuration. Managed by the settings UI; comments are not preserved.\n"
+	if err := os.WriteFile(path, append([]byte(header), out...), 0o600); err != nil {
+		return fmt.Errorf("config: write %s: %w", path, err)
+	}
+	return nil
 }
 
 // EditorConfig controls the optional post-capture annotation editor. When
@@ -239,6 +269,18 @@ func (c *Config) resolveUpdateToken() error {
 func (c *Config) resolvePassword() error {
 	file := strings.TrimSpace(c.Nextcloud.PasswordFile)
 	env := strings.TrimSpace(c.Nextcloud.PasswordEnv)
+	if !c.UploadEnabled() {
+		// Local-only mode: credentials are optional. Resolve best-effort so
+		// re-enabling uploads later picks up an existing secret unchanged.
+		if file != "" {
+			if b, err := os.ReadFile(expandHome(file)); err == nil {
+				c.password = strings.TrimSpace(string(b))
+			}
+		} else if env != "" {
+			c.password = os.Getenv(env)
+		}
+		return nil
+	}
 	switch {
 	case file != "" && env != "":
 		return fmt.Errorf("config: set exactly one of nextcloud.password_file or nextcloud.password_env, not both")
@@ -265,8 +307,15 @@ func (c *Config) resolvePassword() error {
 }
 
 func (c *Config) validate() error {
+	if c.Upload.ShareExpireDays < 0 {
+		return fmt.Errorf("config: upload.share_expire_days must be >= 0")
+	}
+	if !c.UploadEnabled() {
+		// Local-only mode: the Nextcloud section is entirely optional.
+		return nil
+	}
 	if c.Nextcloud.BaseURL == "" {
-		return fmt.Errorf("config: nextcloud.base_url is required")
+		return fmt.Errorf("config: nextcloud.base_url is required (or set upload.enabled: false for local-only use)")
 	}
 	if !strings.HasPrefix(c.Nextcloud.BaseURL, "http://") && !strings.HasPrefix(c.Nextcloud.BaseURL, "https://") {
 		return fmt.Errorf("config: nextcloud.base_url must start with http:// or https://")
@@ -276,9 +325,6 @@ func (c *Config) validate() error {
 	}
 	if c.Nextcloud.DavUser == "" {
 		return fmt.Errorf("config: nextcloud.dav_user could not be derived; set it explicitly")
-	}
-	if c.Upload.ShareExpireDays < 0 {
-		return fmt.Errorf("config: upload.share_expire_days must be >= 0")
 	}
 	return nil
 }

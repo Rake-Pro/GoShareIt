@@ -96,6 +96,8 @@ const SCHEMA = [
     { p: "@password",           l: "App password", t: "secret" },
   ]},
   { title: "Upload", fields: [
+    { p: "Upload.Enabled", l: "Upload captures", t: "bool",
+      hint: "off = local-only: no data leaves this machine, server settings optional" },
     { p: "Upload.FilenameTemplate", l: "Filename template", t: "text", hint: "{date} {time} {datetime} {rand} {ext}" },
     { p: "Upload.ShareExpireDays",  l: "Share expiry (days)", t: "number", hint: "0 = never" },
     { p: "Upload.SharePassword",    l: "Share password", t: "text", hint: "blank = none" },
@@ -118,6 +120,7 @@ const SCHEMA = [
     { p: "Hotkeys.RegionEdit",     l: "Capture region + edit", t: "text", hint: "always opens the editor" },
     { p: "Hotkeys.FullScreenEdit", l: "Capture full screen + edit", t: "text" },
     { p: "Hotkeys.WindowEdit",     l: "Capture window + edit", t: "text" },
+    { p: "Hotkeys.UploadToggle", l: "Toggle uploads", t: "text", hint: "flip local-only mode on/off" },
     { p: "Hotkeys.Record",     l: "Toggle recording", t: "text" },
     { p: "Hotkeys.Quit",       l: "Quit", t: "text" },
   ]},
@@ -160,6 +163,7 @@ function render() {
   root.innerHTML = "";
   for (const sec of SCHEMA) {
     const s = document.createElement("section");
+    s.dataset.section = sec.title;
     s.innerHTML = `<h2>${sec.title}</h2>`;
     for (const f of sec.fields) {
       const row = document.createElement("div");
@@ -175,7 +179,9 @@ function render() {
       } else if (f.t === "number") {
         control = `<input type="number" id="${id}" min="0" step="1" value="${Number(val ?? 0)}">`;
       } else if (f.t === "bool") {
-        const on = f.p === "Update.Enabled" ? (val !== false) : !!val;
+        // *bool fields default to true when null.
+        const defaultTrue = f.p === "Update.Enabled" || f.p === "Upload.Enabled";
+        const on = defaultTrue ? (val !== false) : !!val;
         control = `<input type="checkbox" id="${id}" ${on ? "checked" : ""}>`;
       } else if (f.t === "select") {
         control = `<select id="${id}">` + f.opts.map(o =>
@@ -188,7 +194,8 @@ function render() {
         const envVar = f.p === "@password" ? (model.config.Nextcloud.PasswordEnv || "") : "";
         if (envVar) {
           // Env-sourced secrets are read-only here; Save() rejects file writes.
-          control = `<input type="password" id="${id}" disabled placeholder="(managed by env var ${esc(envVar)})">`;
+          // data-locked keeps the upload-toggle sync from re-enabling it.
+          control = `<input type="password" id="${id}" disabled data-locked="1" placeholder="(managed by env var ${esc(envVar)})">`;
         } else {
           const has = f.p === "@password" ? model.hasPassword : model.hasToken;
           control = `<input type="password" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
@@ -207,6 +214,20 @@ function render() {
   }
   $("cfgpath").textContent = model.configPath;
   $("ver").textContent = "v" + model.version;
+  syncUploadEnabled();
+}
+
+// syncUploadEnabled greys out the sections that only matter when uploads are
+// on (server credentials, after-upload behavior) - disabled beats hidden so
+// the user still sees what local-only mode is skipping.
+function syncUploadEnabled() {
+  const box = $(fieldId("Upload.Enabled"));
+  if (!box) return;
+  const on = box.checked;
+  for (const sec of ["Nextcloud", "After upload"]) {
+    document.querySelectorAll(`[data-section="${sec}"] input, [data-section="${sec}"] select, [data-section="${sec}"] button`)
+      .forEach((el) => { if (!el.dataset.locked) el.disabled = !on; });
+  }
 }
 
 function collect() {
@@ -275,6 +296,10 @@ $("save").addEventListener("click", async () => {
   } finally {
     $("save").disabled = false;
   }
+});
+
+$("form").addEventListener("change", (e) => {
+  if (e.target.id === fieldId("Upload.Enabled")) syncUploadEnabled();
 });
 
 // Delegated clicks for per-row buttons (rows re-render, this listener does not).

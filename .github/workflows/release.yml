@@ -166,6 +166,15 @@ jobs:
           rm /tmp/cert.p12
           APP=dist/GoShareIt.app scripts/sign.sh
 
+      # No cert secrets: ad-hoc sign the WHOLE bundle so it has one consistent
+      # identity. TCC grants (Screen Recording etc.) then persist within an
+      # install; a totally unsigned bundle re-prompts on every capture. The
+      # identity still changes per release, so users re-grant once per update
+      # until real Developer ID signing lands.
+      - name: Ad-hoc sign (fallback)
+        if: steps.secrets.outputs.sign != 'true'
+        run: codesign --force --deep -s - dist/GoShareIt.app
+
       - name: Notarize and staple
         if: steps.secrets.outputs.sign == 'true' && steps.secrets.outputs.notarize == 'true'
         env:

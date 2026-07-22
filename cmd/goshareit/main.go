@@ -22,6 +22,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/edit"
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
+	"github.com/Rake-Pro/GoShareIt/internal/core/notify"
 	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
 	"github.com/Rake-Pro/GoShareIt/internal/core/update"
@@ -230,6 +231,46 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		}
 	}
 
+	notifyUser := func(title, body string) {
+		if n := app.Notifier(); n != nil {
+			if err := n.Notify(notify.Notification{Title: title, Body: body}); err != nil {
+				log.Debug().Err(err).Msg("notification failed")
+			}
+		}
+	}
+	uploadItemTitle := func() string {
+		state := "Off"
+		if app.UploadEnabled() {
+			state = "On"
+		}
+		return label("Uploads: "+state, cfg.Hotkeys.UploadToggle)
+	}
+	// uploadToggle flips the live switch, refuses to enable without a usable
+	// server config, and persists the state so it survives restart.
+	uploadToggle := func() {
+		enable := !app.UploadEnabled()
+		if enable && !app.UploadConfigured() {
+			notifyUser("Uploads unavailable", "No server configured - set it up in Settings first.")
+			return
+		}
+		app.SetUploadEnabled(enable)
+		if tr != nil {
+			tr.SetItemTitle("upload-toggle", uploadItemTitle())
+		}
+		state := "disabled - captures stay on this machine"
+		if enable {
+			state = "enabled"
+		}
+		notifyUser("Uploads "+map[bool]string{true: "on", false: "off"}[enable], "Uploads "+state+".")
+		if settingsL != nil {
+			go func() {
+				if err := config.SetUploadEnabledFile(settingsL.configPath, enable); err != nil {
+					log.Warn().Err(err).Msg("persist upload toggle failed (state applies until restart)")
+				}
+			}()
+		}
+	}
+
 	hk := app.Hotkeys()
 	if hk != nil {
 		bindings := []struct {
@@ -242,6 +283,7 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 			{"region-edit", cfg.Hotkeys.RegionEdit, runShotEdit(captureMode("region"))},
 			{"fullscreen-edit", cfg.Hotkeys.FullScreenEdit, runShotEdit(captureMode("fullscreen"))},
 			{"window-edit", cfg.Hotkeys.WindowEdit, runShotEdit(captureMode("window"))},
+			{"upload-toggle", cfg.Hotkeys.UploadToggle, uploadToggle},
 			{"quit", cfg.Hotkeys.Quit, quit},
 		}
 		if app.RecordingSupported() && cfg.Hotkeys.Record != "" {
@@ -296,7 +338,10 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 			tray.MenuItem{ID: "record-stop", Title: label("Stop Recording", cfg.Hotkeys.Record), OnClick: stopRec, Disabled: true},
 		)
 	}
-	items = append(items, tray.MenuItem{Separator: true})
+	items = append(items,
+		tray.MenuItem{Separator: true},
+		tray.MenuItem{ID: "upload-toggle", Title: uploadItemTitle(), OnClick: uploadToggle},
+	)
 	if settingsL != nil {
 		items = append(items, tray.MenuItem{ID: "settings", Title: "Settings...", OnClick: func() {
 			go settingsL.open(ctx)

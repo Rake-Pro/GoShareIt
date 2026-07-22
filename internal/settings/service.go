@@ -220,6 +220,10 @@ func applyEditingDefaults(cfg *config.Config) {
 		t := true
 		cfg.Update.Enabled = &t
 	}
+	if cfg.Upload.Enabled == nil {
+		t := true
+		cfg.Upload.Enabled = &t
+	}
 }
 
 func writeSecret(path, value string) error {

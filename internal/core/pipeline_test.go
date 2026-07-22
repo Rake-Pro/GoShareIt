@@ -3,7 +3,9 @@ package core
 import (
 	"context"
 	"image"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -336,5 +338,63 @@ func TestPipelineNotifyDisabled(t *testing.T) {
 	}
 	if nt.Count() != 0 {
 		t.Errorf("notify count = %d, want 0", nt.Count())
+	}
+}
+
+// Local-only mode: uploads toggled off - the uploader is never called, the
+// URL clipboard copy is skipped, but local save and notify still happen.
+func TestPipelineLocalOnly(t *testing.T) {
+	cfg := baseCfg()
+	off := false
+	cfg.Upload.Enabled = &off
+	cfg.AfterCapture.SaveLocal = true
+	cfg.AfterCapture.SaveDir = t.TempDir()
+
+	app, cb, up, nt := testApp(t, cfg)
+	res, err := app.RunCapture(context.Background(), capture.FullScreen)
+	if err != nil {
+		t.Fatalf("RunCapture: %v", err)
+	}
+	if res.PublicURL != "" || res.DirectURL != "" {
+		t.Errorf("expected empty upload result, got %+v", res)
+	}
+	if len(up.Names) != 0 {
+		t.Fatalf("uploader called %d times, want 0", len(up.Names))
+	}
+	if got, _ := cb.ReadText(); got != "" {
+		t.Errorf("clipboard text = %q, want empty (no URL to copy)", got)
+	}
+	if len(nt.Notifications) != 1 {
+		t.Fatalf("notifications = %d, want 1", len(nt.Notifications))
+	}
+	if body := nt.Notifications[0].Body; !strings.Contains(body, "(saved locally)") {
+		t.Errorf("notification body = %q, want local-save marker", body)
+	}
+	files, err := os.ReadDir(cfg.AfterCapture.SaveDir)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("local save dir: files=%d err=%v, want 1 file", len(files), err)
+	}
+}
+
+// Runtime toggle: SetUploadEnabled(false) takes effect immediately even when
+// the config says uploads are on.
+func TestPipelineRuntimeUploadToggle(t *testing.T) {
+	app, _, up, _ := testApp(t, baseCfg())
+	if !app.UploadEnabled() {
+		t.Fatal("uploads should start enabled")
+	}
+	app.SetUploadEnabled(false)
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatalf("RunCapture: %v", err)
+	}
+	if len(up.Names) != 0 {
+		t.Fatalf("uploader called %d times after disable, want 0", len(up.Names))
+	}
+	app.SetUploadEnabled(true)
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatalf("RunCapture after re-enable: %v", err)
+	}
+	if len(up.Names) != 1 {
+		t.Fatalf("uploader calls after re-enable = %d, want 1", len(up.Names))
 	}
 }
