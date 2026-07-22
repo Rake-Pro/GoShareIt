@@ -88,7 +88,10 @@ jobs:
         run: |
           go build -o /tmp/goshareit-${{ matrix.goarch }} ./cmd/goshareit
           go build -o /tmp/goshareit-editor-${{ matrix.goarch }} ./cmd/goshareit-editor
-          go build -tags desktop,production -o /tmp/goshareit-settings-${{ matrix.goarch }} ./cmd/goshareit-settings
+          # UniformTypeIdentifiers: wails v2 references UTType, which newer
+          # Xcode SDKs no longer link transitively.
+          CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
+            go build -tags desktop,production -o /tmp/goshareit-settings-${{ matrix.goarch }} ./cmd/goshareit-settings
 
       # Signing is intentionally NOT performed in CI by default. It only runs
       # when the signing secrets are configured, so forks/PRs build cleanly.

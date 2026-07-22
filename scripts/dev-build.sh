@@ -47,7 +47,8 @@ SETTINGS_BIN="$DIST/goshareit-settings"
 LDFLAGS="-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=$VERSION"
 CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -ldflags "$LDFLAGS" -o "$BIN" ./cmd/goshareit
 CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -ldflags "$LDFLAGS" -o "$EDITOR_BIN" ./cmd/goshareit-editor
-CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -tags desktop,production -ldflags "$LDFLAGS" -o "$SETTINGS_BIN" ./cmd/goshareit-settings
+# UniformTypeIdentifiers: wails v2 references UTType; newer Xcode SDKs don't link it transitively.
+CGO_LDFLAGS="-framework UniformTypeIdentifiers" CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -tags desktop,production -ldflags "$LDFLAGS" -o "$SETTINGS_BIN" ./cmd/goshareit-settings
 
 echo "==> assembling $APP"
 VERSION="$VERSION" BUNDLE_ID="$BUNDLE_ID" BIN="$BIN" EDITOR_BIN="$EDITOR_BIN" SETTINGS_BIN="$SETTINGS_BIN" APP="$APP" "$SCRIPT_DIR/bundle.sh"

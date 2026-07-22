@@ -56,7 +56,7 @@ build-darwin: ## Build the cgo host + editor + settings binaries for the host ar
 	@mkdir -p $(DIST)
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(CMD)
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(EDITOR_BIN) $(EDITOR_CMD)
-	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -tags desktop,production -ldflags "$(LDFLAGS)" -o $(SETTINGS_BIN) $(SETTINGS_CMD)
+	CGO_LDFLAGS="-framework UniformTypeIdentifiers" CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -tags desktop,production -ldflags "$(LDFLAGS)" -o $(SETTINGS_BIN) $(SETTINGS_CMD)
 	@echo "built $(BIN), $(EDITOR_BIN) and $(SETTINGS_BIN) (darwin/$(HOST_ARCH))"
 
 bundle: build-darwin ## Assemble dist/GoShareIt.app (host + editor + settings) from the built binaries.

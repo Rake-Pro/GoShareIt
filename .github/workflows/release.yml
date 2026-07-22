@@ -126,7 +126,8 @@ jobs:
           for arch in arm64 amd64; do
             CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-$arch" ./cmd/goshareit
             CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-editor-$arch" ./cmd/goshareit-editor
-            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags desktop,production -ldflags "$ldflags" -o "dist/goshareit-settings-$arch" ./cmd/goshareit-settings
+            CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
+              CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags desktop,production -ldflags "$ldflags" -o "dist/goshareit-settings-$arch" ./cmd/goshareit-settings
           done
           lipo -create -output dist/goshareit dist/goshareit-arm64 dist/goshareit-amd64
           lipo -create -output dist/goshareit-editor dist/goshareit-editor-arm64 dist/goshareit-editor-amd64
