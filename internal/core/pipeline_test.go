@@ -375,3 +375,26 @@ func TestPipelineLocalOnly(t *testing.T) {
 		t.Fatalf("local save dir: files=%d err=%v, want 1 file", len(files), err)
 	}
 }
+
+// Runtime toggle: SetUploadEnabled(false) takes effect immediately even when
+// the config says uploads are on.
+func TestPipelineRuntimeUploadToggle(t *testing.T) {
+	app, _, up, _ := testApp(t, baseCfg())
+	if !app.UploadEnabled() {
+		t.Fatal("uploads should start enabled")
+	}
+	app.SetUploadEnabled(false)
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatalf("RunCapture: %v", err)
+	}
+	if len(up.Names) != 0 {
+		t.Fatalf("uploader called %d times after disable, want 0", len(up.Names))
+	}
+	app.SetUploadEnabled(true)
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatalf("RunCapture after re-enable: %v", err)
+	}
+	if len(up.Names) != 1 {
+		t.Fatalf("uploader calls after re-enable = %d, want 1", len(up.Names))
+	}
+}

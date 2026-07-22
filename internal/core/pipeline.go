@@ -65,7 +65,7 @@ func (a *App) processResult(ctx context.Context, res capture.Result) (upload.Upl
 
 	// 4a. Local-only mode: uploads toggled off. History and notification still
 	// happen; the after-upload URL copy has nothing to copy and is skipped.
-	if !a.cfg.UploadEnabled() {
+	if !a.UploadEnabled() {
 		if err := a.history.Append(history.Entry{Name: fname, Time: time.Now()}); err != nil {
 			a.log.Warn().Err(err).Msg("history append failed")
 		}
