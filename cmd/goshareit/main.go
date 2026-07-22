@@ -337,9 +337,14 @@ func acquireConfig(flagVal string) (path string, didSetup bool, secretPath strin
 
 // firstExistingConfig returns the first config file that exists among the working
 // dir and standard user locations, or "" if none. This lets a bundled .app
-// launched with cwd "/" still find a user config.
+// launched with cwd "/" still find a user config. The app root (~/.goshareit,
+// ~/goshareit on Windows) wins; the pre-v1.1 locations stay as read fallbacks so
+// existing installs keep working.
 func firstExistingConfig() string {
 	candidates := []string{"config.yaml"}
+	if dir, err := config.Dir(); err == nil {
+		candidates = append(candidates, filepath.Join(dir, "config.yaml"))
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		candidates = append(candidates,
 			filepath.Join(home, ".config", "goshareit", "config.yaml"),
@@ -355,9 +360,9 @@ func firstExistingConfig() string {
 }
 
 func historyPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil || dir == "" {
+	dir, err := config.Dir()
+	if err != nil {
 		dir = "."
 	}
-	return filepath.Join(dir, "goshareit", "history.jsonl")
+	return filepath.Join(dir, "history.jsonl")
 }

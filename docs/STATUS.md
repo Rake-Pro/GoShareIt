@@ -109,7 +109,7 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 - **macOS signing in CI is gated on secrets** (`MACOS_CERT_P12`(+`_PASSWORD`) + `DEVELOPER_ID_APP` to sign;
   `AC_APPLE_ID`/`AC_PASSWORD`/`TEAM_ID` to notarize). Absent secrets -> unsigned artifacts, jobs still green.
 - **Self-update:** `internal/core/update` polls the GitHub Releases API (`update:` config section; optional
-  fine-grained read-only PAT in `~/.config/goshareit/github-token.secret` while the repo is private -
+  fine-grained read-only PAT in `<app root>/github-token.secret` while the repo is private -
   anonymous API takes over when it goes public). Tray item "Check for Updates" -> "Install Update vX.Y.Z";
   background check 30s after launch + every `interval_hours`. Dev builds (`0.0.0-dev`) never auto-check.
   Apply swaps the whole `.app` (darwin, via ditto; same-identity signing preserves TCC grants) or the
@@ -123,8 +123,11 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 - Local macOS dev loop: `make dev-run` (build host+editor -> bundle `.app` -> sign with
   `$DEVELOPER_ID_APP` -> launch). Self-signed `GoShareIt Dev` cert is fine for local; grant the `.app`
   Accessibility + Input Monitoring (and Screen Recording on first capture).
-- Config: first run scaffolds `~/.config/goshareit/{config.yaml,app-password.secret}`; the app never
-  fatals when unconfigured. Enable the editor with `editor.enabled: true` + `on_modes: [region]`.
+- Config: app root is `~/.goshareit` (macOS/Linux) / `%USERPROFILE%\goshareit` (Windows); first run
+  scaffolds `config.yaml`, `app-password.secret` and `github-token.secret` there; the app never fatals
+  when unconfigured. Pre-v1.1 roots (`~/.config/goshareit`, `~/Library/Application Support/GoShareIt`)
+  remain read fallbacks for existing installs. History lives in the same root (`history.jsonl`).
+  Enable the editor with `editor.enabled: true` + `on_modes: [region]`.
 - CI: `.github/workflows/ci.yml` - linux core (CGO off) + Windows cross-build + macOS cgo build of
   host+editor. Signing gated behind `DEVELOPER_ID_APP` secret.
 - Helper container note (for the assistant): Go is at `/home/claude/go` (set `GOROOT=/home/claude/go`,

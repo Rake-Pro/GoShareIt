@@ -4,18 +4,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 // StarterConfig is written on first run so the app never fails merely because it
 // has not been configured yet. The user only needs to put their Nextcloud app
-// password in the file referenced by password_file.
+// password in the file referenced by password_file. {confdir} is rendered to the
+// per-OS app root by WriteStarter.
 const StarterConfig = `# GoShareIt configuration. Review base_url/username, then put your Nextcloud
 # app password in the file referenced by password_file (a leading ~ is expanded).
 nextcloud:
   base_url: https://cloud.rake.pro
   username: imgshare@rake.pro
   dav_user: ""
-  password_file: ~/.config/goshareit/app-password.secret
+  password_file: {confdir}/app-password.secret
   remote_dir: ""
 
 upload:
@@ -56,20 +59,39 @@ update:
   # Optional while the repo is private: a fine-grained read-only PAT
   # (Contents: Read on the repo above). Missing/empty file -> anonymous API,
   # which works once the repo is public.
-  token_file: ~/.config/goshareit/github-token.secret
+  token_file: {confdir}/github-token.secret
   interval_hours: 24
 
 logging:
   level: "info"
 `
 
-// DefaultConfigPath returns the canonical writable config location.
-func DefaultConfigPath() (string, error) {
+// dirName is the app root folder name in the user's home directory: dotted on
+// unix/macOS, undotted on Windows (dot-prefixed folders are alien there).
+func dirName() string {
+	if runtime.GOOS == "windows" {
+		return "goshareit"
+	}
+	return ".goshareit"
+}
+
+// Dir returns the app's per-user root (config, secrets, history):
+// ~/.goshareit on macOS/Linux, %USERPROFILE%\goshareit on Windows.
+func Dir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("config: locate home dir: %w", err)
 	}
-	return filepath.Join(home, ".config", "goshareit", "config.yaml"), nil
+	return filepath.Join(home, dirName()), nil
+}
+
+// DefaultConfigPath returns the canonical writable config location.
+func DefaultConfigPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
 }
 
 // WriteStarter creates the config dir, writes StarterConfig to configPath if it
@@ -82,7 +104,8 @@ func WriteStarter(configPath string) (secretPath string, err error) {
 		return "", fmt.Errorf("config: create %s: %w", dir, err)
 	}
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := os.WriteFile(configPath, []byte(StarterConfig), 0o600); err != nil {
+		rendered := strings.ReplaceAll(StarterConfig, "{confdir}", "~/"+dirName())
+		if err := os.WriteFile(configPath, []byte(rendered), 0o600); err != nil {
 			return "", fmt.Errorf("config: write starter %s: %w", configPath, err)
 		}
 	}

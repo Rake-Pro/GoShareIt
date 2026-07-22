@@ -9,11 +9,13 @@ nextcloud:
   # before '@' (e.g. "imgshare"). The live server validated with "imgshare".
   dav_user: ""
   # Provide exactly ONE of password_file or password_env.
-  # A leading ~ is expanded to your home dir. Create the file with:
-  #   mkdir -p ~/.config/goshareit
-  #   printf '%s' 'YOUR_APP_PASSWORD' > ~/.config/goshareit/app-password.secret
-  #   chmod 600 ~/.config/goshareit/app-password.secret
-  password_file: ~/.config/goshareit/app-password.secret
+  # A leading ~ is expanded to your home dir. The app root is ~/.goshareit on
+  # macOS/Linux and ~/goshareit (%USERPROFILE%\goshareit) on Windows.
+  # Create the file with:
+  #   mkdir -p ~/.goshareit
+  #   printf '%s' 'YOUR_APP_PASSWORD' > ~/.goshareit/app-password.secret
+  #   chmod 600 ~/.goshareit/app-password.secret
+  password_file: ~/.goshareit/app-password.secret
   # password_env: GOSHAREIT_NC_PASSWORD
   remote_dir: ""   # "" = account files root
 
@@ -55,7 +57,8 @@ update:
   # Optional while the repo is private: path to a file holding a fine-grained
   # read-only PAT (Contents: Read on the repo above). Missing/empty file ->
   # anonymous API, which works once the repo is public.
-  token_file: ~/.config/goshareit/github-token.secret
+  # (~/goshareit/github-token.secret on Windows)
+  token_file: ~/.goshareit/github-token.secret
   interval_hours: 24      # background check cadence (plus one check ~30s after launch)
 
 logging:

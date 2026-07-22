@@ -8,10 +8,15 @@ import (
 
 func TestWriteStarterCreatesConfigAndSecret(t *testing.T) {
 	dir := t.TempDir()
-	// The starter config references ~/.config/goshareit/app-password.secret, so
-	// HOME must point at dir for that path to resolve to the secret we create.
+	// The starter config references ~/<app root>/app-password.secret, so HOME
+	// must point at dir for that path to resolve to the secret we create.
 	t.Setenv("HOME", dir)
-	cfgPath := filepath.Join(dir, ".config", "goshareit", "config.yaml")
+	t.Setenv("USERPROFILE", dir) // windows equivalent
+	appDir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(appDir, "config.yaml")
 
 	secret, err := WriteStarter(cfgPath)
 	if err != nil {
