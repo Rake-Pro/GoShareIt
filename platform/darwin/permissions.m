@@ -3,7 +3,10 @@
 #include <stdbool.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <CoreGraphics/CoreGraphics.h>
-#import <IOKit/hid/IOHIDLib.h>
+// IOHIDRequestAccess/kIOHIDRequestTypeListenEvent live in hidsystem/, not hid/
+// (hid/IOHIDLib.h merely happened to compile before Xcode made implicit
+// declarations a hard error).
+#import <IOKit/hidsystem/IOHIDLib.h>
 
 // gsi_request_accessibility checks Accessibility trust and, if not yet
 // determined, prompts the user (kAXTrustedCheckOptionPrompt). Returns whether the

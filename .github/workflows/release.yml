@@ -221,12 +221,16 @@ jobs:
           mkdir -p out
           7z a "out/GoShareIt_${VERSION}_windows_amd64.zip" ./dist/windows/goshareit.exe ./dist/windows/goshareit-editor.exe
 
+      # pwsh, not bash: git-bash rewrites /D... /O... switches as POSIX paths.
+      # iscc ships preinstalled on the runner image; choco only as fallback.
       - name: Build Inno Setup installer
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          choco install innosetup -y --no-progress
-          iscc "/DAppVersion=${VERSION}" "/DBinDir=$(pwd -W 2>/dev/null || pwd)/dist/windows" "/Oout" build/windows/goshareit.iss
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+          }
+          iscc "/DAppVersion=$env:VERSION" "/DBinDir=$PWD\dist\windows" /Oout build\windows\goshareit.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
         with:
