@@ -37,8 +37,8 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 | P1 | macOS screenshots (region/full/window), hotkeys, tray, upload, notify | **DONE, verified on hardware** |
 | P2 | Windows screenshots (kbinani/GDI, ms-screenclip, RegisterHotKey, systray, toast) | **Code DONE; install (Inno setup.exe), first-run onboarding, tray icon, screenshot capture, and upload verified on hardware. Settings UI beyond first-run, toast notifications, and PrintScreen/alternative hotkey chords still untested.** |
 | P3a | Recording video: macOS native AVFoundation->mp4 (no ffmpeg), Windows ffmpeg gdigrab; `Recorder` Start/Stop, record hotkey + tray toggle | **Code DONE; linux+windows build verified; cgo/recording UNTESTED on device (both platforms)** |
-| P4a | Annotation editor MVP: Gio out-of-process (crop/arrow/rect/text, undo, confirm/cancel); pure-Go `annotate` ops | **Code DONE; builds verified; Gio UI UNTESTED on device** |
-| P4b | Editor: blur, pixelate, highlight, step-numbers, line, freehand | **Code DONE; 17 annotate pixel tests pass (CGO off); GOOS=windows build verified; Gio UI UNTESTED on device** |
+| P4a | Annotation editor MVP: Gio out-of-process (crop/arrow/rect/text, undo, confirm/cancel); pure-Go `annotate` ops | **Code DONE; PARTIALLY verified on macOS hardware (window opens, arrow draws, Confirm applies + result uploads); known bug: toolbar overflows at default window width (Confirm cut off) - see BACKLOG** |
+| P4b | Editor: blur, pixelate, highlight, step-numbers, line, freehand | **Code DONE; 17 annotate pixel tests pass (CGO off); blur verified end-to-end on macOS hardware; remaining tools untested on device** |
 | P3b | GIF (frame-sampling, no ffmpeg) + interactive region selector + region recording | **Code DONE; linux build/vet/test + GOOS=windows verified; Gio overlay + macOS cropRect untested on device (coordinate/DPI accuracy is the key risk)** |
 | P4c | Editor: in-window copy/save/upload buttons, full annotation feature set (copy/save/upload in-editor) | **NOT STARTED** |
 
