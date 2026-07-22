@@ -134,6 +134,11 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
   `-tags desktop,production`. Settings binary is bundled in the .app, the windows zip + Inno installer,
   and lipo'd universal on macOS. Linux: excluded (//go:build darwin||windows).
 - **Untested on device:** everything GUI (wails window, icon rendering, restart-on-save loop).
+- **First-run onboarding (v1.0.4):** an unloadable config no longer exits silently - the host opens the
+  settings UI, blocks, and retries the load after it closes. Found on the first real Windows install:
+  the old scaffold-and-exit flow plus `-H windowsgui` (invisible stderr) looked like "app doesn't start".
+  All logs now also mirror to `<app root>/goshareit.log` (5MB truncate) for on-device diagnosis.
+  Closes old TODO #4 (silent first run).
 
 ## Build / run quick reference
 

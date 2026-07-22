@@ -83,7 +83,9 @@ func (s *settingsLauncher) open(ctx context.Context) {
 	s.quit()
 }
 
-func (s *settingsLauncher) resolveHelper() (string, error) {
+func (s *settingsLauncher) resolveHelper() (string, error) { return resolveSettingsHelper() }
+
+func resolveSettingsHelper() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -97,6 +99,18 @@ func (s *settingsLauncher) resolveHelper() (string, error) {
 		return "", err
 	}
 	return p, nil
+}
+
+// runSettingsBlocking launches the settings UI and waits for it to close.
+// Used at startup (first run or invalid config) as onboarding, before any
+// tray exists - the alternative is a silent exit, which on windowsgui builds
+// looks like the app simply not working.
+func runSettingsBlocking(ctx context.Context, cfgPath string) error {
+	helper, err := resolveSettingsHelper()
+	if err != nil {
+		return err
+	}
+	return exec.CommandContext(ctx, helper, "--config", cfgPath).Run()
 }
 
 func (s *settingsLauncher) notify(title, body string) {

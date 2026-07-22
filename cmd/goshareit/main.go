@@ -31,21 +31,28 @@ func main() {
 	cfgPath := flag.String("config", "config.yaml", "path to config file (overridden by GOSHAREIT_CONFIG_PATH)")
 	flag.Parse()
 
+	setupFileLog()
+
 	cfgFile, didSetup, secretPath, err := acquireConfig(*cfgPath)
 	if err != nil {
 		log.Fatal().Err(err).Msg("resolve config")
 	}
 	if didSetup {
-		log.Info().
-			Str("config", cfgFile).
-			Str("secret", secretPath).
-			Msg("first-run setup complete - add your Nextcloud app password to the secret file, review base_url/username in the config, then relaunch")
-		return
+		log.Info().Str("config", cfgFile).Str("secret", secretPath).Msg("first run - scaffolded config")
 	}
 
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		log.Fatal().Err(err).Str("config", cfgFile).Msg("load config")
+		// Onboarding instead of a silent death: a fresh install always lands
+		// here (empty password file), and on windowsgui builds stderr is
+		// invisible, so a fatal would look like the app simply not starting.
+		log.Warn().Err(err).Str("config", cfgFile).Msg("config not usable - opening settings UI")
+		if serr := runSettingsBlocking(context.Background(), cfgFile); serr != nil {
+			log.Fatal().Err(serr).Str("config", cfgFile).Msg("config invalid and settings UI unavailable - edit the config manually")
+		}
+		if cfg, err = config.Load(cfgFile); err != nil {
+			log.Fatal().Err(err).Str("config", cfgFile).Msg("config still invalid after setup - exiting")
+		}
 	}
 
 	level, _ := zerolog.ParseLevel(cfg.Logging.Level)
@@ -300,6 +307,29 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		}
 	}
 	return nil
+}
+
+// setupFileLog mirrors logs into <app root>/goshareit.log. windowsgui builds
+// have no visible stderr and .app bundles hide it too, so without this,
+// startup failures on real installs are undiagnosable. Truncates at 5MB.
+func setupFileLog() {
+	dir, err := config.Dir()
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	path := filepath.Join(dir, "goshareit.log")
+	flags := os.O_CREATE | os.O_APPEND | os.O_WRONLY
+	if fi, err := os.Stat(path); err == nil && fi.Size() > 5<<20 {
+		flags = os.O_CREATE | os.O_TRUNC | os.O_WRONLY
+	}
+	f, err := os.OpenFile(path, flags, 0o600)
+	if err != nil {
+		return
+	}
+	log.Logger = log.Output(zerolog.MultiLevelWriter(zerolog.ConsoleWriter{Out: os.Stderr}, f))
 }
 
 func captureMode(s string) capture.Mode {
