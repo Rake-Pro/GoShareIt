@@ -6,6 +6,18 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Changed
+- Windows tray icon replaced with the product logo (shutter aperture + G
+  mark, full-color multi-size ICO). The macOS menu bar keeps the monochrome
+  capture-corners template glyph, which suits the black-and-white menu bar
+  better. Master logo at build/icons/goshareit_icon.png (also the future
+  app-icon source); regenerate via scripts/gen-tray-icon.py.
+
+### Fixed
+- Editor toolbar no longer pushes Confirm/Cancel out of view at narrow
+  window widths: split into a scrollable tool/swatch row and a fixed action
+  row, plus a minimum window size (found on-device at MacBook default size).
+
 ### Added
 - Hotkey parser: punctuation keys on both OSes (` - = [ ] ; ' , . / \ and
   Space, plus word aliases like `backtick`/`minus`), US layout.

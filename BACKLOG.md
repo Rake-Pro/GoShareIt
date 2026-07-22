@@ -25,11 +25,6 @@ updater check (with a PAT, correctly reports up-to-date).
 
 ## Features
 
-- Editor BUG (macOS, on-device): the toolbar overflows at the default window
-  width - the Confirm button is cut off until the window is widened
-  (MacBook default size). Fix candidates: wrap the toolbar to a second row,
-  pin Confirm/Cancel to the window edge with the tool list truncating
-  first, or raise the window's minimum/initial width to fit the toolbar.
 - Editor: live raster previews for blur/pixelate (render through the
   annotate ops instead of the approximate grey-box preview).
 - In-editor copy / save / upload buttons (finish the annotation workflow).
@@ -46,8 +41,9 @@ updater check (with a PAT, correctly reports up-to-date).
 
 ## Release / distribution
 
-- App icons: .icns for the macOS bundle, .ico for the Windows exe (tray glyph
-  exists; app-level icons do not).
+- App icons: .icns for the macOS bundle, .ico for the Windows exe. The
+  master logo now exists (build/icons/goshareit_icon.png, also used for the
+  tray) - derive both from it and wire into bundle.sh / the Inno installer.
 - Replace the interim self-signed macOS cert with a real Developer ID
   Application cert: the current CI secrets carry a self-signed "RakePro-Dev"
   identity (TeamIdentifier not set - fine for TCC persistence on personal
