@@ -6,6 +6,15 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Added
+- `upload.enabled` toggle (settings: "Upload captures"): off = local-only
+  mode. Nothing leaves the machine, the Nextcloud section and credentials
+  become fully optional (empty password file no longer blocks saving), the
+  pipeline skips upload/share-link steps while local save, clipboard image
+  copy, history, and notifications keep working, and the settings UI greys
+  out the server/after-upload sections while disabled. Credentials on disk
+  are kept, so uploads can be re-enabled at any time.
+
 ## [0.0.1] - 2026-07-22
 
 Project baseline (history squashed; versioning restarted on the road to a
