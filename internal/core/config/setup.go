@@ -37,11 +37,11 @@ after_upload:
   notify: true
 
 hotkeys:
-  region: "Cmd+Shift+1"
-  fullscreen: "Cmd+Shift+9"
-  window: "Cmd+Shift+0"
-  record: "Cmd+Shift+R"
-  quit: "Cmd+Shift+Q"
+  region: "{region_hotkey}"
+  fullscreen: "{mod}+Shift+9"
+  window: "{mod}+Shift+0"
+  record: "{mod}+Shift+R"
+  quit: "{mod}+Shift+Q"
 
 editor:
   enabled: false          # master switch; false -> current behavior (no editor)
@@ -104,7 +104,17 @@ func WriteStarter(configPath string) (secretPath string, err error) {
 		return "", fmt.Errorf("config: create %s: %w", dir, err)
 	}
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Hotkeys scaffold with native defaults: {mod} is the primary modifier
+		// (the windows backend maps Cmd->Ctrl anyway, but the config and
+		// settings UI should show what the user actually presses), and region
+		// gets the platform-conventional chord on windows.
+		mod, region := "Cmd", "Cmd+Shift+1"
+		if runtime.GOOS == "windows" {
+			mod, region = "Ctrl", "Win+Ctrl+PrintScreen"
+		}
 		rendered := strings.ReplaceAll(StarterConfig, "{confdir}", "~/"+dirName())
+		rendered = strings.ReplaceAll(rendered, "{mod}", mod)
+		rendered = strings.ReplaceAll(rendered, "{region_hotkey}", region)
 		if err := os.WriteFile(configPath, []byte(rendered), 0o600); err != nil {
 			return "", fmt.Errorf("config: write starter %s: %w", configPath, err)
 		}

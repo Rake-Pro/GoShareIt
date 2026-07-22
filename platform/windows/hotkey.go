@@ -200,5 +200,11 @@ func keyFor(s string) (hotkey.Key, bool) {
 	if k, ok := keyFns[l]; ok {
 		return k, true
 	}
+	switch l {
+	case "printscreen", "prtsc", "prtscn", "snapshot":
+		// hotkey.Key is a raw virtual-key code on windows; VK_SNAPSHOT has no
+		// named constant in x/hotkey.
+		return hotkey.Key(0x2C), true
+	}
 	return 0, false
 }
