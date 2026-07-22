@@ -1,11 +1,18 @@
 # GoShareIt - Project Status & Remaining Work
 
-Snapshot date: 2026-06-24. Last code commit: `86bdcb3` (P3b region selector). Branch: `main` (pushed to origin).
-**PAUSED for extensive on-device testing.** P1-P4b + GIF + region selector/recording are all code-complete
-and build green (linux core CGO-off + GOOS=windows cross-build + all unit tests). Everything except P1
-(macOS screenshots) is UNTESTED on real hardware - the macOS recording/editor/overlay cgo and the entire
-Windows build have never run. Next session: validate on a Mac and a Windows box, fix what breaks. The only
-unbuilt roadmap item is P4c (in-editor copy/save/upload buttons) plus the small LastRegion-overlay wiring.
+Snapshot date: 2026-07-22. Current release: **v0.0.2**. Branch: `main` (prod is
+protected; releases go out via the promotion-PR flow, see docs/RELEASE.md).
+Repo history was squashed to a single baseline commit ("GoShareIt 0.0.1
+baseline") on 2026-07-22 and versioning restarted from 0.0.1; `1.0.0` is
+reserved for the eventual public release.
+
+P1-P4b + GIF + region selector/recording are all code-complete and build green
+(linux core CGO-off + GOOS=windows cross-build + all unit tests). On-device
+validation is underway: core flows (install, first-run, tray, screenshot
+capture, upload, settings UI, local-only mode) are now verified on real
+Windows and macOS hardware - see "On-device validation still owed" below for
+what remains. The only unbuilt roadmap item is P4c (in-editor copy/save/upload
+buttons) plus the small LastRegion-overlay wiring.
 
 GoShareIt is a screenshot/recording + Nextcloud-upload tool. Goal: full-featured screenshot
 capture (region, full screen, window) on **macOS and Windows from one Go codebase**. Architecture, rationale,
@@ -28,49 +35,50 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
 | Phase | Scope | State |
 |---|---|---|
 | P1 | macOS screenshots (region/full/window), hotkeys, tray, upload, notify | **DONE, verified on hardware** |
-| P2 | Windows screenshots (kbinani/GDI, ms-screenclip, RegisterHotKey, systray, toast) | **Code DONE; `GOOS=windows` build verified; UNTESTED on real Windows** |
-| P3a | Recording video: macOS native AVFoundation->mp4 (no ffmpeg), Windows ffmpeg gdigrab; `Recorder` Start/Stop, record hotkey + tray toggle | **Code DONE; linux+windows build verified; cgo/recording UNTESTED on device** |
-| P4a | Annotation editor MVP: Gio out-of-process (crop/arrow/rect/text, undo, confirm/cancel); pure-Go `annotate` ops | **Code DONE; builds verified; Gio UI UNTESTED on device** |
-| P4b | Editor: blur, pixelate, highlight, step-numbers, line, freehand | **Code DONE; 17 annotate pixel tests pass (CGO off); GOOS=windows build verified; Gio UI UNTESTED on device** |
+| P2 | Windows screenshots (kbinani/GDI, ms-screenclip, RegisterHotKey, systray, toast) | **Code DONE; install (Inno setup.exe), first-run onboarding, tray icon, screenshot capture, and upload verified on hardware. Settings UI beyond first-run, toast notifications, and PrintScreen/alternative hotkey chords still untested.** |
+| P3a | Recording video: macOS native AVFoundation->mp4 (no ffmpeg), Windows ffmpeg gdigrab; `Recorder` Start/Stop, record hotkey + tray toggle | **Code DONE; linux+windows build verified; cgo/recording UNTESTED on device (both platforms)** |
+| P4a | Annotation editor MVP: Gio out-of-process (crop/arrow/rect/text, undo, confirm/cancel); pure-Go `annotate` ops | **Code DONE; PARTIALLY verified on macOS hardware (window opens, arrow draws, Confirm applies + result uploads); known bug: toolbar overflows at default window width (Confirm cut off) - see BACKLOG** |
+| P4b | Editor: blur, pixelate, highlight, step-numbers, line, freehand | **Code DONE; 17 annotate pixel tests pass (CGO off); blur verified end-to-end on macOS hardware; remaining tools untested on device** |
 | P3b | GIF (frame-sampling, no ffmpeg) + interactive region selector + region recording | **Code DONE; linux build/vet/test + GOOS=windows verified; Gio overlay + macOS cropRect untested on device (coordinate/DPI accuracy is the key risk)** |
 | P4c | Editor: in-window copy/save/upload buttons, full annotation feature set (copy/save/upload in-editor) | **NOT STARTED** |
 
-## On-device validation still owed (nothing below has run on real hardware)
+## On-device validation still owed
 
-- **Windows (all of P2 + P3a Windows):** build on a Windows box (host + editor cross-compile CGO-free,
-  but never run). Verify: ms-screenclip clipboard round-trip; foreground-window capture on multi-monitor/DPI;
-  toast notifications (unregistered AppUserModelID may be dropped); `RegisterHotKey`; systray; ffmpeg
-  recording (needs ffmpeg on PATH) and clean `q`-stop mp4 finalization.
-- **macOS recording (P3a):** AVFoundation recorder compiles only on a Mac. Verify: cgo links
-  (Foundation/AVFoundation/CoreMedia/CoreGraphics); Screen Recording TCC held by the signed `.app`;
-  Start->Stop yields a playable mp4; `Stop` not called on the main thread.
-- **Editor (P4a):** Gio UI compiles only with cgo (mac) / on Windows. Verify: `goshareit-editor` window
-  opens/foregrounds/dismisses; exit codes 0/64/1 reach the host; view transform + window->image coordinate
-  mapping; drag-to-draw; single-line text via `widget.Editor`; crop coordinate folding; the bundled
-  `goshareit-editor` beside the host in `Contents/MacOS/` is found by the launcher.
+- **Windows:** install (Inno setup.exe), first-run onboarding, tray icon, and
+  basic screenshot capture + upload are verified on real hardware. Still owed:
+  settings UI and the annotation editor beyond first-run (Gio UI compiles only
+  on Windows/cgo mac - never opened on device), P3a recording (ffmpeg, needs
+  ffmpeg on PATH, clean `q`-stop mp4 finalization), toast notifications
+  (unregistered AppUserModelID may be dropped), foreground-window capture on
+  multi-monitor/DPI, `RegisterHotKey` beyond the default chords, the updater
+  apply/relaunch loop, and PrintScreen/alternative hotkey chords + `*_edit`
+  variants.
+- **macOS:** tray icon, settings UI (save/restart flow), Screen Recording +
+  Accessibility TCC grants (persisting under the signed CI build), screenshot
+  capture, upload, local-only mode + the upload toggle, and the updater check
+  (verified with a PAT, correctly reports up-to-date) are verified on real
+  hardware. Still owed: P3a recording (AVFoundation cgo links; Start->Stop
+  yields a playable mp4; `Stop` not called on the main thread), the annotation
+  editor (Gio UI: `goshareit-editor` window opens/foregrounds/dismisses; exit
+  codes reach the host; view transform + window->image coordinate mapping;
+  drag-to-draw; single-line text via `widget.Editor`; crop coordinate folding;
+  the bundled `goshareit-editor` found by the launcher), the region selector
+  overlay + cropRect coordinate accuracy, edit-variant and alternative
+  hotkeys, and the updater apply/relaunch loop.
+- **Both platforms:** browser sign-in (Nextcloud Login Flow v2) end-to-end has
+  not been exercised on device.
 
-## Recent fixes (2026-06-24, on top of P1-P4b)
+## macOS TCC lesson
 
-- **macOS TCC staleness FIXED at the root:** `dev-build.sh` now auto-discovers the `GoShareIt Dev`
-  cert and always signs, so Accessibility/Screen Recording/Input Monitoring grants persist across
-  rebuilds (the recurring "remove and re-add" dance was caused by shipping UNSIGNED bundles). Plus a
-  darwin permission preflight (`platform/darwin/permissions.{go,m}`, called from `wire_darwin.go`)
-  that requests all three on startup so the user gets real prompts. (cgo - verify on a Mac.)
-- **Windows hotkey mapping FIXED:** `Cmd/Command/Super/Meta` now map to `Ctrl` (not OS-reserved `Win`),
-  so a shared macOS config registers on Windows. `Win` still maps to the logo key.
-- **Recorder temp-leak FIXED:** both recorders delete the temp mp4 after reading bytes.
-- **Editor text UX FIXED:** selecting the Text tool focuses the toolbar field; it clears after placing.
-- **Tray:** separate greyed Start/Stop recording items; hotkeys shown on every menu label.
-- **Logging:** zerolog everywhere (first-run msg + editor errors converted).
-
-## Known issues / TODOs (in priority-ish order)
-
-1. **`LastRegion` falls back to interactive** on both macOS (`screencapture -i` gives no rect) and Windows
-   (ms-screenclip gives no rect). Needs a custom overlay to capture the rect. TODO(P3b).
-2. **Video region records full display** on both platforms (no interactive video-region picker yet). P3b.
-3. ~~Menu-bar uses a text title, no icon~~ DONE 2026-07-22: embedded tray glyph shipped (see below).
-4. ~~First-run is silent~~ DONE 2026-07-22: settings-UI onboarding + file logging (see below).
-5. **Notifier OpenURL/thumbnail ignored** on both platforms (P1 limitation).
+An unsigned or inconsistently-signed `.app` gets a new code identity on every
+build, so macOS drops the Screen Recording / Accessibility / Input Monitoring
+grants each time (the "remove and re-add" dance). The fix is consistent
+signing, not re-granting: `scripts/dev-build.sh` auto-discovers a stable local
+signing identity for local dev builds, and CI now signs every release bundle
+with a stable identity too (currently an interim self-signed "RakePro-Dev"
+cert - see docs/PERMISSIONS.md and BACKLOG.md for the plan to replace it with
+a real Developer ID Application cert). Verified on hardware: TCC grants
+persist across launches and updates under the signed CI build.
 
 NOTE: ongoing work now tracks in `CHANGELOG.md` (shipped) and `BACKLOG.md` (planned) at the repo
 root - update BOTH with every change; this file stays as the architecture/validation reference.
@@ -97,7 +105,7 @@ root - update BOTH with every change; this file stays as the architecture/valida
   to the virtual desktop. Verify the recorded area matches the selected box pixel-for-pixel. v1 targets the
   PRIMARY display only.
 
-## Release pipeline + self-update (added 2026-07-22)
+## Release pipeline + self-update
 
 - **Promotion flow (org standard):** `sync-prod.yml` opens a bot `main -> prod` PR; the user's merge
   (MERGE COMMIT only) triggers `release.yml`, which mints the next semver tag (`release:minor`/`release:major`
@@ -109,7 +117,10 @@ root - update BOTH with every change; this file stays as the architecture/valida
   fakes); `checksums.txt` (sha256, updater fails closed without it). Asset names must stay in sync with
   `update.AssetName()`.
 - **macOS signing in CI is gated on secrets** (`MACOS_CERT_P12`(+`_PASSWORD`) + `DEVELOPER_ID_APP` to sign;
-  `AC_APPLE_ID`/`AC_PASSWORD`/`TEAM_ID` to notarize). Absent secrets -> unsigned artifacts, jobs still green.
+  `AC_APPLE_ID`/`AC_PASSWORD`/`TEAM_ID` to notarize). The secrets are populated today with an interim
+  self-signed "RakePro-Dev" identity, so release builds ARE signed (good enough for TCC persistence, no
+  Gatekeeper credit yet); a build with no signing secrets at all falls back to ad-hoc signing the whole
+  bundle so it still has one consistent identity.
 - **Self-update:** `internal/core/update` polls the GitHub Releases API (`update:` config section; optional
   fine-grained read-only PAT in `<app root>/github-token.secret` while the repo is private -
   anonymous API takes over when it goes public). Tray item "Check for Updates" -> "Install Update vX.Y.Z";
@@ -117,14 +128,16 @@ root - update BOTH with every change; this file stays as the architecture/valida
   Apply swaps the whole `.app` (darwin, via ditto; same-identity signing preserves TCC grants) or the
   sibling exes (windows/linux, rename-aside). Version is stamped via ldflags into
   `internal/core/version.Version`; Windows release builds add `-H windowsgui`.
-- **Untested on device:** the whole updater apply/relaunch path, the Inno installer, and signed-in-CI
-  bundles have never run on real hardware (same caveat as P2-P4b).
+- **Verified on device:** the periodic update check, including with a PAT configured, correctly reports
+  "up to date" on macOS. **Still untested:** the actual apply/relaunch path on any platform, and the
+  Windows Inno installer's own upgrade-in-place behavior (a fresh install via setup.exe is verified).
 
-## Tray icon + settings UI (added 2026-07-22)
+## Tray icon + settings UI
 
 - **Tray icon shipped:** embedded glyph (capture corners + dot, `internal/icon`, regenerate via
   `scripts/gen-tray-icon.py`): black template PNG on macOS (adaptive menu bar), multi-size ICO on
-  Windows. Text-title fallback stays when icon bytes are absent. Closes the long-standing TODO #3.
+  Windows. Text-title fallback stays when icon bytes are absent. Verified rendering on both macOS and
+  Windows hardware.
 - **Settings UI:** `goshareit-settings` - a THIRD sibling binary (Wails v2 + vanilla-JS embedded
   frontend, no node build; v3 was still alpha). Same out-of-process pattern as the editor. Tray gains
   "Settings...". Backend `internal/settings.Service` (pure Go, linux-tested): Load = raw config parse
@@ -135,12 +148,23 @@ root - update BOTH with every change; this file stays as the architecture/valida
 - **Build notes:** wails v2 windows is CGO-free (cross-compiles from linux); production builds need
   `-tags desktop,production`. Settings binary is bundled in the .app, the windows zip + Inno installer,
   and lipo'd universal on macOS. Linux: excluded (//go:build darwin||windows).
-- **Untested on device:** everything GUI (wails window, icon rendering, restart-on-save loop).
-- **First-run onboarding (v1.0.4):** an unloadable config no longer exits silently - the host opens the
+- **Verified on device:** macOS - full save/restart flow, TCC grants persisting under the signed build.
+  Windows - the first-run onboarding path only. **Still untested:** the Windows settings UI and general
+  save/restart flow beyond first-run.
+- **First-run onboarding:** an unloadable config no longer exits silently - the host opens the
   settings UI, blocks, and retries the load after it closes. Found on the first real Windows install:
   the old scaffold-and-exit flow plus `-H windowsgui` (invisible stderr) looked like "app doesn't start".
-  All logs now also mirror to `<app root>/goshareit.log` (5MB truncate) for on-device diagnosis.
-  Closes old TODO #4 (silent first run).
+  All logs now also mirror to `<app root>/goshareit.log` (5MB truncate) for on-device diagnosis. Verified
+  on both macOS and Windows hardware.
+
+## Known issues / TODOs (in priority-ish order)
+
+1. **`LastRegion` falls back to interactive** on both macOS (`screencapture -i` gives no rect) and Windows
+   (ms-screenclip gives no rect). Needs a custom overlay to capture the rect. TODO(P3b).
+2. **Video region records full display** on both platforms (no interactive video-region picker yet). P3b.
+3. ~~Menu-bar uses a text title, no icon~~ DONE: embedded tray glyph shipped (see above).
+4. ~~First-run is silent~~ DONE: settings-UI onboarding + file logging (see above).
+5. **Notifier OpenURL/thumbnail ignored** on both platforms (P1 limitation).
 
 ## Build / run quick reference
 
@@ -153,14 +177,5 @@ root - update BOTH with every change; this file stays as the architecture/valida
   remain read fallbacks for existing installs. History lives in the same root (`history.jsonl`).
   Enable the editor with `editor.enabled: true` + `on_modes: [region]`.
 - CI: `.github/workflows/ci.yml` - linux core (CGO off) + Windows cross-build + macOS cgo build of
-  host+editor. Signing gated behind `DEVELOPER_ID_APP` secret.
-- Helper container note (for the assistant): Go is at `/home/claude/go` (set `GOROOT=/home/claude/go`,
-  `GOTMPDIR=/home/claude/gotmp`; `/tmp` is noexec). Use `go get` not `go mod tidy` on linux (tidy prunes
-  the darwin/windows-only deps). Old prototype is parked under `_prototype/`.
-
-## Resume plan (after container restart)
-
-1. Re-clone `https://github.com/Rake-Pro/GoShareIt` (workspace is ephemeral; repo is the source of truth).
-2. Read this file + the design docs.
-3. Decide next: either (a) on-device validation of P2/P3a/P4a on real Mac/Windows and fix what breaks,
-   or (b) implement P3b (GIF + region) / P4b (blur/highlight/steps).
+  host+editor+settings. `.github/workflows/release.yml` - the actual release build/sign/publish path,
+  see docs/RELEASE.md. Old prototype code is parked under `_prototype/`.

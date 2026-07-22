@@ -6,15 +6,27 @@ feature is planned, started, or shipped (shipped items move to
 
 ## On-device validation owed
 
-- macOS: recording (AVFoundation cgo), annotation editor UI, region selector
-  overlay + cropRect coordinate accuracy (Retina scale / Y-flip), settings UI,
-  updater apply/relaunch loop, edit-variant and alternative hotkeys.
+Verified on real hardware: Windows install (setup.exe), first-run onboarding,
+tray icon, screenshot capture, upload; macOS tray icon, settings UI
+(save/restart flow), TCC permissions (granted and persisting under the signed
+build), screenshot capture, upload, local-only mode + upload toggle, and the
+updater check (with a PAT, correctly reports up-to-date).
+
+- macOS: recording (AVFoundation cgo), region selector overlay + cropRect
+  coordinate accuracy (Retina scale / Y-flip), updater apply/relaunch loop,
+  edit-variant and alternative/punctuation hotkeys. Annotation editor is
+  PARTIALLY verified (opens, arrow + blur draw and apply on Confirm); rest
+  of the tool set and text entry still owed, plus the toolbar-overflow bug
+  under Features.
 - Windows: annotation editor UI, recording (ffmpeg), toast notifications,
-  region overlay coordinates, settings UI beyond first-run, updater apply
-  loop, PrintScreen hotkey chords.
+  region overlay coordinates, settings UI and editor beyond first-run,
+  updater apply loop, PrintScreen hotkey chords.
+- Both: browser sign-in (Nextcloud Login Flow v2) end-to-end.
 
 ## Features
 
+- Editor: live raster previews for blur/pixelate (render through the
+  annotate ops instead of the approximate grey-box preview).
 - In-editor copy / save / upload buttons (finish the annotation workflow).
 - LastRegion capture: reuse the last selected rectangle without re-picking
   (store the overlay's rect, feed `screencapture -R` / `CaptureRect`).
@@ -29,9 +41,17 @@ feature is planned, started, or shipped (shipped items move to
 
 ## Release / distribution
 
-- App icons: .icns for the macOS bundle, .ico for the Windows exe (tray glyph
-  exists; app-level icons do not).
-- macOS signing + notarization in CI (secrets-gated path exists, unused).
+- App icons: .icns for the macOS bundle, .ico for the Windows exe. The
+  master logo now exists (build/icons/goshareit_icon.png, also used for the
+  tray) - derive both from it and wire into bundle.sh / the Inno installer.
+- Replace the interim self-signed macOS cert with a real Developer ID
+  Application cert: the current CI secrets carry a self-signed "RakePro-Dev"
+  identity (TeamIdentifier not set - fine for TCC persistence on personal
+  machines, zero Gatekeeper credit). Create the cert via Xcode/portal
+  (Account Holder), re-export the p12, replace MACOS_CERT_P12(+_PASSWORD)
+  and DEVELOPER_ID_APP; expect one TCC re-grant on the identity change.
+- macOS notarization in CI (secrets-gated path exists; add AC_APPLE_ID /
+  AC_PASSWORD / TEAM_ID once the real cert is in).
 - Windows Authenticode signing (SmartScreen).
 - Public release: repo audit pass, then public visibility; updater switches
   to anonymous GitHub API automatically.

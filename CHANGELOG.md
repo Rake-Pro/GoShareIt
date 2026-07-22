@@ -6,7 +6,32 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Changed
+- Windows tray icon replaced with the product logo (shutter aperture + G
+  mark, full-color multi-size ICO). The macOS menu bar keeps the monochrome
+  capture-corners template glyph, which suits the black-and-white menu bar
+  better. Master logo at build/icons/goshareit_icon.png (also the future
+  app-icon source); regenerate via scripts/gen-tray-icon.py.
+
+### Fixed
+- Editor toolbar no longer pushes Confirm/Cancel out of view at narrow
+  window widths: split into a scrollable tool/swatch row and a fixed action
+  row, plus a minimum window size (found on-device at MacBook default size).
+
 ### Added
+- Hotkey parser: punctuation keys on both OSes (` - = [ ] ; ' , . / \ and
+  Space, plus word aliases like `backtick`/`minus`), US layout.
+
+## [0.0.2] - 2026-07-22
+
+### Added
+- `upload.enabled` toggle (settings: "Upload captures"): off = local-only
+  mode. Nothing leaves the machine, the Nextcloud section and credentials
+  become fully optional (empty password file no longer blocks saving), the
+  pipeline skips upload/share-link steps while local save, clipboard image
+  copy, history, and notifications keep working, and the settings UI greys
+  out the server/after-upload sections while disabled. Credentials on disk
+  are kept, so uploads can be re-enabled at any time.
 - Upload toggle hotkey (`hotkeys.upload_toggle`) and a tray "Uploads: On/Off"
   item: flip local-only mode instantly. Enabling is refused (with a
   notification) when no server is configured; the state persists to the
@@ -16,13 +41,6 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   Accessibility) persist within an install instead of re-prompting on every
   capture. Grants still need one re-approval after each update until real
   code signing lands.
-- `upload.enabled` toggle (settings: "Upload captures"): off = local-only
-  mode. Nothing leaves the machine, the Nextcloud section and credentials
-  become fully optional (empty password file no longer blocks saving), the
-  pipeline skips upload/share-link steps while local save, clipboard image
-  copy, history, and notifications keep working, and the settings UI greys
-  out the server/after-upload sections while disabled. Credentials on disk
-  are kept, so uploads can be re-enabled at any time.
 
 ## [0.0.1] - 2026-07-22
 

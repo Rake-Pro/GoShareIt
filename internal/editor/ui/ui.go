@@ -99,6 +99,8 @@ func Run(img image.Image, opts Options) (result image.Image, confirmed bool, err
 	w.Option(
 		app.Title("GoShareIt - Annotate"),
 		app.Size(unit.Dp(1000), unit.Dp(720)),
+		// Keep the action row usable even when the user shrinks the window.
+		app.MinSize(unit.Dp(640), unit.Dp(400)),
 	)
 	res, ok, rerr := e.loop(w)
 	return res, ok, rerr
@@ -141,6 +143,7 @@ type editor struct {
 	confirm   widget.Clickable
 	cancelB   widget.Clickable
 	textIn    widget.Editor
+	toolRow   layout.List // scrollable tool/swatch row (toolbar row 1)
 
 	imgOp paint.ImageOp
 
@@ -207,6 +210,7 @@ func newEditor(img image.Image, opts Options) *editor {
 		e.swatchBtn[i] = new(widget.Clickable)
 	}
 	e.textIn.SingleLine = true
+	e.toolRow.Axis = layout.Horizontal
 	return e
 }
 
