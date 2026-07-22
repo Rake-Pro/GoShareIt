@@ -26,10 +26,19 @@ gets re-prompted or silently denied after every rebuild).
 
 ## Persistence and signing
 
-TCC ties a grant to the app's code signature (Team ID + bundle id). A properly
-signed + notarized GoShareIt keeps its permissions across launches and updates.
-Unsigned or re-signed-with-a-different-identity builds are treated as a new app
-and must be re-authorized.
+TCC ties a grant to the app's code signature (Team ID + bundle id). What
+matters for persistence is a **stable signing identity**, not notarization:
+a GoShareIt build signed with the same identity every time keeps its
+permissions across launches and updates. Unsigned or
+re-signed-with-a-different-identity builds are treated as a new app and must
+be re-authorized.
+
+Release builds from CI are codesigned with a stable identity (currently an
+interim self-signed "RakePro-Dev" cert - see [RELEASE.md](RELEASE.md)), so
+downloaded builds keep TCC grants across updates the same way a locally
+signed dev build does. That identity carries no Gatekeeper credit until it is
+replaced with a real Developer ID Application certificate (tracked in
+[BACKLOG.md](../BACKLOG.md)).
 
 ## Resetting for testing
 
