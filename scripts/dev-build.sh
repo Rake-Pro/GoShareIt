@@ -43,8 +43,9 @@ HOST_ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
 
 echo "==> building cgo binaries (darwin/$HOST_ARCH): host + editor"
 mkdir -p "$DIST"
-CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -o "$BIN" ./cmd/goshareit
-CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -o "$EDITOR_BIN" ./cmd/goshareit-editor
+LDFLAGS="-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=$VERSION"
+CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -ldflags "$LDFLAGS" -o "$BIN" ./cmd/goshareit
+CGO_ENABLED=1 GOOS=darwin GOARCH="$HOST_ARCH" go build -ldflags "$LDFLAGS" -o "$EDITOR_BIN" ./cmd/goshareit-editor
 
 echo "==> assembling $APP"
 VERSION="$VERSION" BUNDLE_ID="$BUNDLE_ID" BIN="$BIN" EDITOR_BIN="$EDITOR_BIN" APP="$APP" "$SCRIPT_DIR/bundle.sh"

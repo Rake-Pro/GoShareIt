@@ -22,7 +22,9 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
 	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
+	"github.com/Rake-Pro/GoShareIt/internal/core/update"
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
+	"github.com/Rake-Pro/GoShareIt/internal/core/version"
 )
 
 func main() {
@@ -95,7 +97,21 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if err := run(ctx, app, cancel); err != nil {
+	var updates *updateController
+	if cfg.UpdateEnabled() {
+		upd, err := update.New(update.Config{
+			Repo:    cfg.Update.Repo,
+			Token:   cfg.UpdateToken(),
+			Current: version.Version,
+		})
+		if err != nil {
+			logger.Warn().Err(err).Msg("updater disabled")
+		} else {
+			updates = newUpdateController(upd, app, time.Duration(cfg.Update.IntervalHours)*time.Hour, cancel)
+		}
+	}
+
+	if err := run(ctx, app, updates, cancel); err != nil {
 		logger.Fatal().Err(err).Msg("run")
 	}
 }
@@ -103,7 +119,7 @@ func main() {
 // run wires hotkeys and the tray, then blocks until ctx is cancelled. It is
 // portable: the tray runs on the main goroutine (required by some OSes) while
 // the hotkey manager runs alongside.
-func run(ctx context.Context, app *core.App, quit func()) error {
+func run(ctx context.Context, app *core.App, updates *updateController, quit func()) error {
 	cfg := app.Config()
 	tr := app.Tray()
 
@@ -252,6 +268,13 @@ func run(ctx context.Context, app *core.App, quit func()) error {
 		items = append(items,
 			tray.MenuItem{ID: "record-stop", Title: label("Stop Recording", cfg.Hotkeys.Record), OnClick: stopRec, Disabled: true},
 		)
+	}
+	if updates != nil {
+		items = append(items,
+			tray.MenuItem{Separator: true},
+			updates.menuItem(ctx),
+		)
+		updates.start(ctx)
 	}
 	items = append(items,
 		tray.MenuItem{Separator: true},

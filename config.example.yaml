@@ -49,5 +49,14 @@ editor:
   color: "#ff3b30"
   tools: [crop, arrow, rect, text, blur, highlight, step]
 
+update:
+  enabled: true           # self-update from GitHub Releases
+  repo: Rake-Pro/GoShareIt
+  # Optional while the repo is private: path to a file holding a fine-grained
+  # read-only PAT (Contents: Read on the repo above). Missing/empty file ->
+  # anonymous API, which works once the repo is public.
+  token_file: ~/.config/goshareit/github-token.secret
+  interval_hours: 24      # background check cadence (plus one check ~30s after launch)
+
 logging:
   level: "info"

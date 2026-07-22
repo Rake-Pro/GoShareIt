@@ -1,0 +1,301 @@
+# Release: promotion-PR merge into prod mints the next semver tag, then three
+# OS jobs build and package the app, and publish attaches everything to a
+# GitHub Release. That release feed is what the in-app updater
+# (internal/core/update) consumes - asset names must stay in sync with
+# update.AssetName().
+#
+# Artifact matrix:
+#   macOS    GoShareIt_<ver>_darwin_universal.dmg  (human install)
+#            GoShareIt_<ver>_darwin_universal.zip  (updater feed, whole .app)
+#   Windows  GoShareIt_<ver>_windows_amd64_setup.exe (Inno Setup, per-user)
+#            GoShareIt_<ver>_windows_amd64.zip       (updater feed, loose exes)
+#   Linux    GoShareIt_<ver>_linux_amd64.tar.gz      (EXPERIMENTAL: no capture
+#            backend on linux yet - wire_linux.go runs in-memory fakes)
+#   checksums.txt (sha256; the updater fails closed without it)
+#
+# macOS signing/notarization are gated on secrets and skipped cleanly when
+# absent: MACOS_CERT_P12 (base64 .p12) + MACOS_CERT_P12_PASSWORD +
+# DEVELOPER_ID_APP to sign; AC_APPLE_ID + AC_PASSWORD + TEAM_ID to notarize.
+name: Release
+
+on:
+  # Normal path: a promotion PR merges into prod; this run mints the next
+  # semver tag and builds from it, all in one workflow (a tag pushed with
+  # GITHUB_TOKEN cannot trigger another workflow, so nothing is chained).
+  push:
+    branches: [prod]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+      version: ${{ steps.next.outputs.version }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve or mint the release tag
+        id: next
+        run: |
+          set -euo pipefail
+          emit() {
+            echo "tag=$1" >> "$GITHUB_OUTPUT"
+            echo "version=${1#v}" >> "$GITHUB_OUTPUT"
+          }
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            emit "${GITHUB_REF_NAME}"
+            exit 0
+          fi
+
+          # Re-runs (e.g. a failed build retried via workflow_dispatch) reuse
+          # the existing tag; publish uploads idempotently.
+          existing=$(git tag --points-at HEAD -l 'v*' | head -1)
+          if [ -n "${existing}" ]; then
+            echo "HEAD already tagged ${existing}; rebuilding it."
+            emit "${existing}"
+            exit 0
+          fi
+
+          if [ "${GITHUB_REF}" != "refs/heads/prod" ]; then
+            echo "Not prod and HEAD untagged; nothing to release."
+            emit ""
+            exit 0
+          fi
+
+          latest=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          if [ -z "${latest}" ]; then
+            next="v1.0.0"
+          else
+            labels=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              --jq '[.[].labels[].name] | join(",")' || echo "")
+            bump=patch
+            case ",${labels}," in
+              *,release:major,*) bump=major ;;
+              *,release:minor,*) bump=minor ;;
+            esac
+            IFS=. read -r ma mi pa <<< "${latest#v}"
+            case "${bump}" in
+              major) next="v$((ma+1)).0.0" ;;
+              minor) next="v${ma}.$((mi+1)).0" ;;
+              patch) next="v${ma}.${mi}.$((pa+1))" ;;
+            esac
+          fi
+
+          git tag "${next}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${next}"
+          emit "${next}"
+
+  macos:
+    needs: [version]
+    if: needs.version.outputs.tag != ''
+    runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.version.outputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Build universal binaries (cgo, arm64 + amd64 + lipo)
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ldflags="-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
+          for arch in arm64 amd64; do
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-$arch" ./cmd/goshareit
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-editor-$arch" ./cmd/goshareit-editor
+          done
+          lipo -create -output dist/goshareit dist/goshareit-arm64 dist/goshareit-amd64
+          lipo -create -output dist/goshareit-editor dist/goshareit-editor-arm64 dist/goshareit-editor-amd64
+
+      - name: Assemble GoShareIt.app
+        run: |
+          VERSION="${VERSION}" BIN=dist/goshareit EDITOR_BIN=dist/goshareit-editor \
+            APP=dist/GoShareIt.app scripts/bundle.sh
+
+      - name: Check signing secrets
+        id: secrets
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
+        run: |
+          echo "sign=$([ -n "$MACOS_CERT_P12" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "notarize=$([ -n "$AC_APPLE_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Sign
+        if: steps.secrets.outputs.sign == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_P12_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+          DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
+        run: |
+          set -euo pipefail
+          echo "$MACOS_CERT_P12" | base64 -d > /tmp/cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          rm /tmp/cert.p12
+          APP=dist/GoShareIt.app scripts/sign.sh
+
+      - name: Notarize and staple
+        if: steps.secrets.outputs.sign == 'true' && steps.secrets.outputs.notarize == 'true'
+        env:
+          AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
+          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: |
+          set -euo pipefail
+          ditto -c -k --keepParent dist/GoShareIt.app /tmp/notarize.zip
+          xcrun notarytool submit /tmp/notarize.zip \
+            --apple-id "$AC_APPLE_ID" --team-id "$TEAM_ID" --password "$AC_PASSWORD" --wait
+          xcrun stapler staple dist/GoShareIt.app
+
+      - name: Package dmg + zip
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          ditto -c -k --keepParent dist/GoShareIt.app "out/GoShareIt_${VERSION}_darwin_universal.zip"
+          hdiutil create -volname GoShareIt -srcfolder dist/GoShareIt.app -ov -format UDZO \
+            "out/GoShareIt_${VERSION}_darwin_universal.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/*
+          if-no-files-found: error
+
+  windows:
+    needs: [version]
+    if: needs.version.outputs.tag != ''
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.version.outputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: true
+
+      - name: Build (CGO off, windowsgui)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/windows
+          ldflags="-H windowsgui -X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit.exe ./cmd/goshareit
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit-editor.exe ./cmd/goshareit-editor
+
+      - name: Package zip (updater feed)
+        shell: bash
+        run: |
+          mkdir -p out
+          7z a "out/GoShareIt_${VERSION}_windows_amd64.zip" ./dist/windows/goshareit.exe ./dist/windows/goshareit-editor.exe
+
+      - name: Build Inno Setup installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          choco install innosetup -y --no-progress
+          iscc "/DAppVersion=${VERSION}" "/DBinDir=$(pwd -W 2>/dev/null || pwd)/dist/windows" "/Oout" build/windows/goshareit.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          if-no-files-found: error
+
+  linux:
+    needs: [version]
+    if: needs.version.outputs.tag != ''
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ needs.version.outputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+          cache: true
+
+      # Host binary only: the editor is //go:build darwin||windows, and the
+      # linux shell still wires in-memory fakes. Shipped as experimental.
+      - name: Build and package (CGO off)
+        run: |
+          set -euo pipefail
+          mkdir -p dist out
+          CGO_ENABLED=0 go build \
+            -ldflags "-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}" \
+            -o dist/goshareit ./cmd/goshareit
+          tar -C dist -czf "out/GoShareIt_${VERSION}_linux_amd64.tar.gz" goshareit
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    needs: [version, macos, windows, linux]
+    if: needs.version.outputs.tag != ''
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd assets
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create or update release
+        run: |
+          set -euo pipefail
+          notes="Linux artifact is EXPERIMENTAL: no capture backend is wired on linux yet."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" \
+              --title "GoShareIt $TAG" --notes "$notes" --generate-notes
+          fi

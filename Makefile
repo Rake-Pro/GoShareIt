@@ -27,6 +27,9 @@ EDITOR_CMD  := ./cmd/goshareit-editor
 # Host architecture for the darwin build (arm64 on Apple Silicon, amd64 on Intel).
 HOST_ARCH := $(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
+# Stamp the version into the binary for the self-updater.
+LDFLAGS := -X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=$(VERSION)
+
 export VERSION
 export BUNDLE_ID
 
@@ -49,8 +52,8 @@ fmt-check: ## Fail if any file is not gofmt-clean.
 
 build-darwin: ## Build the cgo host + editor binaries for the host arch into dist/.
 	@mkdir -p $(DIST)
-	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -o $(BIN) $(CMD)
-	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -o $(EDITOR_BIN) $(EDITOR_CMD)
+	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(CMD)
+	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(EDITOR_BIN) $(EDITOR_CMD)
 	@echo "built $(BIN) and $(EDITOR_BIN) (darwin/$(HOST_ARCH))"
 
 bundle: build-darwin ## Assemble dist/GoShareIt.app (host + editor) from the built binaries.

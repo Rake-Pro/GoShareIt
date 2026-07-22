@@ -22,10 +22,12 @@ type Config struct {
 	AfterUpload  AfterUploadConfig  `yaml:"after_upload"`
 	Hotkeys      HotkeysConfig      `yaml:"hotkeys"`
 	Editor       EditorConfig       `yaml:"editor"`
+	Update       UpdateConfig       `yaml:"update"`
 	Logging      LoggingConfig      `yaml:"logging"`
 
-	// password is resolved at load time, never serialized.
-	password string `yaml:"-"`
+	// password and updateToken are resolved at load time, never serialized.
+	password    string `yaml:"-"`
+	updateToken string `yaml:"-"`
 }
 
 // NextcloudConfig holds connection settings. The password itself comes from
@@ -82,6 +84,25 @@ type EditorConfig struct {
 	Tools          []string `yaml:"tools"`
 }
 
+// UpdateConfig controls self-update from GitHub Releases. Enabled defaults to
+// true; TokenFile is optional and only needed while the repo is private (a
+// fine-grained read-only PAT; the file lives beside the other secrets and is
+// provisioned per machine, never committed anywhere).
+type UpdateConfig struct {
+	Enabled       *bool  `yaml:"enabled"`
+	Repo          string `yaml:"repo"`
+	TokenFile     string `yaml:"token_file"`
+	IntervalHours int    `yaml:"interval_hours"`
+}
+
+// UpdateEnabled reports the effective enabled state (default true).
+func (c *Config) UpdateEnabled() bool {
+	return c.Update.Enabled == nil || *c.Update.Enabled
+}
+
+// UpdateToken returns the resolved GitHub token ("" when not configured).
+func (c *Config) UpdateToken() string { return c.updateToken }
+
 // LoggingConfig controls logging.
 type LoggingConfig struct {
 	Level string `yaml:"level"`
@@ -125,6 +146,9 @@ func Load(path string) (*Config, error) {
 	if err := cfg.resolvePassword(); err != nil {
 		return nil, err
 	}
+	if err := cfg.resolveUpdateToken(); err != nil {
+		return nil, err
+	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -145,6 +169,31 @@ func (c *Config) applyDefaults() {
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
 	}
+	if c.Update.Repo == "" {
+		c.Update.Repo = "Rake-Pro/GoShareIt"
+	}
+	if c.Update.IntervalHours <= 0 {
+		c.Update.IntervalHours = 24
+	}
+}
+
+// resolveUpdateToken reads the optional GitHub token file. A missing or empty
+// file is not an error: the updater then calls the API anonymously, which
+// works once the repo is public.
+func (c *Config) resolveUpdateToken() error {
+	file := strings.TrimSpace(c.Update.TokenFile)
+	if file == "" {
+		return nil
+	}
+	b, err := os.ReadFile(expandHome(file))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("config: read update.token_file %s: %w", file, err)
+	}
+	c.updateToken = strings.TrimSpace(string(b))
+	return nil
 }
 
 func (c *Config) resolvePassword() error {

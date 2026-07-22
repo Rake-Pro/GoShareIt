@@ -95,6 +95,29 @@ clipboard link is `/s/{token}/preview` for images, `/download` otherwise.
   to the virtual desktop. Verify the recorded area matches the selected box pixel-for-pixel. v1 targets the
   PRIMARY display only.
 
+## Release pipeline + self-update (added 2026-07-22)
+
+- **Promotion flow (org standard):** `sync-prod.yml` opens a bot `main -> prod` PR; the user's merge
+  (MERGE COMMIT only) triggers `release.yml`, which mints the next semver tag (`release:minor`/`release:major`
+  PR labels; patch default) and builds all artifacts in the same run. `ci.yml` gained an aggregate `build`
+  job - prod protection requires that exact check name.
+- **Artifacts per release:** macOS universal (lipo arm64+amd64) `.dmg` + `.zip` (zip = whole `.app`, the
+  updater feed); Windows amd64 Inno Setup per-user installer (`%LOCALAPPDATA%\Programs\GoShareIt`, no
+  admin) + loose-exe `.zip` (updater feed); Linux `.tar.gz` (EXPERIMENTAL - wire_linux.go still runs
+  fakes); `checksums.txt` (sha256, updater fails closed without it). Asset names must stay in sync with
+  `update.AssetName()`.
+- **macOS signing in CI is gated on secrets** (`MACOS_CERT_P12`(+`_PASSWORD`) + `DEVELOPER_ID_APP` to sign;
+  `AC_APPLE_ID`/`AC_PASSWORD`/`TEAM_ID` to notarize). Absent secrets -> unsigned artifacts, jobs still green.
+- **Self-update:** `internal/core/update` polls the GitHub Releases API (`update:` config section; optional
+  fine-grained read-only PAT in `~/.config/goshareit/github-token.secret` while the repo is private -
+  anonymous API takes over when it goes public). Tray item "Check for Updates" -> "Install Update vX.Y.Z";
+  background check 30s after launch + every `interval_hours`. Dev builds (`0.0.0-dev`) never auto-check.
+  Apply swaps the whole `.app` (darwin, via ditto; same-identity signing preserves TCC grants) or the
+  sibling exes (windows/linux, rename-aside). Version is stamped via ldflags into
+  `internal/core/version.Version`; Windows release builds add `-H windowsgui`.
+- **Untested on device:** the whole updater apply/relaunch path, the Inno installer, and signed-in-CI
+  bundles have never run on real hardware (same caveat as P2-P4b).
+
 ## Build / run quick reference
 
 - Local macOS dev loop: `make dev-run` (build host+editor -> bundle `.app` -> sign with

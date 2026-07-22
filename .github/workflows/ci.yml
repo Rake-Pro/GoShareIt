@@ -106,3 +106,14 @@ jobs:
       - name: Sign & notarize (gated)
         if: steps.secrets.outputs.present == 'true'
         run: echo "Signing path would run here (see docs/RELEASE.md)."
+
+  # ---------------------------------------------------------------------------
+  # Aggregate gate. The prod branch protection requires a check literally named
+  # "build" (promotion-flow standard), so this fans in every real job.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build
+    needs: [core, macos-build]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "all builds green"

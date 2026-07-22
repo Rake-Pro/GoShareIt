@@ -91,6 +91,9 @@ func (a *App) Hotkeys() hotkey.Manager { return a.hotkeys }
 // Tray exposes the tray provider (may be nil).
 func (a *App) Tray() tray.Tray { return a.tray }
 
+// Notifier exposes the notifier (may be nil).
+func (a *App) Notifier() notify.Notifier { return a.notifier }
+
 // RunCapture drives the full pipeline for the given mode.
 func (a *App) RunCapture(ctx context.Context, mode capture.Mode) (upload.UploadResult, error) {
 	req := capture.Request{
