@@ -71,12 +71,17 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 	}
 }
 
+// layoutToolbar renders two rows: a horizontally scrollable row of tool
+// buttons + color swatches (whose width varies with the configured tool set),
+// and a fixed action row (stroke, text field, undo/redo/cancel/confirm). The
+// split guarantees Confirm/Cancel stay visible at any window width - a single
+// flex row used to push them out of view on narrower screens.
 func (e *editor) layoutToolbar(gtx layout.Context) layout.Dimensions {
 	th := e.th
 	inset := layout.UniformInset(unit.Dp(6))
 	return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		var children []layout.FlexChild
-
+		// Row 1: tools + swatches, scrollable.
+		items := make([]layout.Widget, 0, len(e.tools)+len(e.palette))
 		for _, t := range e.tools {
 			t := t
 			label := toolLabel(t)
@@ -84,54 +89,54 @@ func (e *editor) layoutToolbar(gtx layout.Context) layout.Dimensions {
 				label = "[" + label + "]"
 			}
 			btn := material.Button(th, e.toolBtns[t], label)
-			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			items = append(items, func(gtx layout.Context) layout.Dimensions {
 				return layout.UniformInset(unit.Dp(2)).Layout(gtx, btn.Layout)
-			}))
+			})
 		}
-
-		// Color swatches.
 		for i := range e.palette {
 			i := i
-			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			items = append(items, func(gtx layout.Context) layout.Dimensions {
 				return e.layoutSwatch(gtx, i)
-			}))
+			})
 		}
 
-		// Stroke controls.
+		// Row 2: stroke controls, text input, actions.
 		dec := material.Button(th, &e.strokeDec, "-")
 		inc := material.Button(th, &e.strokeInc, "+")
-		children = append(children,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(unit.Dp(2)).Layout(gtx, dec.Layout)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Body1(th, "w"+itoa(e.stroke))
-				return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(unit.Dp(2)).Layout(gtx, inc.Layout)
-			}),
-		)
-
-		// Text input (used by the text tool).
-		children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			ed := material.Editor(th, &e.textIn, "text...")
-			return layout.UniformInset(unit.Dp(6)).Layout(gtx, ed.Layout)
-		}))
-
-		// Undo / redo / cancel / confirm.
 		undo := material.Button(th, &e.undoBtn, "Undo")
 		redo := material.Button(th, &e.redoBtn, "Redo")
 		cancel := material.Button(th, &e.cancelB, "Cancel")
 		ok := material.Button(th, &e.confirm, "Confirm")
-		children = append(children,
-			rigidBtn(gtx, undo),
-			rigidBtn(gtx, redo),
-			rigidBtn(gtx, cancel),
-			rigidBtn(gtx, ok),
-		)
 
-		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return e.toolRow.Layout(gtx, len(items), func(gtx layout.Context, i int) layout.Dimensions {
+					return items[i](gtx)
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.UniformInset(unit.Dp(2)).Layout(gtx, dec.Layout)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						lbl := material.Body1(th, "w"+itoa(e.stroke))
+						return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.UniformInset(unit.Dp(2)).Layout(gtx, inc.Layout)
+					}),
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						ed := material.Editor(th, &e.textIn, "text...")
+						return layout.UniformInset(unit.Dp(6)).Layout(gtx, ed.Layout)
+					}),
+					rigidBtn(gtx, undo),
+					rigidBtn(gtx, redo),
+					rigidBtn(gtx, cancel),
+					rigidBtn(gtx, ok),
+				)
+			}),
+		)
 	})
 }
 
