@@ -143,29 +143,78 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		}
 	}
 
+	// label appends the configured hotkey to a menu title, e.g.
+	// "Capture Region  (Cmd+Shift+1)", so the menu documents its own shortcuts.
+	label := func(title, keys string) string {
+		if keys == "" {
+			return title
+		}
+		return title + "  (" + keys + ")"
+	}
+
+	notifyUser := func(title, body string) {
+		if n := app.Notifier(); n != nil {
+			if err := n.Notify(notify.Notification{Title: title, Body: body}); err != nil {
+				log.Debug().Err(err).Msg("notification failed")
+			}
+		}
+	}
+
 	// Recording uses two separate menu items (Start / Stop); the inapplicable one
 	// is greyed out. updateRecordItems reflects the current state onto the tray
 	// (no-op when there is no tray). Start and Stop guard on app.Recording() so a
 	// hotkey and a tray click can never disagree.
 	updateRecordItems := func(recording bool) {
 		if tr != nil {
-			// While recording, all Start items grey out and Stop enables.
+			// While recording, all Start items grey out and Stop enables; the
+			// Stop title gains a record marker so the active state is visible
+			// at a glance.
 			tr.SetItemEnabled("record-start", !recording)
 			tr.SetItemEnabled("record-region", !recording)
 			tr.SetItemEnabled("record-gif", !recording)
 			tr.SetItemEnabled("record-stop", recording)
+			stopTitle := label("Stop Recording", cfg.Hotkeys.Record)
+			if recording {
+				stopTitle = "● " + stopTitle
+			}
+			tr.SetItemTitle("record-stop", stopTitle)
 		}
 	}
-	startRec := func(mode capture.Mode) func() {
+	recDesc := func(mode capture.Mode) string {
+		switch mode {
+		case capture.VideoRegion:
+			return "region recording"
+		case capture.GIF:
+			return "GIF recording"
+		default:
+			return "full-screen recording"
+		}
+	}
+	recordStopHint := func() string {
+		if alts := splitHotkeys(cfg.Hotkeys.Record); len(alts) > 0 {
+			return "Press " + alts[0] + " or use the tray menu to stop."
+		}
+		return "Use the tray menu to stop."
+	}
+	// recordingStarted is the one place recording start becomes observable:
+	// an info log carrying the trigger (hotkey vs tray) so sessions are
+	// attributable from the log, plus a desktop notification - a screen
+	// recording must never start silently.
+	recordingStarted := func(mode capture.Mode, trigger string) {
+		log.Info().Str("mode", mode.String()).Str("trigger", trigger).Msg("recording started")
+		notifyUser("Recording started", "Started "+recDesc(mode)+". "+recordStopHint())
+		updateRecordItems(true)
+	}
+	startRec := func(mode capture.Mode, trigger string) func() {
 		return func() {
 			if !app.RecordingSupported() || app.Recording() {
 				return
 			}
 			if err := app.StartRecording(ctx, mode, image.Rectangle{}); err != nil {
-				log.Error().Err(err).Str("mode", mode.String()).Msg("start recording failed")
+				log.Error().Err(err).Str("mode", mode.String()).Str("trigger", trigger).Msg("start recording failed")
 				return
 			}
-			updateRecordItems(true)
+			recordingStarted(mode, trigger)
 		}
 	}
 	// regionSel runs the out-of-process overlay to pick a screen rectangle. It
@@ -190,17 +239,21 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 				log.Error().Err(err).Msg("start region recording failed")
 				return
 			}
-			updateRecordItems(true)
+			recordingStarted(capture.VideoRegion, "tray")
 		}()
 	}
-	stopRec := func() {
-		if !app.Recording() {
-			return
+	stopRec := func(trigger string) func() {
+		return func() {
+			if !app.Recording() {
+				return
+			}
+			if _, err := app.StopRecording(ctx); err != nil {
+				log.Error().Err(err).Str("trigger", trigger).Msg("stop recording failed")
+			} else {
+				log.Info().Str("trigger", trigger).Msg("recording stopped")
+			}
+			updateRecordItems(false)
 		}
-		if _, err := app.StopRecording(ctx); err != nil {
-			log.Error().Err(err).Msg("stop recording failed")
-		}
-		updateRecordItems(false)
 	}
 	recordToggle := func() {
 		if !app.RecordingSupported() {
@@ -208,19 +261,10 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 			return
 		}
 		if app.Recording() {
-			stopRec()
+			stopRec("hotkey")()
 		} else {
-			startRec(capture.VideoFull)()
+			startRec(capture.VideoFull, "hotkey")()
 		}
-	}
-
-	// label appends the configured hotkey to a menu title, e.g.
-	// "Capture Region  (Cmd+Shift+1)", so the menu documents its own shortcuts.
-	label := func(title, keys string) string {
-		if keys == "" {
-			return title
-		}
-		return title + "  (" + keys + ")"
 	}
 
 	runShotEdit := func(mode capture.Mode) func() {
@@ -231,13 +275,6 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		}
 	}
 
-	notifyUser := func(title, body string) {
-		if n := app.Notifier(); n != nil {
-			if err := n.Notify(notify.Notification{Title: title, Body: body}); err != nil {
-				log.Debug().Err(err).Msg("notification failed")
-			}
-		}
-	}
 	uploadItemTitle := func() string {
 		state := "Off"
 		if app.UploadEnabled() {
@@ -326,16 +363,16 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 	if app.RecordingSupported() {
 		items = append(items, tray.MenuItem{Separator: true})
 		if app.RecordingModeSupported(capture.VideoFull) {
-			items = append(items, tray.MenuItem{ID: "record-start", Title: label("Start Recording", cfg.Hotkeys.Record), OnClick: startRec(capture.VideoFull)})
+			items = append(items, tray.MenuItem{ID: "record-start", Title: label("Start Recording", cfg.Hotkeys.Record), OnClick: startRec(capture.VideoFull, "tray")})
 		}
 		if app.RecordingModeSupported(capture.VideoRegion) || app.RecordingModeSupported(capture.VideoFull) {
 			items = append(items, tray.MenuItem{ID: "record-region", Title: "Start Region Recording", OnClick: startRegionRec})
 		}
 		if app.RecordingModeSupported(capture.GIF) {
-			items = append(items, tray.MenuItem{ID: "record-gif", Title: "Start GIF Recording", OnClick: startRec(capture.GIF)})
+			items = append(items, tray.MenuItem{ID: "record-gif", Title: "Start GIF Recording", OnClick: startRec(capture.GIF, "tray")})
 		}
 		items = append(items,
-			tray.MenuItem{ID: "record-stop", Title: label("Stop Recording", cfg.Hotkeys.Record), OnClick: stopRec, Disabled: true},
+			tray.MenuItem{ID: "record-stop", Title: label("Stop Recording", cfg.Hotkeys.Record), OnClick: stopRec("tray"), Disabled: true},
 		)
 	}
 	items = append(items,

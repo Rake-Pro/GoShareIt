@@ -7,6 +7,25 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 ## [Unreleased]
 
 ### Fixed
+- Default record hotkey moved off `{mod}+Shift+R` to `{mod}+Shift+2`: browsers
+  use Cmd/Ctrl+Shift+R for hard reload, and because the global-hotkey event tap
+  consumes matched chords, every hard-reload attempt silently toggled a
+  full-screen recording instead (found on-device on macOS: constant recording
+  sessions and large mp4s in the save dir). Existing configs are not migrated -
+  edit `hotkeys.record` manually.
+- Default quit hotkey removed (was `{mod}+Shift+Q`, the macOS logout chord -
+  same swallowed-shortcut class as the record collision above). Quit remains
+  in the tray menu; existing configs are not migrated.
+- Recording start is no longer silent: an info log with the trigger source
+  (hotkey vs tray) plus a desktop notification saying how to stop; stop logs
+  its trigger too. Previously the only evidence of a session was the
+  upload/complete log line at stop, making runaway recordings undiagnosable.
+
+### Changed
+- The tray Stop Recording item shows a record marker while a recording is
+  active.
+
+### Fixed
 - Blur is now redaction-grade: the stroke setting acts as a strength
   multiplier and the kernel gets a region-scaled minimum radius, so
   screenshot-scale text inside a blurred region is destroyed rather than
