@@ -52,8 +52,12 @@ hotkeys:
   fullscreen_edit: ""
   window_edit: ""
   upload_toggle: ""
-  record: "{mod}+Shift+R"
-  quit: "{mod}+Shift+Q"
+  # Not Shift+R: browsers use {mod}+Shift+R for hard reload, and the global
+  # hotkey would swallow it while silently toggling a screen recording.
+  record: "{mod}+Shift+2"
+  # No default: Cmd+Shift+Q is the macOS logout chord and the global hotkey
+  # would swallow it. Quit lives in the tray menu; set a chord here to taste.
+  quit: ""
 
 editor:
   enabled: false          # master switch; false -> current behavior (no editor)
