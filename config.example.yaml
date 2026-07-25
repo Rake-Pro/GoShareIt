@@ -51,8 +51,13 @@ hotkeys:
   fullscreen_edit: ""
   window_edit: ""
   upload_toggle: ""    # flip uploads on/off (also in the tray menu)
-  record: "Cmd+Shift+R"   # toggle screen recording (only on builds that support it)
-  quit: "Cmd+Shift+Q"
+  # Toggle screen recording (only on builds that support it). Avoid Cmd+Shift+R /
+  # Ctrl+Shift+R: browsers use that chord for hard reload, and the global hotkey
+  # swallows it while silently toggling a recording.
+  record: "Cmd+Shift+2"
+  # Unbound by default: Cmd+Shift+Q is the macOS logout chord and the global
+  # hotkey would swallow it (Quit is always available in the tray menu).
+  quit: ""
 
 editor:
   enabled: false          # master switch; false -> current behavior (no editor)
