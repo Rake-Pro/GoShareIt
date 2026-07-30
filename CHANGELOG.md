@@ -22,6 +22,14 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 - The upload history log (`~/.goshareit/history.jsonl`) is created 0600 instead
   of 0644, in a 0700 directory, and an existing 0644 log is tightened on open.
   Entries hold public share URLs, which are capability links. (#3)
+- `custom.url` is held to the same rule. The custom destination substitutes the
+  resolved `{secret}` into the request headers, so its endpoint carries a
+  credential exactly like the basic-auth destinations do; it previously
+  accepted any URL. The secret is only ever substituted into headers and
+  multipart form fields, never into the URL, so it cannot end up in a query
+  string. `{name}`/`{mime}` placeholders in the URL are unaffected.
+
+## [0.0.8] - 2026-07-30
 
 First release signed with a real Developer ID Application certificate and
 notarized by Apple (notarytool: Accepted, ticket stapled). Note: there is no

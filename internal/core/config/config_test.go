@@ -184,3 +184,35 @@ func TestInsecureBaseURLOptIn(t *testing.T) {
 		t.Fatal("expected error on plain http webdav.base_url")
 	}
 }
+
+// custom.url gets the same rule: the resolved secret is substituted into the
+// request headers, so the endpoint carries a credential too. Its {name}/{mime}
+// placeholders must still parse.
+func TestInsecureCustomURL(t *testing.T) {
+	dir := t.TempDir()
+	secret := writeFile(t, dir, "custom.secret", "tok")
+	body := func(u string) string {
+		return "upload:\n  destination: custom\ncustom:\n  url: " + u + "\n  secret_file: " + secret + "\n"
+	}
+
+	bad := writeFile(t, dir, "bad.yaml", body("http://up.example.com/{name}"))
+	if _, err := Load(bad); err == nil {
+		t.Fatal("expected error on plain http custom.url")
+	}
+
+	tmpl := writeFile(t, dir, "tmpl.yaml", body("https://up.example.com/upload/{name}?type={mime}"))
+	if _, err := Load(tmpl); err != nil {
+		t.Fatalf("placeholders must not break URL validation: %v", err)
+	}
+
+	lan := writeFile(t, dir, "lan.yaml", body("http://192.168.1.20:8080/upload"))
+	if _, err := Load(lan); err != nil {
+		t.Fatalf("LAN custom.url should be allowed: %v", err)
+	}
+
+	optIn := writeFile(t, dir, "optin.yaml",
+		"upload:\n  destination: custom\n  allow_insecure_http: true\ncustom:\n  url: http://up.example.com\n  secret_file: "+secret+"\n")
+	if _, err := Load(optIn); err != nil {
+		t.Fatalf("allow_insecure_http should permit http: %v", err)
+	}
+}
