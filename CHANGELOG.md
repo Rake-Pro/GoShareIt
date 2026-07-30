@@ -85,6 +85,12 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   border in light mode, and the text field gets a themed background pill.
 
 ### Fixed
+- Release signing with a real Developer ID cert: the CI build keychain now
+  imports Apple's Developer ID CA intermediates (G1+G2) before signing. A
+  Keychain-exported p12 carries only the leaf + key, so the identity imported
+  but was never valid on the bare runner keychain and codesign failed with
+  "no identity found" (the previous self-signed identity was its own anchor
+  and never exposed this).
 - Settings Save now applies without further user action: on success the
   settings window closes itself (new shell-injected `Service.CloseWindow`),
   which is what lets the blocked host process apply the config and restart
