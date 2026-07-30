@@ -162,6 +162,18 @@ jobs:
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
           security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign
+          # Apple Developer ID intermediates (G1 + G2): a Keychain-exported
+          # p12 carries only the leaf cert + private key, and the bare runner
+          # keychain has no Developer ID CA to chain it to - the identity then
+          # imports but is never *valid*, and codesign fails with "no identity
+          # found" despite "1 identity imported". Self-signed certs never hit
+          # this (they are their own anchor), which is why the pre-Developer-ID
+          # signing path worked without these.
+          curl -fsSL -o /tmp/devid_g1.cer https://www.apple.com/certificateauthority/DeveloperIDCA.cer
+          curl -fsSL -o /tmp/devid_g2.cer https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import /tmp/devid_g1.cer -k build.keychain
+          security import /tmp/devid_g2.cer -k build.keychain
+          rm /tmp/devid_g1.cer /tmp/devid_g2.cer
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           rm /tmp/cert.p12
           APP=dist/GoShareIt.app scripts/sign.sh
