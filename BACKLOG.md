@@ -22,6 +22,11 @@ updater check (with a PAT, correctly reports up-to-date).
   region overlay coordinates, settings UI and editor beyond first-run,
   updater apply loop, PrintScreen hotkey chords.
 - Both: browser sign-in (Nextcloud Login Flow v2) end-to-end.
+- v0.0.6 settings/editor UI (click-through on real hardware, not just
+  container JS parse-checks): the consolidated Upload destination panel
+  (Nextcloud/S3/SFTP/WebDAV/Custom select + presets) and the new theme
+  setting (light/dark/system) in both the settings window and the
+  annotation editor.
 
 ## Features
 
@@ -38,21 +43,20 @@ updater check (with a PAT, correctly reports up-to-date).
 - Notifier improvements: click-to-open-link, thumbnail previews.
 - Linux capture backend (tray/hotkey/capture are in-memory fakes today;
   artifacts ship marked experimental).
+- Custom-uploader imgur preset needs a user-registered imgur API client ID
+  (not bundled) - document where to get one and where it goes in
+  config.example.yaml / the settings UI preset picker.
 
 ## Release / distribution
 
-- App icons: .icns for the macOS bundle, .ico for the Windows exe. The
-  master logo now exists (build/icons/goshareit_icon.png, also used for the
-  tray) - derive both from it and wire into bundle.sh / the Inno installer.
-- Replace the interim self-signed macOS cert with a real Developer ID
-  Application cert: the current CI secrets carry a self-signed "RakePro-Dev"
-  identity (TeamIdentifier not set - fine for TCC persistence on personal
-  machines, zero Gatekeeper credit). Create the cert via Xcode/portal
-  (Account Holder), re-export the p12, replace MACOS_CERT_P12(+_PASSWORD)
-  and DEVELOPER_ID_APP; expect one TCC re-grant on the identity change.
-- macOS notarization in CI (secrets-gated path exists; add AC_APPLE_ID /
-  AC_PASSWORD / TEAM_ID once the real cert is in).
-- Windows Authenticode signing (SmartScreen).
+- Windows .exe icon: `goshareit.exe`/`-editor.exe`/`-settings.exe` ship with
+  no icon resource, so Explorer/taskbar/the Inno installer's
+  `UninstallDisplayIcon` all show the generic exe icon. (macOS app icon is
+  done - AppIcon.icns ships as of v0.0.6.) The master logo exists at
+  build/icons/goshareit_icon.png - embed it into the Windows binaries (e.g.
+  a `.syso` resource) and wire it into goshareit.iss.
+- Windows Authenticode signing (SmartScreen). Deliberately deferred - not a
+  priority for now (owner call, 2026-07-30).
 - Public release: repo audit pass, then public visibility; updater switches
   to anonymous GitHub API automatically.
 - 1.0.0 criteria: all on-device validation above green + public release.

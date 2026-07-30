@@ -6,6 +6,36 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-07-30
+
+First release signed with a real Developer ID Application certificate and
+notarized by Apple (notarytool: Accepted, ticket stapled). Note: there is no
+v0.0.7 - two failed release attempts left dangling `v0.0.7` tags, both
+deleted; numbering jumps from 0.0.6 to 0.0.8.
+
+### Changed
+- CI: dependabot bumped `actions/upload-artifact` v4 -> v7 and
+  `actions/download-artifact` v4 -> v8 in `release.yml`.
+- CI: a temporary sign-debug workflow was added to diagnose the Developer ID
+  keychain failure below, then removed the same day once the fix landed.
+
+### Fixed
+- Release signing with a real Developer ID cert: the CI build keychain now
+  imports Apple's Developer ID CA intermediates (G1+G2) before signing. A
+  Keychain-exported p12 carries only the leaf + key, so the identity imported
+  but was never valid on the bare runner keychain and codesign failed with
+  "no identity found" (the previous self-signed identity was its own anchor
+  and never exposed this).
+- Release signing now signs by the identity's derived SHA-1 hash instead of
+  the `DEVELOPER_ID_APP` name string: `codesign -s <name>` matches against
+  the exact certificate CN, so formatting drift in the secret failed with
+  "no identity found" even though the identity was present and valid (hit
+  twice on the first Developer ID release attempts). The build keychain only
+  ever holds the one imported identity, so its SHA-1 is derived via
+  `find-identity` and used to sign instead.
+
+## [0.0.6] - 2026-07-30
+
 ### Added
 - New `notify.Confirmer` seam (`internal/core/notify`) for blocking native
   yes/no dialogs, alongside `Notifier`: darwin via `osascript display dialog`
@@ -68,6 +98,11 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 - Editor confirm button label now reflects the post-capture pipeline (e.g.
   "Copy & Upload", "Save & Upload", "Copy, Save & Upload", "Done") instead of
   a generic "Confirm", composed host-side from `after_capture`/`upload.enabled`.
+- macOS bundle: `AppIcon.icns` is now generated (from
+  `build/icons/goshareit_icon.png` via `sips`/`iconutil`) and shipped in
+  `Info.plist` as `CFBundleIconFile` - the icon step in `bundle.sh` was
+  previously a commented-out placeholder, so every prior build (including
+  updates) fell back to the generic Finder icon.
 
 ### Changed
 - Default annotation stroke width raised from 3px to 6px (`editor.stroke_width`
@@ -85,18 +120,20 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   border in light mode, and the text field gets a themed background pill.
 
 ### Fixed
-- Release signing with a real Developer ID cert: the CI build keychain now
-  imports Apple's Developer ID CA intermediates (G1+G2) before signing. A
-  Keychain-exported p12 carries only the leaf + key, so the identity imported
-  but was never valid on the bare runner keychain and codesign failed with
-  "no identity found" (the previous self-signed identity was its own anchor
-  and never exposed this).
 - Settings Save now applies without further user action: on success the
   settings window closes itself (new shell-injected `Service.CloseWindow`),
   which is what lets the blocked host process apply the config and restart
   immediately - previously the user had to close the window by hand before
   anything took effect (found on-device on macOS). On save failure the window
   stays open with the error.
+
+## [0.0.5] - 2026-07-25
+
+### Changed
+- The tray Stop Recording item shows a record marker while a recording is
+  active.
+
+### Fixed
 - Default record hotkey moved off `{mod}+Shift+R` to `{mod}+Shift+2`: browsers
   use Cmd/Ctrl+Shift+R for hard reload, and because the global-hotkey event tap
   consumes matched chords, every hard-reload attempt silently toggled a
@@ -111,9 +148,7 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   its trigger too. Previously the only evidence of a session was the
   upload/complete log line at stop, making runaway recordings undiagnosable.
 
-### Changed
-- The tray Stop Recording item shows a record marker while a recording is
-  active.
+## [0.0.4] - 2026-07-22
 
 ### Fixed
 - Blur is now redaction-grade: the stroke setting acts as a strength
@@ -122,6 +157,12 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   softened (found on-device: white-on-black text stayed readable). Guarded
   by a worst-case fine-detail test, plus an env-gated visual harness
   (TestVisualSample) for eyeballing strength against real captures.
+
+## [0.0.3] - 2026-07-22
+
+### Added
+- Hotkey parser: punctuation keys on both OSes (` - = [ ] ; ' , . / \ and
+  Space, plus word aliases like `backtick`/`minus`), US layout.
 
 ### Changed
 - Windows tray icon replaced with the product logo (shutter aperture + G
@@ -134,10 +175,6 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 - Editor toolbar no longer pushes Confirm/Cancel out of view at narrow
   window widths: split into a scrollable tool/swatch row and a fixed action
   row, plus a minimum window size (found on-device at MacBook default size).
-
-### Added
-- Hotkey parser: punctuation keys on both OSes (` - = [ ] ; ' , . / \ and
-  Space, plus word aliases like `backtick`/`minus`), US layout.
 
 ## [0.0.2] - 2026-07-22
 
