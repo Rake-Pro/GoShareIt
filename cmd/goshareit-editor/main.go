@@ -11,7 +11,8 @@
 // Invocation:
 //
 //	goshareit-editor --in <input.png> --out <output.png> \
-//	    [--tool <name>] [--color <#rrggbb>] [--stroke <int>] [--tools <csv>]
+//	    [--tool <name>] [--color <#rrggbb>] [--stroke <int>] [--tools <csv>] \
+//	    [--theme light|dark|system] [--confirm-label <text>]
 //
 // It is build-tagged for darwin and windows because Gio needs cgo on macOS and
 // a GPU backend on both; the Linux/CGO-disabled host build excludes it.
@@ -42,6 +43,8 @@ func main() {
 	colorHex := flag.String("color", "", "initial color as #rrggbb")
 	stroke := flag.Int("stroke", 0, "initial stroke width")
 	toolsCSV := flag.String("tools", "", "comma-separated tool whitelist")
+	theme := flag.String("theme", "", "theme: light|dark|system (system resolves via OS detection)")
+	confirmLabel := flag.String("confirm-label", "", "label rendered on the confirm button (\"\" -> Done)")
 	flag.Parse()
 
 	if *regionMode {
@@ -61,8 +64,10 @@ func main() {
 	}
 
 	opts := ui.Options{
-		Tool:   ui.Tool(strings.ToLower(*tool)),
-		Stroke: *stroke,
+		Tool:         ui.Tool(strings.ToLower(*tool)),
+		Stroke:       *stroke,
+		Theme:        resolveTheme(*theme),
+		ConfirmLabel: *confirmLabel,
 	}
 	if c, ok := parseHexColor(*colorHex); ok {
 		opts.Color = c
@@ -142,6 +147,23 @@ func encodePNG(path string, img image.Image) error {
 		return err
 	}
 	return f.Close()
+}
+
+// resolveTheme normalizes the --theme flag to "light" or "dark". "system"
+// (or empty/unrecognized) resolves via native OS detection, implemented per
+// platform in theme_darwin.go / theme_windows.go.
+func resolveTheme(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "light":
+		return "light"
+	case "dark":
+		return "dark"
+	default:
+		if detectSystemDark() {
+			return "dark"
+		}
+		return "light"
+	}
 }
 
 // parseHexColor parses #rrggbb (with or without leading #) into an opaque NRGBA.

@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
+	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
 
 // Service is bound into the Wails frontend. All methods are invoked from JS.
@@ -28,6 +29,7 @@ type Service struct {
 
 	PickDir func() (string, error) // native directory picker
 	OpenURL func(url string) error // native browser open; nil -> osOpenURL
+	Close   func()                 // close the settings window; nil in tests
 }
 
 // LoadResult is what the frontend edits. Secrets are never returned - only
@@ -37,7 +39,13 @@ type LoadResult struct {
 	ConfigPath  string         `json:"configPath"`
 	HasPassword bool           `json:"hasPassword"`
 	HasToken    bool           `json:"hasToken"`
-	Version     string         `json:"version"`
+	// Destination secrets, one flag per non-Nextcloud secret below.
+	HasS3SecretKey    bool   `json:"hasS3SecretKey"`
+	HasSFTPPassword   bool   `json:"hasSFTPPassword"`
+	HasSFTPPassphrase bool   `json:"hasSFTPPassphrase"`
+	HasWebDAVPassword bool   `json:"hasWebDAVPassword"`
+	HasCustomSecret   bool   `json:"hasCustomSecret"`
+	Version           string `json:"version"`
 }
 
 // SaveRequest carries the edited config plus optional new secret values
@@ -46,6 +54,12 @@ type SaveRequest struct {
 	Config      *config.Config `json:"config"`
 	NewPassword string         `json:"newPassword"`
 	NewToken    string         `json:"newToken"`
+	// Destination secrets, one write-only field per non-Nextcloud secret.
+	NewS3SecretKey    string `json:"newS3SecretKey"`
+	NewSFTPPassword   string `json:"newSFTPPassword"`
+	NewSFTPPassphrase string `json:"newSFTPPassphrase"`
+	NewWebDAVPassword string `json:"newWebDAVPassword"`
+	NewCustomSecret   string `json:"newCustomSecret"`
 }
 
 // Load reads the config for editing. A missing file yields the starter
@@ -59,13 +73,24 @@ func (s *Service) Load() (*LoadResult, error) {
 		cfg = config.NewDefault()
 	}
 	applyEditingDefaults(cfg)
+	return s.loadResult(cfg), nil
+}
+
+// loadResult builds a LoadResult for cfg: the secret presence flags, never
+// the secrets themselves.
+func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 	return &LoadResult{
-		Config:      cfg,
-		ConfigPath:  s.ConfigPath,
-		HasPassword: secretPresent(cfg.Nextcloud.PasswordFile, cfg.Nextcloud.PasswordEnv),
-		HasToken:    secretPresent(cfg.Update.TokenFile, ""),
-		Version:     s.Version,
-	}, nil
+		Config:            cfg,
+		ConfigPath:        s.ConfigPath,
+		HasPassword:       secretPresent(cfg.Nextcloud.PasswordFile, cfg.Nextcloud.PasswordEnv),
+		HasToken:          secretPresent(cfg.Update.TokenFile, ""),
+		HasS3SecretKey:    secretPresent(cfg.S3.SecretKeyFile, cfg.S3.SecretKeyEnv),
+		HasSFTPPassword:   secretPresent(cfg.SFTP.PasswordFile, cfg.SFTP.PasswordEnv),
+		HasSFTPPassphrase: secretPresent(cfg.SFTP.PassphraseFile, cfg.SFTP.PassphraseEnv),
+		HasWebDAVPassword: secretPresent(cfg.WebDAV.PasswordFile, cfg.WebDAV.PasswordEnv),
+		HasCustomSecret:   secretPresent(cfg.Custom.SecretFile, cfg.Custom.SecretEnv),
+		Version:           s.Version,
+	}
 }
 
 // Save persists the edited config: writes any new secrets to their files,
@@ -90,6 +115,21 @@ func (s *Service) Save(req *SaveRequest) error {
 		if err := writeSecret(cfg.Update.TokenFile, req.NewToken); err != nil {
 			return err
 		}
+	}
+	if err := saveSecretField(req.NewS3SecretKey, "s3 secret key", cfg.S3.SecretKeyFile, cfg.S3.SecretKeyEnv); err != nil {
+		return err
+	}
+	if err := saveSecretField(req.NewSFTPPassword, "sftp password", cfg.SFTP.PasswordFile, cfg.SFTP.PasswordEnv); err != nil {
+		return err
+	}
+	if err := saveSecretField(req.NewSFTPPassphrase, "sftp passphrase", cfg.SFTP.PassphraseFile, cfg.SFTP.PassphraseEnv); err != nil {
+		return err
+	}
+	if err := saveSecretField(req.NewWebDAVPassword, "webdav password", cfg.WebDAV.PasswordFile, cfg.WebDAV.PasswordEnv); err != nil {
+		return err
+	}
+	if err := saveSecretField(req.NewCustomSecret, "custom secret", cfg.Custom.SecretFile, cfg.Custom.SecretEnv); err != nil {
+		return err
 	}
 
 	out, err := yaml.Marshal(cfg)
@@ -127,6 +167,18 @@ func (s *Service) Save(req *SaveRequest) error {
 	return nil
 }
 
+// CloseWindow closes the settings window. The frontend calls it after a
+// successful save so the host (which blocks on this process and applies the
+// config on exit) restarts immediately instead of waiting for the user to
+// close the window by hand.
+func (s *Service) CloseWindow() error {
+	if s.Close == nil {
+		return fmt.Errorf("settings: close is not available")
+	}
+	s.Close()
+	return nil
+}
+
 // PickDirectory opens the native directory picker and returns the chosen
 // path ("" on cancel).
 func (s *Service) PickDirectory() (string, error) {
@@ -145,13 +197,14 @@ func (s *Service) ResetDefaults() (*LoadResult, error) {
 		return nil, err
 	}
 	applyEditingDefaults(cfg)
-	return &LoadResult{
-		Config:      cfg,
-		ConfigPath:  s.ConfigPath,
-		HasPassword: secretPresent(cfg.Nextcloud.PasswordFile, cfg.Nextcloud.PasswordEnv),
-		HasToken:    secretPresent(cfg.Update.TokenFile, ""),
-		Version:     s.Version,
-	}, nil
+	return s.loadResult(cfg), nil
+}
+
+// Presets returns the built-in custom-uploader starting points (imgur,
+// catbox, 0x0) for the settings UI's preset picker, so the data lives in one
+// place instead of being duplicated in JS.
+func (s *Service) Presets() map[string]upload.CustomConfig {
+	return upload.CustomPresets()
 }
 
 // LoginResult carries the outcome of a browser sign-in back to the frontend.
@@ -224,6 +277,34 @@ func applyEditingDefaults(cfg *config.Config) {
 		t := true
 		cfg.Upload.Enabled = &t
 	}
+	if cfg.S3.SecretKeyFile == "" && cfg.S3.SecretKeyEnv == "" {
+		cfg.S3.SecretKeyFile = tilde("s3-secret-key.secret")
+	}
+	if cfg.SFTP.PasswordFile == "" && cfg.SFTP.PasswordEnv == "" {
+		cfg.SFTP.PasswordFile = tilde("sftp-password.secret")
+	}
+	if cfg.SFTP.PassphraseFile == "" && cfg.SFTP.PassphraseEnv == "" {
+		cfg.SFTP.PassphraseFile = tilde("sftp-key-passphrase.secret")
+	}
+	if cfg.WebDAV.PasswordFile == "" && cfg.WebDAV.PasswordEnv == "" {
+		cfg.WebDAV.PasswordFile = tilde("webdav-password.secret")
+	}
+	if cfg.Custom.SecretFile == "" && cfg.Custom.SecretEnv == "" {
+		cfg.Custom.SecretFile = tilde("custom-secret.secret")
+	}
+}
+
+// saveSecretField writes value to file, unless value is empty (nothing to
+// do) or env is set (the secret is env-sourced, so writing a file would be
+// silently ignored at load - same rule as the Nextcloud password).
+func saveSecretField(value, label, file, env string) error {
+	if value == "" {
+		return nil
+	}
+	if env != "" {
+		return fmt.Errorf("settings: %s is sourced from env var %s; unset the corresponding _env setting to use a file", label, env)
+	}
+	return writeSecret(file, value)
 }
 
 func writeSecret(path, value string) error {

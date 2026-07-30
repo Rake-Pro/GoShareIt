@@ -58,6 +58,11 @@ func main() {
 		wruntime.BrowserOpenURL(*ctx, url)
 		return nil
 	}
+	svc.Close = func() {
+		if ctx := appCtx.Load(); ctx != nil {
+			wruntime.Quit(*ctx)
+		}
+	}
 	err := wails.Run(&options.App{
 		Title:  "GoShareIt Settings",
 		Width:  760,

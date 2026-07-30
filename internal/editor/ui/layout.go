@@ -16,6 +16,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
+	"gioui.org/widget"
 	"gioui.org/widget/material"
 )
 
@@ -48,7 +49,7 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 			e.col = e.palette[i]
 		}
 	}
-	if e.strokeInc.Clicked(gtx) && e.stroke < 64 {
+	if e.strokeInc.Clicked(gtx) && e.stroke < 32 {
 		e.stroke++
 	}
 	if e.strokeDec.Clicked(gtx) && e.stroke > 1 {
@@ -75,22 +76,33 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 // buttons + color swatches (whose width varies with the configured tool set),
 // and a fixed action row (stroke, text field, undo/redo/cancel/confirm). The
 // split guarantees Confirm/Cancel stay visible at any window width - a single
-// flex row used to push them out of view on narrower screens.
+// flex row used to push them out of view on narrower screens. The whole row
+// gets an explicit themed background fill spanning the full window width, so
+// the window's default (light) surface never shows through.
 func (e *editor) layoutToolbar(gtx layout.Context) layout.Dimensions {
+	macro := op.Record(gtx.Ops)
+	dims := e.layoutToolbarContent(gtx)
+	call := macro.Stop()
+	bgSize := image.Pt(gtx.Constraints.Max.X, dims.Size.Y)
+	paint.FillShape(gtx.Ops, e.theme.toolbarBg, clip.Rect{Max: bgSize}.Op())
+	call.Add(gtx.Ops)
+	return layout.Dimensions{Size: bgSize}
+}
+
+func (e *editor) layoutToolbarContent(gtx layout.Context) layout.Dimensions {
 	th := e.th
-	inset := layout.UniformInset(unit.Dp(6))
+	inset := layout.UniformInset(unit.Dp(8))
 	return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		// Row 1: tools + swatches, scrollable.
 		items := make([]layout.Widget, 0, len(e.tools)+len(e.palette))
 		for _, t := range e.tools {
 			t := t
-			label := toolLabel(t)
+			btn := e.subtleButton(e.toolBtns[t], toolLabel(t))
 			if e.tool == t {
-				label = "[" + label + "]"
+				btn = e.accentButton(e.toolBtns[t], toolLabel(t))
 			}
-			btn := material.Button(th, e.toolBtns[t], label)
 			items = append(items, func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(unit.Dp(2)).Layout(gtx, btn.Layout)
+				return layout.UniformInset(unit.Dp(4)).Layout(gtx, btn.Layout)
 			})
 		}
 		for i := range e.palette {
@@ -100,13 +112,14 @@ func (e *editor) layoutToolbar(gtx layout.Context) layout.Dimensions {
 			})
 		}
 
-		// Row 2: stroke controls, text input, actions.
-		dec := material.Button(th, &e.strokeDec, "-")
-		inc := material.Button(th, &e.strokeInc, "+")
-		undo := material.Button(th, &e.undoBtn, "Undo")
-		redo := material.Button(th, &e.redoBtn, "Redo")
-		cancel := material.Button(th, &e.cancelB, "Cancel")
-		ok := material.Button(th, &e.confirm, "Confirm")
+		// Row 2: stroke controls | text input | undo/redo | cancel/confirm,
+		// visually grouped with spacers.
+		dec := e.subtleButton(&e.strokeDec, "-")
+		inc := e.subtleButton(&e.strokeInc, "+")
+		undo := e.subtleButton(&e.undoBtn, "Undo")
+		redo := e.subtleButton(&e.redoBtn, "Redo")
+		cancel := e.subtleButton(&e.cancelB, "Cancel")
+		ok := e.accentButton(&e.confirm, e.confirmLabel)
 
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -116,46 +129,105 @@ func (e *editor) layoutToolbar(gtx layout.Context) layout.Dimensions {
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					rigidBtn(dec),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return layout.UniformInset(unit.Dp(2)).Layout(gtx, dec.Layout)
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Body1(th, "w"+itoa(e.stroke))
+						lbl := material.Body1(th, itoa(e.stroke)+" px")
+						lbl.Color = e.theme.fg
 						return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
 					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return layout.UniformInset(unit.Dp(2)).Layout(gtx, inc.Layout)
-					}),
+					rigidBtn(inc),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						ed := material.Editor(th, &e.textIn, "text...")
-						return layout.UniformInset(unit.Dp(6)).Layout(gtx, ed.Layout)
+						return e.layoutTextField(gtx)
 					}),
-					rigidBtn(gtx, undo),
-					rigidBtn(gtx, redo),
-					rigidBtn(gtx, cancel),
-					rigidBtn(gtx, ok),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+					rigidBtn(undo),
+					rigidBtn(redo),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+					rigidBtn(cancel),
+					rigidBtn(ok),
 				)
 			}),
 		)
 	})
 }
 
-func rigidBtn(_ layout.Context, b material.ButtonStyle) layout.FlexChild {
+// styledButton applies uniform geometry (corner radius, text size) plus the
+// given background/foreground on top of material.Button's defaults.
+func (e *editor) styledButton(btn *widget.Clickable, label string, bg, fg color.NRGBA) material.ButtonStyle {
+	b := material.Button(e.th, btn, label)
+	b.Background = bg
+	b.Color = fg
+	b.CornerRadius = unit.Dp(6)
+	b.TextSize = unit.Sp(13)
+	return b
+}
+
+// accentButton is the primary style: accent-filled with contrast text. Used
+// for the selected tool and Confirm.
+func (e *editor) accentButton(btn *widget.Clickable, label string) material.ButtonStyle {
+	return e.styledButton(btn, label, e.theme.accent, e.theme.contrastFg)
+}
+
+// subtleButton is the secondary style: a flat themed surface with regular
+// text. Used for unselected tools, undo/redo, and Cancel.
+func (e *editor) subtleButton(btn *widget.Clickable, label string) material.ButtonStyle {
+	return e.styledButton(btn, label, e.theme.surfaceBg, e.theme.fg)
+}
+
+func rigidBtn(b material.ButtonStyle) layout.FlexChild {
 	return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		return layout.UniformInset(unit.Dp(2)).Layout(gtx, b.Layout)
+		return layout.UniformInset(unit.Dp(4)).Layout(gtx, b.Layout)
 	})
 }
 
+// layoutTextField renders the annotation text input with a subtle themed
+// background pill so it reads as an input rather than bare text.
+func (e *editor) layoutTextField(gtx layout.Context) layout.Dimensions {
+	ed := material.Editor(e.th, &e.textIn, "text...")
+	ed.Color = e.theme.fg
+	ed.HintColor = mutedColor(e.theme.fg)
+	return layoutPill(gtx, e.theme.surfaceBg, func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(unit.Dp(6)).Layout(gtx, ed.Layout)
+	})
+}
+
+// layoutPill paints a rounded background behind w, sized to w's own
+// dimensions (stretched to at least the incoming width).
+func layoutPill(gtx layout.Context, bg color.NRGBA, w layout.Widget) layout.Dimensions {
+	macro := op.Record(gtx.Ops)
+	dims := w(gtx)
+	call := macro.Stop()
+	rr := clip.RRect{Rect: image.Rectangle{Max: dims.Size}, SE: 6, SW: 6, NE: 6, NW: 6}
+	paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
+	call.Add(gtx.Ops)
+	return dims
+}
+
+// mutedColor returns c with reduced alpha, for secondary text like hints.
+func mutedColor(c color.NRGBA) color.NRGBA {
+	return color.NRGBA{R: c.R, G: c.G, B: c.B, A: 0xa0}
+}
+
 func (e *editor) layoutSwatch(gtx layout.Context, i int) layout.Dimensions {
-	return layout.UniformInset(unit.Dp(2)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		sz := gtx.Dp(unit.Dp(22))
 		return e.swatchBtn[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			d := image.Pt(sz, sz)
 			rr := clip.RRect{Rect: image.Rectangle{Max: d}, SE: 4, SW: 4, NE: 4, NW: 4}
 			paint.FillShape(gtx.Ops, e.palette[i], rr.Op(gtx.Ops))
+			// A pure-white swatch is invisible against a light toolbar/canvas
+			// background; give it a hairline border in light mode regardless
+			// of selection.
+			if e.theme == lightTheme && e.palette[i] == (color.NRGBA{0xff, 0xff, 0xff, 0xff}) {
+				hairline := clip.Stroke{Path: rr.Path(gtx.Ops), Width: 1}.Op()
+				paint.FillShape(gtx.Ops, color.NRGBA{0, 0, 0, 0x40}, hairline)
+			}
 			if colorsEqual(e.palette[i], e.col) {
+				// Ring uses the theme fg color so it stays visible against
+				// both the dark palette swatch colors and the theme bg.
 				border := clip.Stroke{Path: rr.Path(gtx.Ops), Width: 2}.Op()
-				paint.FillShape(gtx.Ops, color.NRGBA{0, 0, 0, 0xff}, border)
+				paint.FillShape(gtx.Ops, e.theme.fg, border)
 			}
 			return layout.Dimensions{Size: d}
 		})
@@ -165,8 +237,7 @@ func (e *editor) layoutSwatch(gtx layout.Context, i int) layout.Dimensions {
 func (e *editor) layoutCanvas(gtx layout.Context) layout.Dimensions {
 	size := gtx.Constraints.Max
 	// Background.
-	paint.FillShape(gtx.Ops, color.NRGBA{0x20, 0x20, 0x20, 0xff},
-		clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, e.theme.canvasBg, clip.Rect{Max: size}.Op())
 
 	// Fit-to-window scale, modified by user zoom.
 	bw := float32(e.bounds.Dx())

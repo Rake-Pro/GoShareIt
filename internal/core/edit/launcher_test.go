@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
@@ -65,6 +66,53 @@ exit 0
 	}
 	if out.Mime != "image/png" || out.Kind != capture.KindImage || out.Path != "" {
 		t.Errorf("out metadata = %+v", out)
+	}
+}
+
+func TestLauncherPassesThemeAndConfirmLabel(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.txt")
+	body := "#!/bin/sh\necho \"$@\" > " + argsFile + "\n" + argParse + `printf 'EDITED' > "$out"
+exit 0
+`
+	helper := writeStub(t, dir, "flags.sh", body)
+	l := Launcher{HelperPath: helper, Theme: "dark", ConfirmLabel: "Copy & Upload"}
+	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
+	if _, _, err := l.Edit(context.Background(), in); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(got)
+	if !strings.Contains(args, "--theme dark") {
+		t.Errorf("args = %q, want --theme dark", args)
+	}
+	if !strings.Contains(args, "--confirm-label Copy & Upload") {
+		t.Errorf("args = %q, want --confirm-label Copy & Upload", args)
+	}
+}
+
+func TestLauncherOmitsThemeAndConfirmLabelWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.txt")
+	body := "#!/bin/sh\necho \"$@\" > " + argsFile + "\n" + argParse + `printf 'EDITED' > "$out"
+exit 0
+`
+	helper := writeStub(t, dir, "flags.sh", body)
+	l := Launcher{HelperPath: helper}
+	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
+	if _, _, err := l.Edit(context.Background(), in); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(got)
+	if strings.Contains(args, "--theme") || strings.Contains(args, "--confirm-label") {
+		t.Errorf("args = %q, want no --theme/--confirm-label", args)
 	}
 }
 

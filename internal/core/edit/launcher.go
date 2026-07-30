@@ -24,12 +24,14 @@ const cancelledExitCode = 64
 // back. The helper owns its own GUI main loop in its own process, so it never
 // contends with the menu-bar host's main run loop.
 type Launcher struct {
-	HelperPath  string        // path to the editor helper binary; "" -> sibling of os.Executable()
-	Timeout     time.Duration // safety cap; 0 = no cap
-	Tool        string        // default tool, passed as --tool
-	Color       string        // default color, passed as --color
-	StrokeWidth int           // default stroke width, passed as --stroke
-	Tools       []string      // enabled tools, passed as --tools csv
+	HelperPath   string        // path to the editor helper binary; "" -> sibling of os.Executable()
+	Timeout      time.Duration // safety cap; 0 = no cap
+	Tool         string        // default tool, passed as --tool
+	Color        string        // default color, passed as --color
+	StrokeWidth  int           // default stroke width, passed as --stroke
+	Tools        []string      // enabled tools, passed as --tools csv
+	Theme        string        // "light"|"dark"|"system"/"", passed as --theme; the helper resolves "system"
+	ConfirmLabel string        // rendered on the confirm button, passed as --confirm-label; "" -> helper falls back to "Done"
 }
 
 // Edit implements Editor by invoking the out-of-process editor helper.
@@ -73,6 +75,12 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result) (capture.Result, 
 	}
 	if len(l.Tools) > 0 {
 		args = append(args, "--tools", strings.Join(l.Tools, ","))
+	}
+	if l.Theme != "" {
+		args = append(args, "--theme", l.Theme)
+	}
+	if l.ConfirmLabel != "" {
+		args = append(args, "--confirm-label", l.ConfirmLabel)
 	}
 
 	cmd := exec.CommandContext(ctx, helper, args...)
