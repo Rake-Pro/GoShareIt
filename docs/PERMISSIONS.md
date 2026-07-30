@@ -33,12 +33,16 @@ permissions across launches and updates. Unsigned or
 re-signed-with-a-different-identity builds are treated as a new app and must
 be re-authorized.
 
-Release builds from CI are codesigned with a stable identity (currently an
-interim self-signed "RakePro-Dev" cert - see [RELEASE.md](RELEASE.md)), so
+Release builds from CI are codesigned with a stable, team-anchored Developer
+ID Application identity (as of v0.0.8 - see [RELEASE.md](RELEASE.md)), so
 downloaded builds keep TCC grants across updates the same way a locally
-signed dev build does. That identity carries no Gatekeeper credit until it is
-replaced with a real Developer ID Application certificate (tracked in
-[BACKLOG.md](../BACKLOG.md)).
+signed dev build does, and the identity now carries full Gatekeeper credit
+(the build is also notarized). Switching from the previous interim
+self-signed "RakePro-Dev" identity required a one-time full remove-and-re-add
+of these permissions on any install that already had them granted (a stale
+grant under the old identity shadows the new one - see "Resetting for
+testing" below); from v0.0.8 on the identity is stable across updates and
+certificate renewals, so no further re-grant is expected.
 
 ## Resetting for testing
 

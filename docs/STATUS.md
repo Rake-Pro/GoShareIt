@@ -1,18 +1,26 @@
 # GoShareIt - Project Status & Remaining Work
 
-Snapshot date: 2026-07-22. Current release: **v0.0.2**. Branch: `main` (prod is
-protected; releases go out via the promotion-PR flow, see docs/RELEASE.md).
-Repo history was squashed to a single baseline commit ("GoShareIt 0.0.1
-baseline") on 2026-07-22 and versioning restarted from 0.0.1; `1.0.0` is
-reserved for the eventual public release.
+Snapshot date: 2026-07-30. Current release: **v0.0.8** (first release signed
+with a real Developer ID Application certificate and notarized by Apple -
+notarytool `Accepted`, ticket stapled; there is no v0.0.7, see CHANGELOG).
+Branch: `main` (prod is protected; releases go out via the promotion-PR flow,
+see docs/RELEASE.md). Repo history was squashed to a single baseline commit
+("GoShareIt 0.0.1 baseline") on 2026-07-22 and versioning restarted from
+0.0.1; `1.0.0` is reserved for the eventual public release.
 
 P1-P4b + GIF + region selector/recording are all code-complete and build green
-(linux core CGO-off + GOOS=windows cross-build + all unit tests). On-device
-validation is underway: core flows (install, first-run, tray, screenshot
-capture, upload, settings UI, local-only mode) are now verified on real
-Windows and macOS hardware - see "On-device validation still owed" below for
-what remains. The only unbuilt roadmap item is P4c (in-editor copy/save/upload
-buttons) plus the small LastRegion-overlay wiring.
+(linux core CGO-off + GOOS=windows cross-build + all unit tests). v0.0.6
+shipped a feature batch on top of that: selectable upload destinations
+(S3/SFTP/WebDAV/custom HTTP alongside Nextcloud), app-wide light/dark/system
+theming for the editor and settings window, settings Save auto-applying
+without a manual window close, a native Update Now/Later dialog on manual
+update checks, and the macOS app icon (.icns). That batch is code-complete
+and container-parse-checked (JS only) but **not yet click-through-validated
+on real hardware** - see "On-device validation still owed" below. On-device
+validation of the earlier core flows (install, first-run, tray, screenshot
+capture, upload, settings UI, local-only mode) remains verified on real
+Windows and macOS hardware as before. The only unbuilt roadmap item is P4c
+(in-editor copy/save/upload buttons) plus the small LastRegion-overlay wiring.
 
 GoShareIt is a screenshot/recording + Nextcloud-upload tool. Goal: full-featured screenshot
 capture (region, full screen, window) on **macOS and Windows from one Go codebase**. Architecture, rationale,
@@ -75,10 +83,14 @@ build, so macOS drops the Screen Recording / Accessibility / Input Monitoring
 grants each time (the "remove and re-add" dance). The fix is consistent
 signing, not re-granting: `scripts/dev-build.sh` auto-discovers a stable local
 signing identity for local dev builds, and CI now signs every release bundle
-with a stable identity too (currently an interim self-signed "RakePro-Dev"
-cert - see docs/PERMISSIONS.md and BACKLOG.md for the plan to replace it with
-a real Developer ID Application cert). Verified on hardware: TCC grants
-persist across launches and updates under the signed CI build.
+with a stable, team-anchored Developer ID Application identity (as of
+v0.0.8 - see docs/PERMISSIONS.md and docs/RELEASE.md). Switching to it from
+the old self-signed "RakePro-Dev" identity required a one-time full
+remove-and-re-add of TCC permissions on existing installs (a stale grant
+under the old identity shadows the new one); from v0.0.8 on the identity is
+stable across updates and certificate renewals, so grants persist without
+further action. Verified on hardware: TCC grants persist across launches and
+updates under the signed CI build.
 
 NOTE: ongoing work now tracks in `CHANGELOG.md` (shipped) and `BACKLOG.md` (planned) at the repo
 root - update BOTH with every change; this file stays as the architecture/validation reference.
@@ -116,11 +128,14 @@ root - update BOTH with every change; this file stays as the architecture/valida
   admin) + loose-exe `.zip` (updater feed); Linux `.tar.gz` (EXPERIMENTAL - wire_linux.go still runs
   fakes); `checksums.txt` (sha256, updater fails closed without it). Asset names must stay in sync with
   `update.AssetName()`.
-- **macOS signing in CI is gated on secrets** (`MACOS_CERT_P12`(+`_PASSWORD`) + `DEVELOPER_ID_APP` to sign;
-  `AC_APPLE_ID`/`AC_PASSWORD`/`TEAM_ID` to notarize). The secrets are populated today with an interim
-  self-signed "RakePro-Dev" identity, so release builds ARE signed (good enough for TCC persistence, no
-  Gatekeeper credit yet); a build with no signing secrets at all falls back to ad-hoc signing the whole
-  bundle so it still has one consistent identity.
+- **macOS signing in CI is gated on secrets** (`MACOS_CERT_P12`(+`_PASSWORD`) to sign; `AC_APPLE_ID`/
+  `AC_PASSWORD`/`TEAM_ID` to notarize). As of v0.0.8 the secrets carry a real Developer ID Application
+  certificate: the build keychain imports Apple's Developer ID CA intermediates before signing, and the
+  workflow signs by the identity's derived SHA-1 hash rather than the `DEVELOPER_ID_APP` name string
+  (`DEVELOPER_ID_APP` is no longer load-bearing for CI, only for local `scripts/sign.sh`). Release builds
+  are signed AND notarized (notarytool `Accepted`, ticket stapled) - full Gatekeeper credit, not just TCC
+  persistence; a build with no signing secrets at all falls back to ad-hoc signing the whole bundle so it
+  still has one consistent identity.
 - **Self-update:** `internal/core/update` polls the GitHub Releases API (`update:` config section; optional
   fine-grained read-only PAT in `<app root>/github-token.secret` while the repo is private -
   anonymous API takes over when it goes public). Tray item "Check for Updates" -> "Install Update vX.Y.Z";

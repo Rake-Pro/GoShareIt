@@ -39,29 +39,39 @@ Set as repository secrets; the macOS job checks for them and adapts:
 |---|---|
 | `MACOS_CERT_P12` | base64-encoded `.p12` codesigning certificate |
 | `MACOS_CERT_P12_PASSWORD` | password for the `.p12` |
-| `DEVELOPER_ID_APP` | codesign identity string, e.g. `Developer ID Application: Your Name (ABCDE12345)` |
+| `DEVELOPER_ID_APP` | informational only for CI signing (see below); still read by local `scripts/sign.sh` |
 | `AC_APPLE_ID` (optional) | Apple ID for notarization |
 | `AC_PASSWORD` (optional) | app-specific password for notarization |
-| `TEAM_ID` (optional) | 10-char Apple Team ID, required with the above two |
+| `TEAM_ID` (optional) | 10-char Apple Team ID (bare, no parentheses), required with the above two |
 
-- `MACOS_CERT_P12` + `MACOS_CERT_P12_PASSWORD` + `DEVELOPER_ID_APP` present ->
-  the bundle is codesigned with the Hardened Runtime + entitlements
-  (`scripts/sign.sh`).
+- `MACOS_CERT_P12` + `MACOS_CERT_P12_PASSWORD` present -> the p12 is imported
+  into the build keychain, followed by Apple's Developer ID CA intermediates
+  (G1+G2) - a Keychain-exported p12 carries only the leaf cert + key, so
+  without the intermediates the identity imports but is never valid on the
+  bare runner keychain. The workflow then derives the identity's SHA-1 hash
+  via `find-identity` and signs by that hash (not by the `DEVELOPER_ID_APP`
+  name string - `codesign -s <name>` matches the exact certificate CN, and
+  the build keychain only ever holds the one imported identity, so the hash
+  is exact and immune to name/secret formatting drift). The bundle is signed
+  with the Hardened Runtime + entitlements (`scripts/sign.sh`).
 - `AC_APPLE_ID` + `AC_PASSWORD` + `TEAM_ID` also present -> the signed bundle
   is submitted to Apple's notary service and the ticket stapled.
 - Signing secrets absent entirely -> the workflow falls back to ad-hoc signing
   the whole bundle (`codesign --force --deep -s -`) so it still has one
   consistent identity; the job stays green either way.
 
-**Current state:** the signing secrets are populated with an interim
-self-signed `RakePro-Dev` identity (`TeamIdentifier` not set). Release builds
-are codesigned with a stable identity, which is enough for Screen
-Recording/Accessibility TCC grants to persist across installs and updates on
-a personal machine, but the bundle carries **no Gatekeeper credit** (not
-notarized, not a real Developer ID). Replacing it with a real Developer ID
-Application certificate, and wiring up notarization once that cert is in
-place, are tracked in [BACKLOG.md](../BACKLOG.md) - do not duplicate that
-item here.
+**Current state:** as of v0.0.8, the signing secrets carry a real Developer
+ID Application certificate (team-anchored identity). Release builds are
+codesigned and **notarized** - `notarytool` reports `Accepted` and the ticket
+is stapled - so the bundle carries full Gatekeeper credit, and (being a
+team-anchored identity) keeps Screen Recording/Accessibility TCC grants
+persistent across installs, updates, and certificate renewals. Switching from
+the old self-signed identity required a one-time full remove-and-re-add of
+those TCC permissions on any existing install (a stale grant under the old
+identity shadows the new one); see [PERMISSIONS.md](PERMISSIONS.md).
+`DEVELOPER_ID_APP` is no longer load-bearing for CI signing (the identity is
+resolved by hash); it is still used by `scripts/sign.sh` for local builds
+(see below), where it must be the exact identity string.
 
 ## Local build (`make release`), secondary
 
