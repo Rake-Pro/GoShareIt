@@ -115,12 +115,45 @@ jobs:
         run: echo "Signing path would run here (see docs/RELEASE.md)."
 
   # ---------------------------------------------------------------------------
+  # Trivy CVE scan of the module tree (org security-scanning standard). No
+  # container image is built here, so this is a filesystem scan of go.mod:
+  # HIGH+CRITICAL reported for visibility, fixable CRITICALs block the gate.
+  # ---------------------------------------------------------------------------
+  trivy:
+    name: trivy (go.mod CVEs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Trivy scan (report, non-blocking)
+        # Third-party action - SHA-pinned (v0.36.0).
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+
+      - name: Trivy scan (gate, blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: table
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+
+  # ---------------------------------------------------------------------------
   # Aggregate gate. The prod branch protection requires a check literally named
   # "build" (promotion-flow standard), so this fans in every real job.
   # ---------------------------------------------------------------------------
   build:
     name: build
-    needs: [core, macos-build]
+    needs: [core, macos-build, trivy]
     runs-on: ubuntu-latest
     steps:
       - run: echo "all builds green"
