@@ -21,6 +21,7 @@ func buildProviders(_ *config.Config) (core.Providers, error) {
 		Uploader:  fake.NewUploader(), // replaced by the real Nextcloud uploader in main
 		Clipboard: &fake.Clipboard{},
 		Notifier:  &fake.Notifier{},
+		Confirmer: &fake.Confirmer{},
 		Tray:      fake.Tray{},
 		Hotkeys:   fake.NewHotkeyManager(),
 	}, nil
