@@ -196,7 +196,7 @@ jobs:
           hdiutil create -volname GoShareIt -srcfolder dist/GoShareIt.app -ov -format UDZO \
             "out/GoShareIt_${VERSION}_darwin_universal.dmg"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: out/*
@@ -247,7 +247,7 @@ jobs:
           iscc "/DAppVersion=$env:VERSION" "/DBinDir=$PWD\dist\windows" /Oout build\windows\goshareit.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: out/*
@@ -282,7 +282,7 @@ jobs:
             -o dist/goshareit ./cmd/goshareit
           tar -C dist -czf "out/GoShareIt_${VERSION}_linux_amd64.tar.gz" goshareit
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: out/*
@@ -297,7 +297,7 @@ jobs:
       TAG: ${{ needs.version.outputs.tag }}
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: assets
           merge-multiple: true
