@@ -92,6 +92,112 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 }
 
+// Destination secrets round-trip the same way NewPassword/NewToken do: write
+// on non-empty, leave untouched when omitted, reject writes when the
+// corresponding *_env is set.
+func TestSaveDestinationSecrets(t *testing.T) {
+	testHome(t)
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	svc := &Service{ConfigPath: cfgPath}
+
+	res, err := svc.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := res.Config
+	cfg.Nextcloud.BaseURL = "https://cloud.example.com"
+	cfg.Nextcloud.Username = "user@example.com"
+	cfg.Upload.Destination = "s3"
+	cfg.S3.Endpoint = "s3.example.com"
+	cfg.S3.Bucket = "bucket"
+	cfg.S3.AccessKey = "AKIA"
+
+	if err := svc.Save(&SaveRequest{
+		Config:            cfg,
+		NewPassword:       "pw-abc",
+		NewS3SecretKey:    "s3-secret",
+		NewSFTPPassword:   "sftp-pw",
+		NewSFTPPassphrase: "sftp-pass",
+		NewWebDAVPassword: "webdav-pw",
+		NewCustomSecret:   "custom-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.S3SecretKey() != "s3-secret" {
+		t.Errorf("S3SecretKey() = %q", loaded.S3SecretKey())
+	}
+	if loaded.SFTPPassword() != "sftp-pw" {
+		t.Errorf("SFTPPassword() = %q", loaded.SFTPPassword())
+	}
+	if loaded.SFTPPassphrase() != "sftp-pass" {
+		t.Errorf("SFTPPassphrase() = %q", loaded.SFTPPassphrase())
+	}
+	if loaded.WebDAVPassword() != "webdav-pw" {
+		t.Errorf("WebDAVPassword() = %q", loaded.WebDAVPassword())
+	}
+	if loaded.CustomSecret() != "custom-secret" {
+		t.Errorf("CustomSecret() = %q", loaded.CustomSecret())
+	}
+
+	res2, err := svc.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, has := range map[string]bool{
+		"HasS3SecretKey":    res2.HasS3SecretKey,
+		"HasSFTPPassword":   res2.HasSFTPPassword,
+		"HasSFTPPassphrase": res2.HasSFTPPassphrase,
+		"HasWebDAVPassword": res2.HasWebDAVPassword,
+		"HasCustomSecret":   res2.HasCustomSecret,
+	} {
+		if !has {
+			t.Errorf("%s = false, want true after save", name)
+		}
+	}
+
+	// Save again without secrets: existing ones untouched.
+	if err := svc.Save(&SaveRequest{Config: res2.Config}); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := config.Load(cfgPath); again.S3SecretKey() != "s3-secret" {
+		t.Error("s3 secret key lost on secretless save")
+	}
+}
+
+func TestSaveDestinationSecretRejectedWhenEnvSourced(t *testing.T) {
+	testHome(t)
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	svc := &Service{ConfigPath: cfgPath}
+	res, err := svc.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := res.Config
+	cfg.Upload.Destination = "webdav"
+	cfg.WebDAV.BaseURL = "https://dav.example.com"
+	cfg.WebDAV.PasswordEnv = "GSIT_TEST_WEBDAV_PW"
+
+	err = svc.Save(&SaveRequest{Config: cfg, NewWebDAVPassword: "should-not-write"})
+	if err == nil || !strings.Contains(err.Error(), "env var") {
+		t.Fatalf("expected env-sourced rejection, got %v", err)
+	}
+}
+
+func TestPresets(t *testing.T) {
+	svc := &Service{}
+	presets := svc.Presets()
+	for _, key := range []string{"imgur", "catbox", "0x0"} {
+		if _, ok := presets[key]; !ok {
+			t.Errorf("Presets() missing %q", key)
+		}
+	}
+}
+
 func TestSaveInvalidConfigReportsError(t *testing.T) {
 	testHome(t)
 	svc := &Service{ConfigPath: filepath.Join(t.TempDir(), "config.yaml"), Version: "1.2.3"}

@@ -51,11 +51,16 @@ const (
 // Options configures the initial editor state. Color is the initial stroke
 // color; Stroke the initial width; Tools restricts which tools appear in the
 // toolbar (empty -> all P4a tools); Tool is the initially selected tool.
+// Theme is the resolved theme ("light" or "dark"; anything else, including
+// empty, falls back to dark) - callers resolve "system" before calling Run.
+// ConfirmLabel is rendered on the confirm button ("" -> "Done").
 type Options struct {
-	Tool   Tool
-	Color  color.NRGBA
-	Stroke int
-	Tools  []Tool
+	Tool         Tool
+	Color        color.NRGBA
+	Stroke       int
+	Tools        []Tool
+	Theme        string
+	ConfirmLabel string
 }
 
 // shapeKind mirrors Tool for committed shapes.
@@ -133,17 +138,19 @@ type editor struct {
 	lastScale  float32
 
 	// widgets
-	th        *material.Theme
-	toolBtns  map[Tool]*widget.Clickable
-	swatchBtn []*widget.Clickable
-	strokeInc widget.Clickable
-	strokeDec widget.Clickable
-	undoBtn   widget.Clickable
-	redoBtn   widget.Clickable
-	confirm   widget.Clickable
-	cancelB   widget.Clickable
-	textIn    widget.Editor
-	toolRow   layout.List // scrollable tool/swatch row (toolbar row 1)
+	th           *material.Theme
+	theme        themePalette // resolved theme colors, applied to th.Palette and painted directly
+	confirmLabel string       // rendered on the confirm button
+	toolBtns     map[Tool]*widget.Clickable
+	swatchBtn    []*widget.Clickable
+	strokeInc    widget.Clickable
+	strokeDec    widget.Clickable
+	undoBtn      widget.Clickable
+	redoBtn      widget.Clickable
+	confirm      widget.Clickable
+	cancelB      widget.Clickable
+	textIn       widget.Editor
+	toolRow      layout.List // scrollable tool/swatch row (toolbar row 1)
 
 	imgOp paint.ImageOp
 
@@ -186,20 +193,39 @@ func newEditor(img image.Image, opts Options) *editor {
 	}
 	stroke := opts.Stroke
 	if stroke < 1 {
-		stroke = 3
+		stroke = 6
+	}
+
+	theme := darkTheme
+	if opts.Theme == "light" {
+		theme = lightTheme
+	}
+	confirmLabel := opts.ConfirmLabel
+	if confirmLabel == "" {
+		confirmLabel = "Done"
+	}
+
+	th := material.NewTheme()
+	th.Palette = material.Palette{
+		Bg:         theme.toolbarBg,
+		Fg:         theme.fg,
+		ContrastBg: theme.accent,
+		ContrastFg: theme.contrastFg,
 	}
 
 	e := &editor{
-		base:    norm,
-		bounds:  norm.Bounds(),
-		tools:   tools,
-		tool:    tool,
-		col:     col,
-		stroke:  stroke,
-		zoom:    1,
-		th:      material.NewTheme(),
-		palette: defaultPalette(),
-		imgOp:   paint.NewImageOp(norm),
+		base:         norm,
+		bounds:       norm.Bounds(),
+		tools:        tools,
+		tool:         tool,
+		col:          col,
+		stroke:       stroke,
+		zoom:         1,
+		th:           th,
+		theme:        theme,
+		confirmLabel: confirmLabel,
+		palette:      defaultPalette(),
+		imgOp:        paint.NewImageOp(norm),
 	}
 	e.toolBtns = make(map[Tool]*widget.Clickable, len(tools))
 	for _, t := range tools {
@@ -212,6 +238,37 @@ func newEditor(img image.Image, opts Options) *editor {
 	e.textIn.SingleLine = true
 	e.toolRow.Axis = layout.Horizontal
 	return e
+}
+
+// themePalette holds the explicit colors for one theme mode. It is applied
+// both to th.Palette (so stock material widgets pick it up) and painted
+// directly onto the toolbar and canvas backgrounds, so the light-by-default
+// Gio window surface never shows through.
+type themePalette struct {
+	toolbarBg  color.NRGBA
+	canvasBg   color.NRGBA
+	fg         color.NRGBA
+	surfaceBg  color.NRGBA // subtle background for unselected/secondary buttons
+	accent     color.NRGBA
+	contrastFg color.NRGBA // text/icon color on top of accent
+}
+
+var darkTheme = themePalette{
+	toolbarBg:  color.NRGBA{R: 0x1e, G: 0x1e, B: 0x1e, A: 0xff},
+	canvasBg:   color.NRGBA{R: 0x14, G: 0x14, B: 0x14, A: 0xff},
+	fg:         color.NRGBA{R: 0xe8, G: 0xe8, B: 0xe8, A: 0xff},
+	surfaceBg:  color.NRGBA{R: 0x2c, G: 0x2c, B: 0x2e, A: 0xff},
+	accent:     color.NRGBA{R: 0x0a, G: 0x84, B: 0xff, A: 0xff},
+	contrastFg: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
+}
+
+var lightTheme = themePalette{
+	toolbarBg:  color.NRGBA{R: 0xf2, G: 0xf2, B: 0xf4, A: 0xff},
+	canvasBg:   color.NRGBA{R: 0xd8, G: 0xd8, B: 0xdc, A: 0xff},
+	fg:         color.NRGBA{R: 0x1c, G: 0x1c, B: 0x1e, A: 0xff},
+	surfaceBg:  color.NRGBA{R: 0xe4, G: 0xe4, B: 0xe8, A: 0xff},
+	accent:     color.NRGBA{R: 0x0a, G: 0x84, B: 0xff, A: 0xff},
+	contrastFg: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff},
 }
 
 func defaultPalette() []color.NRGBA {

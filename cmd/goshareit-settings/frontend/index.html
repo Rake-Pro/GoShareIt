@@ -7,14 +7,27 @@
   :root {
     --bg: #f5f6f8; --panel: #ffffff; --text: #1c1e21; --muted: #6b7280;
     --border: #d7dade; --accent: #0a84ff; --ok: #1f9d55; --err: #d64545;
-    --input-bg: #ffffff;
+    --input-bg: #ffffff; --inset: #f7f8fa;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #1b1d21; --panel: #24272c; --text: #e8eaed; --muted: #9aa0a8;
       --border: #3a3e45; --accent: #409cff; --ok: #34c07a; --err: #ff6b6b;
-      --input-bg: #1e2126;
+      --input-bg: #1e2126; --inset: #202329;
     }
+  }
+  /* Explicit theme override (data-theme set from the loaded config's Theme
+     field): forces light/dark regardless of prefers-color-scheme. Left unset
+     for "system" so the media query above applies. */
+  :root[data-theme="light"] {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1c1e21; --muted: #6b7280;
+    --border: #d7dade; --accent: #0a84ff; --ok: #1f9d55; --err: #d64545;
+    --input-bg: #ffffff; --inset: #f7f8fa;
+  }
+  :root[data-theme="dark"] {
+    --bg: #1b1d21; --panel: #24272c; --text: #e8eaed; --muted: #9aa0a8;
+    --border: #3a3e45; --accent: #409cff; --ok: #34c07a; --err: #ff6b6b;
+    --input-bg: #1e2126; --inset: #202329;
   }
   * { box-sizing: border-box; }
   body {
@@ -37,15 +50,25 @@
   .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .row label.name { flex: 0 0 170px; color: var(--text); }
   .row .hint { color: var(--muted); font-size: 11px; }
-  input[type=text], input[type=password], input[type=number], select {
+  input[type=text], input[type=password], input[type=number], select, textarea {
     flex: 1; min-width: 0; background: var(--input-bg); color: var(--text);
     border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
     font: inherit; -webkit-user-select: text; user-select: text;
   }
-  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
   input[type=checkbox] { accent-color: var(--accent); }
   .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1; }
   .checks label { display: inline-flex; align-items: center; gap: 5px; color: var(--text); }
+  /* The one destination container: everything provider-specific lives inside
+     this inset panel and swaps with the Destination select. */
+  .destpanel {
+    background: var(--inset); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 12px 6px; margin: 4px 0 8px;
+  }
+  .destpanel .row label.name { flex-basis: 158px; }
+  .desttag { font-size: 11px; color: var(--muted); margin: -4px 0 10px; }
+  .hidden { display: none; }
   footer {
     position: fixed; bottom: 0; left: 0; right: 0;
     background: var(--panel); border-top: 1px solid var(--border);
@@ -88,21 +111,85 @@
 // names, since config.Config has no json tags). Special types "secret:*" map
 // to the write-only SaveRequest fields.
 const SCHEMA = [
-  { title: "Nextcloud", fields: [
-    { p: "Nextcloud.BaseURL",   l: "Server URL",   t: "text", hint: "https://cloud.example.com" },
-    { p: "Nextcloud.Username",  l: "Username",     t: "text" },
-    { p: "Nextcloud.DavUser",   l: "DAV user",     t: "text", hint: "blank = derived from username" },
-    { p: "Nextcloud.RemoteDir", l: "Remote folder",t: "text", hint: "blank = files root" },
-    { p: "@password",           l: "App password", t: "secret" },
+  { title: "Appearance", fields: [
+    { p: "Theme", l: "Theme", t: "select", opts: ["system", "light", "dark"] },
   ]},
   { title: "Upload", fields: [
     { p: "Upload.Enabled", l: "Upload captures", t: "bool",
       hint: "off = local-only: no data leaves this machine, server settings optional" },
-    { p: "Upload.FilenameTemplate", l: "Filename template", t: "text", hint: "{date} {time} {datetime} {rand} {ext}" },
-    { p: "Upload.ShareExpireDays",  l: "Share expiry (days)", t: "number", hint: "0 = never" },
-    { p: "Upload.SharePassword",    l: "Share password", t: "text", hint: "blank = none" },
-    { p: "Upload.DirectLink",       l: "Direct preview link", t: "bool" },
-  ]},
+    { p: "Upload.Destination", l: "Destination", t: "select",
+      opts: [
+        { v: "nextcloud", l: "Nextcloud" },
+        { v: "s3", l: "S3-compatible (AWS / B2 / MinIO / R2)" },
+        { v: "sftp", l: "SFTP" },
+        { v: "webdav", l: "WebDAV" },
+        { v: "custom", l: "Custom HTTP (ShareX-style)" },
+      ],
+      hint: "fields for the selected destination appear below" },
+  ],
+    // destPanels: one sub-panel per destination, all rendered in the DOM
+    // inside a single inset .destpanel container; only the sub-panel that
+    // matches Upload.Destination stays visible (see syncDestPanel()).
+    destPanels: [
+      { key: "nextcloud", label: "Nextcloud settings", fields: [
+        { p: "Nextcloud.BaseURL",   l: "Server URL",   t: "text", hint: "https://cloud.example.com" },
+        { p: "Nextcloud.Username",  l: "Username",     t: "text" },
+        { p: "Nextcloud.DavUser",   l: "DAV user",     t: "text", hint: "blank = derived from username" },
+        { p: "Nextcloud.RemoteDir", l: "Remote folder",t: "text", hint: "blank = files root" },
+        { p: "@password",           l: "App password", t: "secret" },
+        { p: "Upload.ShareExpireDays", l: "Share expiry (days)", t: "number", hint: "0 = never" },
+        { p: "Upload.SharePassword",   l: "Share password", t: "text", hint: "blank = none" },
+        { p: "Upload.DirectLink",      l: "Direct preview link", t: "bool" },
+      ]},
+      { key: "s3", label: "S3-compatible settings", fields: [
+        { p: "S3.Endpoint",  l: "Endpoint", t: "text", hint: "host[:port], no scheme, e.g. s3.us-west-002.backblazeb2.com" },
+        { p: "S3.Region",    l: "Region",   t: "text" },
+        { p: "S3.Bucket",    l: "Bucket",   t: "text" },
+        { p: "S3.AccessKey", l: "Access key", t: "text" },
+        { p: "@s3_secret_key", l: "Secret key", t: "secret" },
+        { p: "S3.Prefix",       l: "Key prefix",         t: "text", hint: "blank = bucket root" },
+        { p: "S3.URLTemplate",  l: "Public URL template", t: "text", hint: "{bucket} {key} {name}; blank = presigned GET" },
+        { p: "S3.UsePathStyle", l: "Path-style addressing", t: "bool", hint: "required by most non-AWS providers" },
+        { p: "S3.PresignSeconds", l: "Presign TTL (seconds)", t: "number", hint: "used when URL template is blank; default/max 604800" },
+      ]},
+      { key: "sftp", label: "SFTP settings", fields: [
+        { p: "SFTP.Host", l: "Host", t: "text" },
+        { p: "SFTP.Port", l: "Port", t: "number", hint: "default 22" },
+        { p: "SFTP.User", l: "User", t: "text" },
+        { p: "@sftp_password", l: "Password", t: "secret", hint: "used when no private key is set below" },
+        { p: "SFTP.PrivateKeyFile", l: "Private key file", t: "text", hint: "path to a PEM file on this machine; takes precedence over password" },
+        { p: "@sftp_passphrase", l: "Key passphrase", t: "secret", hint: "only needed if the private key above is encrypted" },
+        { p: "SFTP.RemoteDir",   l: "Remote folder", t: "text" },
+        { p: "SFTP.URLTemplate", l: "Public URL template", t: "text", hint: "{name}" },
+        { p: "SFTP.HostKeyFingerprint", l: "Host key fingerprint", t: "text",
+          hint: "SHA256:... (ssh-keygen -lf); blank leaves the host key unverified" },
+      ]},
+      { key: "webdav", label: "WebDAV settings", fields: [
+        { p: "WebDAV.BaseURL",  l: "Server URL", t: "text", hint: "https://webdav.example.com/remote.php/dav/files/uploads" },
+        { p: "WebDAV.Username", l: "Username", t: "text" },
+        { p: "@webdav_password", l: "Password", t: "secret" },
+        { p: "WebDAV.RemoteDir",   l: "Remote folder", t: "text" },
+        { p: "WebDAV.URLTemplate", l: "Public URL template", t: "text", hint: "{name} {path}; blank = the PUT URL" },
+      ]},
+      { key: "custom", label: "Custom HTTP settings", fields: [
+        { p: "@custom_preset", l: "Preset", t: "preset", hint: "prefills the fields below client-side; still requires Save" },
+        { p: "Custom.Method", l: "Method", t: "select", opts: ["POST", "PUT"] },
+        { p: "Custom.URL",    l: "URL", t: "text", hint: "supports {name} {mime}" },
+        { p: "Custom.Headers", l: "Headers", t: "kv", hint: "one key=value per line; values support {name} {mime} {secret}" },
+        { p: "Custom.Body",      l: "Body", t: "select", opts: ["multipart", "raw"] },
+        { p: "Custom.FileField", l: "File field", t: "text", hint: "multipart field name for the file; default \"file\"" },
+        { p: "Custom.ExtraFields", l: "Extra fields", t: "kv",
+          hint: "multipart only; one key=value per line; values support {name} {mime} {secret}" },
+        { p: "@custom_secret", l: "Secret", t: "secret", hint: "substitutes {secret} in headers/extra fields above" },
+        { p: "Custom.ResponseURLPath",       l: "Response URL path",        t: "text", hint: "dot path into a JSON response, e.g. data.link" },
+        { p: "Custom.ResponseDirectURLPath", l: "Response direct URL path", t: "text", hint: "blank = same as response URL path" },
+        { p: "Custom.ResponseURLRegex",      l: "Response URL regex",       t: "text", hint: "used instead of response URL path; first capture group is the URL" },
+      ]},
+    ],
+    tailFields: [
+      { p: "Upload.FilenameTemplate", l: "Filename template", t: "text", hint: "{date} {time} {datetime} {rand} {ext}" },
+    ],
+  },
   { title: "After capture", fields: [
     { p: "AfterCapture.CopyImageToClipboard", l: "Copy image to clipboard", t: "bool" },
     { p: "AfterCapture.SaveLocal", l: "Keep a local copy", t: "bool" },
@@ -132,7 +219,7 @@ const SCHEMA = [
     { p: "Editor.DefaultTool", l: "Default tool", t: "select",
       opts: ["crop","arrow","rect","ellipse","line","freehand","text","blur","pixelate","highlight","step"] },
     { p: "Editor.Color",       l: "Color", t: "text", hint: "#rrggbb" },
-    { p: "Editor.StrokeWidth", l: "Stroke width", t: "number" },
+    { p: "Editor.StrokeWidth", l: "Stroke width", t: "number", hint: "px, editor default" },
   ]},
   { title: "Updates", fields: [
     { p: "Update.Enabled", l: "Check for updates", t: "bool" },
@@ -145,9 +232,52 @@ const SCHEMA = [
   ]},
 ];
 
+// SECRET_FIELDS maps a "@..." schema path to the LoadResult "has*" flag and
+// the SaveRequest write-only field it collects into. @password is handled
+// separately in render()/collect() because of the browser sign-in flow.
+const SECRET_FIELDS = {
+  "@password":        { has: "hasPassword",       saveKey: "newPassword" },
+  "@token":           { has: "hasToken",           saveKey: "newToken" },
+  "@s3_secret_key":   { has: "hasS3SecretKey",     saveKey: "newS3SecretKey" },
+  "@sftp_password":   { has: "hasSFTPPassword",    saveKey: "newSFTPPassword" },
+  "@sftp_passphrase": { has: "hasSFTPPassphrase",  saveKey: "newSFTPPassphrase" },
+  "@webdav_password": { has: "hasWebDAVPassword",  saveKey: "newWebDAVPassword" },
+  "@custom_secret":   { has: "hasCustomSecret",    saveKey: "newCustomSecret" },
+};
+
+// secretEnvVar returns the *_env value that sources a "@..." secret field
+// ("" if it is file-sourced or has no env option, e.g. the update token).
+function secretEnvVar(p) {
+  switch (p) {
+    case "@password":        return model.config.Nextcloud.PasswordEnv || "";
+    case "@s3_secret_key":   return model.config.S3.SecretKeyEnv || "";
+    case "@sftp_password":   return model.config.SFTP.PasswordEnv || "";
+    case "@sftp_passphrase": return model.config.SFTP.PassphraseEnv || "";
+    case "@webdav_password": return model.config.WebDAV.PasswordEnv || "";
+    case "@custom_secret":   return model.config.Custom.SecretEnv || "";
+    default:                 return "";
+  }
+}
+
 const $ = (id) => document.getElementById(id);
 let model = null;
+let presets = {}; // custom-uploader presets, loaded from the backend at init
 let pendingLoginPassword = ""; // minted by browser sign-in, applied on Save
+
+function kvToText(obj) {
+  return Object.entries(obj || {}).map(([k, v]) => `${k}=${v}`).join("\n");
+}
+function textToKv(text) {
+  const out = {};
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    const i = t.indexOf("=");
+    if (i < 0) continue;
+    out[t.slice(0, i).trim()] = t.slice(i + 1);
+  }
+  return out;
+}
 
 const get = (obj, path) => path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
 const set = (obj, path, v) => {
@@ -157,92 +287,163 @@ const set = (obj, path, v) => {
 
 function fieldId(p) { return "f_" + p.replace(/[.@]/g, "_"); }
 
-function render() {
+// allFields flattens a SCHEMA section into its plain fields plus (if present)
+// every destPanels sub-panel's fields and tailFields, in DOM order. Used by
+// collect() so every rendered input - visible or hidden behind the
+// destination swap - is still read back.
+function allFields(sec) {
+  const out = [...sec.fields];
+  if (sec.destPanels) for (const panel of sec.destPanels) out.push(...panel.fields);
+  if (sec.tailFields) out.push(...sec.tailFields);
+  return out;
+}
+
+// renderFieldRow builds one .row element for a schema field. Shared by the
+// top-level section loop and the destPanels sub-panel loop in render().
+function renderFieldRow(f) {
   const cfg = model.config;
+  const row = document.createElement("div");
+  row.className = "row";
+  const id = fieldId(f.p);
+  let control = "";
+  const val = f.p.startsWith("@") ? "" : get(cfg, f.p);
+  if (f.t === "text") {
+    control = `<input type="text" id="${id}" value="${esc(val ?? "")}">`;
+  } else if (f.t === "dir") {
+    control = `<input type="text" id="${id}" value="${esc(val ?? "")}">` +
+      `<button type="button" class="mini" data-browse="${id}">Browse...</button>`;
+  } else if (f.t === "number") {
+    control = `<input type="number" id="${id}" min="0" step="1" value="${Number(val ?? 0)}">`;
+  } else if (f.t === "bool") {
+    // *bool fields default to true when null.
+    const defaultTrue = f.p === "Update.Enabled" || f.p === "Upload.Enabled";
+    const on = defaultTrue ? (val !== false) : !!val;
+    control = `<input type="checkbox" id="${id}" ${on ? "checked" : ""}>`;
+  } else if (f.t === "select") {
+    // opts entries are either a plain string (value === label) or
+    // { v, l } when the displayed label needs to differ from the enum value.
+    control = `<select id="${id}">` + f.opts.map(o => {
+      const v = (typeof o === "object") ? o.v : o;
+      const l = (typeof o === "object") ? o.l : o;
+      return `<option value="${esc(v)}" ${v === val ? "selected" : ""}>${esc(l)}</option>`;
+    }).join("") + `</select>`;
+  } else if (f.t === "checks") {
+    const cur = new Set(val || []);
+    control = `<div class="checks">` + f.opts.map(o =>
+      `<label><input type="checkbox" data-group="${id}" value="${o}" ${cur.has(o) ? "checked" : ""}>${o}</label>`).join("") + `</div>`;
+  } else if (f.t === "kv") {
+    control = `<textarea id="${id}" rows="3">${esc(kvToText(val))}</textarea>`;
+  } else if (f.t === "preset") {
+    control = `<select id="${id}"><option value="">(choose a preset)</option>` +
+      Object.keys(presets).sort().map(k => `<option value="${k}">${esc(k)}</option>`).join("") + `</select>` +
+      `<button type="button" class="mini" id="btn_apply_preset">Apply preset</button>`;
+  } else if (f.t === "secret") {
+    const envVar = secretEnvVar(f.p);
+    if (envVar) {
+      // Env-sourced secrets are read-only here; Save() rejects file writes.
+      // data-locked keeps syncEnabledState() from re-enabling it.
+      control = `<input type="password" id="${id}" disabled data-locked="1" placeholder="(managed by env var ${esc(envVar)})">`;
+    } else {
+      const has = model[SECRET_FIELDS[f.p].has];
+      control = `<input type="password" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
+      if (f.p === "@password") {
+        // Browser sign-in (Login Flow v2): the server-side auth - incl.
+        // OIDC/SSO - happens in the browser; we receive an app password.
+        control += `<button type="button" class="mini" id="btn_login">Sign in with browser</button>`;
+      }
+    }
+  }
+  row.innerHTML = `<label class="name">${f.l}</label>${control}` +
+    (f.hint ? `<span class="hint">${f.hint}</span>` : "");
+  return row;
+}
+
+function render() {
   const root = $("form");
   root.innerHTML = "";
   for (const sec of SCHEMA) {
     const s = document.createElement("section");
     s.dataset.section = sec.title;
     s.innerHTML = `<h2>${sec.title}</h2>`;
-    for (const f of sec.fields) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const id = fieldId(f.p);
-      let control = "";
-      const val = f.p.startsWith("@") ? "" : get(cfg, f.p);
-      if (f.t === "text") {
-        control = `<input type="text" id="${id}" value="${esc(val ?? "")}">`;
-      } else if (f.t === "dir") {
-        control = `<input type="text" id="${id}" value="${esc(val ?? "")}">` +
-          `<button type="button" class="mini" data-browse="${id}">Browse...</button>`;
-      } else if (f.t === "number") {
-        control = `<input type="number" id="${id}" min="0" step="1" value="${Number(val ?? 0)}">`;
-      } else if (f.t === "bool") {
-        // *bool fields default to true when null.
-        const defaultTrue = f.p === "Update.Enabled" || f.p === "Upload.Enabled";
-        const on = defaultTrue ? (val !== false) : !!val;
-        control = `<input type="checkbox" id="${id}" ${on ? "checked" : ""}>`;
-      } else if (f.t === "select") {
-        control = `<select id="${id}">` + f.opts.map(o =>
-          `<option ${o === val ? "selected" : ""}>${o}</option>`).join("") + `</select>`;
-      } else if (f.t === "checks") {
-        const cur = new Set(val || []);
-        control = `<div class="checks">` + f.opts.map(o =>
-          `<label><input type="checkbox" data-group="${id}" value="${o}" ${cur.has(o) ? "checked" : ""}>${o}</label>`).join("") + `</div>`;
-      } else if (f.t === "secret") {
-        const envVar = f.p === "@password" ? (model.config.Nextcloud.PasswordEnv || "") : "";
-        if (envVar) {
-          // Env-sourced secrets are read-only here; Save() rejects file writes.
-          // data-locked keeps the upload-toggle sync from re-enabling it.
-          control = `<input type="password" id="${id}" disabled data-locked="1" placeholder="(managed by env var ${esc(envVar)})">`;
-        } else {
-          const has = f.p === "@password" ? model.hasPassword : model.hasToken;
-          control = `<input type="password" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
-          if (f.p === "@password") {
-            // Browser sign-in (Login Flow v2): the server-side auth - incl.
-            // OIDC/SSO - happens in the browser; we receive an app password.
-            control += `<button type="button" class="mini" id="btn_login">Sign in with browser</button>`;
-          }
-        }
+    for (const f of sec.fields) s.appendChild(renderFieldRow(f));
+    if (sec.destPanels) {
+      // One inset container; each destination gets its own always-rendered
+      // sub-panel so collect() keeps reading every input. syncDestPanel()
+      // toggles which one is visible.
+      const dp = document.createElement("div");
+      dp.className = "destpanel";
+      dp.id = "destpanel";
+      for (const panel of sec.destPanels) {
+        const pdiv = document.createElement("div");
+        pdiv.id = "destpanel_" + panel.key;
+        const tag = document.createElement("div");
+        tag.className = "desttag";
+        tag.textContent = panel.label;
+        pdiv.appendChild(tag);
+        for (const f of panel.fields) pdiv.appendChild(renderFieldRow(f));
+        dp.appendChild(pdiv);
       }
-      row.innerHTML = `<label class="name">${f.l}</label>${control}` +
-        (f.hint ? `<span class="hint">${f.hint}</span>` : "");
-      s.appendChild(row);
+      s.appendChild(dp);
     }
+    if (sec.tailFields) for (const f of sec.tailFields) s.appendChild(renderFieldRow(f));
     root.appendChild(s);
   }
   $("cfgpath").textContent = model.configPath;
   $("ver").textContent = "v" + model.version;
-  syncUploadEnabled();
+  syncDestPanel();
+  syncEnabledState();
 }
 
-// syncUploadEnabled greys out the sections that only matter when uploads are
-// on (server credentials, after-upload behavior) - disabled beats hidden so
-// the user still sees what local-only mode is skipping.
-function syncUploadEnabled() {
-  const box = $(fieldId("Upload.Enabled"));
-  if (!box) return;
-  const on = box.checked;
-  for (const sec of ["Nextcloud", "After upload"]) {
-    document.querySelectorAll(`[data-section="${sec}"] input, [data-section="${sec}"] select, [data-section="${sec}"] button`)
-      .forEach((el) => { if (!el.dataset.locked) el.disabled = !on; });
+// syncDestPanel shows only the destPanels sub-panel matching the current
+// Upload.Destination value; the rest get the .hidden class. All sub-panels
+// stay in the DOM regardless, so collect() always has something to read.
+function syncDestPanel() {
+  const upload = SCHEMA.find((sec) => sec.destPanels);
+  if (!upload) return;
+  const destSel = $(fieldId("Upload.Destination"));
+  const dest = destSel ? destSel.value : "";
+  for (const panel of upload.destPanels) {
+    const el = $("destpanel_" + panel.key);
+    if (el) el.classList.toggle("hidden", panel.key !== dest);
   }
+}
+
+// syncEnabledState greys out everything that does not apply when uploads are
+// off (local-only mode): the destination select, the whole destination
+// panel, the filename template, and After upload. Which destination
+// sub-panel is visible is handled separately by syncDestPanel().
+function syncEnabledState() {
+  const uploadsBox = $(fieldId("Upload.Enabled"));
+  if (!uploadsBox) return;
+  const uploadsOn = uploadsBox.checked;
+  const destSel = $(fieldId("Upload.Destination"));
+  if (destSel) destSel.disabled = !uploadsOn;
+  const panel = $("destpanel");
+  if (panel) {
+    panel.querySelectorAll("input, select, textarea, button")
+      .forEach((el) => { if (!el.dataset.locked) el.disabled = !uploadsOn; });
+  }
+  const filenameInput = $(fieldId("Upload.FilenameTemplate"));
+  if (filenameInput) filenameInput.disabled = !uploadsOn;
+  document.querySelectorAll(`[data-section="After upload"] input, [data-section="After upload"] select, [data-section="After upload"] button`)
+    .forEach((el) => { el.disabled = !uploadsOn; });
 }
 
 function collect() {
   const cfg = model.config;
-  let newPassword = "", newToken = "";
+  let newPassword = "";
+  const secrets = { newToken: "", newS3SecretKey: "", newSFTPPassword: "", newSFTPPassphrase: "", newWebDAVPassword: "", newCustomSecret: "" };
   for (const sec of SCHEMA) {
-    for (const f of sec.fields) {
+    for (const f of allFields(sec)) {
       const id = fieldId(f.p);
+      if (f.t === "preset") continue; // UI-only, not part of the config
       if (f.t === "secret") {
         const v = $(id).value;
         if (f.p === "@password") {
           // Manual entry wins; otherwise a pending browser sign-in applies.
           newPassword = v || pendingLoginPassword || "";
         } else {
-          newToken = v;
+          secrets[SECRET_FIELDS[f.p].saveKey] = v;
         }
         continue;
       }
@@ -255,12 +456,42 @@ function collect() {
         // Clamp to a non-negative integer: Go int fields reject floats at the
         // JSON bridge, and the config validator rejects negatives.
         set(cfg, f.p, Math.max(0, Math.round(Number($(id).value) || 0)));
+      } else if (f.t === "kv") {
+        set(cfg, f.p, textToKv($(id).value));
       } else {
         set(cfg, f.p, $(id).value);
       }
     }
   }
-  return { config: cfg, newPassword, newToken };
+  return { config: cfg, newPassword, ...secrets };
+}
+
+// applyTheme stamps data-theme on <html> so the CSS overrides above take
+// effect: "light"/"dark" force that theme, anything else (empty/"system")
+// clears the attribute and lets prefers-color-scheme decide.
+function applyTheme(theme) {
+  const t = (theme === "light" || theme === "dark") ? theme : "";
+  document.documentElement.setAttribute("data-theme", t);
+}
+
+// applyPreset fills the Custom section's inputs from a built-in preset
+// (imgur/catbox/0x0). Client-side only - nothing is saved until the user
+// clicks Save.
+function applyPreset(key) {
+  const p = presets[key];
+  if (!p) return;
+  $(fieldId("Custom.Method")).value = p.Method || "POST";
+  $(fieldId("Custom.URL")).value = p.URL || "";
+  $(fieldId("Custom.Headers")).value = kvToText(p.Headers);
+  $(fieldId("Custom.Body")).value = p.Body || "multipart";
+  $(fieldId("Custom.FileField")).value = p.FileField || "";
+  $(fieldId("Custom.ExtraFields")).value = kvToText(p.ExtraFields);
+  $(fieldId("Custom.ResponseURLPath")).value = p.ResponseURLPath || "";
+  $(fieldId("Custom.ResponseDirectURLPath")).value = p.ResponseDirectURLPath || "";
+  $(fieldId("Custom.ResponseURLRegex")).value = p.ResponseURLRegex || "";
+  let msg = `Preset "${key}" applied to the Custom panel - review then Save.`;
+  if (key === "imgur") msg += " Register your own client ID at api.imgur.com/oauth2/addclient and replace YOUR_CLIENT_ID in the Authorization header.";
+  status(msg, "ok");
 }
 
 function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
@@ -274,8 +505,10 @@ function svc() {
 async function init() {
   if (!svc()) { status("Wails runtime not available (browser preview?)", "err"); return; }
   try {
+    presets = await svc().Presets();
     model = await svc().Load();
     render();
+    applyTheme(model.config.Theme);
   } catch (e) {
     status("Load failed: " + e, "err");
   }
@@ -288,18 +521,27 @@ $("save").addEventListener("click", async () => {
   try {
     await svc().Save(collect());
     pendingLoginPassword = "";
-    status("Saved. GoShareIt restarts to apply when you close this window.", "ok");
-    model = await svc().Load();
-    render();
+    // Auto-close on success: the host blocks on this window and applies the
+    // saved config (restarting itself) as soon as it exits, so closing here
+    // is what makes Save take effect without further user action. The short
+    // delay lets the confirmation register before the window disappears.
+    status("Saved - applying...", "ok");
+    setTimeout(() => {
+      svc().CloseWindow().catch(() => {
+        status("Saved. Close this window to apply.", "ok");
+        $("save").disabled = false;
+      });
+    }, 600);
   } catch (e) {
     status(String(e), "err");
-  } finally {
     $("save").disabled = false;
   }
 });
 
 $("form").addEventListener("change", (e) => {
-  if (e.target.id === fieldId("Upload.Enabled")) syncUploadEnabled();
+  if (e.target.id === fieldId("Upload.Enabled")) syncEnabledState();
+  if (e.target.id === fieldId("Upload.Destination")) syncDestPanel();
+  if (e.target.id === fieldId("Theme")) applyTheme(e.target.value);
 });
 
 // Delegated clicks for per-row buttons (rows re-render, this listener does not).
@@ -310,6 +552,12 @@ $("form").addEventListener("click", async (e) => {
       const dir = await svc().PickDirectory();
       if (dir) $(browse.dataset.browse).value = dir;
     } catch (err) { status(String(err), "err"); }
+    return;
+  }
+  if (e.target.id === "btn_apply_preset") {
+    const key = $(fieldId("@custom_preset")).value;
+    if (!key) return;
+    applyPreset(key);
     return;
   }
   if (e.target.id === "btn_login") {
@@ -353,6 +601,7 @@ $("reset").addEventListener("click", async () => {
     const res = await svc().ResetDefaults();
     model = res;
     render();
+    applyTheme(model.config.Theme);
     status("Defaults restored - review and Save to apply.", "ok");
   } catch (err) {
     status(String(err), "err");

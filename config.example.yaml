@@ -2,6 +2,9 @@
 # Copy to config.yaml (gitignored) and edit. NEVER put the password inline:
 # point password_file at a 0600 file, or password_env at an env var name.
 
+theme: system   # light | dark | system (default); applies to the annotation
+                # editor and the settings window
+
 nextcloud:
   base_url: https://cloud.example.com
   username: uploads@example.com
@@ -20,14 +23,85 @@ nextcloud:
   remote_dir: ""   # "" = account files root
 
 upload:
-  # false = local-only mode: nothing leaves this machine, the whole nextcloud
-  # section becomes optional, and after-upload behavior is skipped. Toggle
-  # freely; credentials on disk are kept for when it is re-enabled.
+  # false = local-only mode: nothing leaves this machine, the whole active
+  # destination's section becomes optional, and after-upload behavior is
+  # skipped. Toggle freely; credentials on disk are kept for when it is
+  # re-enabled.
   enabled: true
+  # Active upload destination: nextcloud | s3 | sftp | webdav | custom.
+  # Only the selected destination's section (below) is validated; the others
+  # can be left blank or misconfigured. direct_link/share_expire_days/
+  # share_password below are Nextcloud-only and only take effect when
+  # destination is nextcloud.
+  destination: nextcloud
   direct_link: true                                   # copy the raw-bytes /download link
   filename_template: "goshareit_{datetime}_{rand}.{ext}"
   share_expire_days: 0                                # 0 = never expire
   share_password: ""                                  # optional public-link password
+
+# S3-compatible storage (AWS S3, Backblaze B2, Cloudflare R2, MinIO, ...).
+# Used when upload.destination is "s3".
+# s3:
+#   endpoint: s3.us-west-002.backblazeb2.com   # host[:port], no scheme
+#   region: us-west-002
+#   bucket: my-screenshots
+#   access_key: YOUR_ACCESS_KEY_ID
+#   # Provide exactly ONE of secret_key_file or secret_key_env.
+#   secret_key_file: ~/.goshareit/s3-secret-key.secret
+#   # secret_key_env: GOSHAREIT_S3_SECRET_KEY
+#   prefix: ""                                 # object key prefix, joined as "prefix/name"
+#   url_template: ""                           # public link template; {bucket} {key} {name}; blank = presigned GET
+#   use_path_style: true                       # required by most non-AWS S3-compatible providers
+#   presign_seconds: 604800                    # GET presign TTL when url_template is blank; default/max 7 days
+
+# Plain SFTP. Used when upload.destination is "sftp".
+# sftp:
+#   host: files.example.com
+#   port: 22
+#   user: uploads
+#   # Auth: a password (exactly one of password_file/password_env) or a
+#   # private key (private_key_file); a key takes precedence when both are set.
+#   password_file: ~/.goshareit/sftp-password.secret
+#   # password_env: GOSHAREIT_SFTP_PASSWORD
+#   private_key_file: ~/.goshareit/sftp-key.pem
+#   # Only needed if the private key above is encrypted.
+#   passphrase_file: ~/.goshareit/sftp-key-passphrase.secret
+#   # passphrase_env: GOSHAREIT_SFTP_PASSPHRASE
+#   remote_dir: ""
+#   url_template: ""                           # public link template; placeholder {name}
+#   # SHA256 fingerprint (ssh-keygen -lf format) pinning the host key. Leaving
+#   # this blank is allowed but leaves the host key unverified - a startup
+#   # warning is logged.
+#   host_key_fingerprint: ""
+
+# Generic WebDAV (no OCS share step - that is Nextcloud-specific).
+# Used when upload.destination is "webdav".
+# webdav:
+#   base_url: https://webdav.example.com/remote.php/dav/files/uploads
+#   username: uploads
+#   # Provide at most one of password_file or password_env.
+#   password_file: ~/.goshareit/webdav-password.secret
+#   # password_env: GOSHAREIT_WEBDAV_PASSWORD
+#   remote_dir: ""
+#   url_template: ""                           # public link template; {name} {path}; blank = the PUT URL
+
+# Generic ShareX-style HTTP uploader. Used when upload.destination is "custom".
+# See internal/core/upload/presets.go (or the settings UI's preset picker) for
+# ready-made imgur/catbox/0x0 starting points.
+# custom:
+#   method: POST
+#   url: https://example.com/upload
+#   headers: {}                                # values support {name} {mime} {secret}
+#   body: multipart                            # multipart | raw
+#   file_field: file
+#   extra_fields: {}                           # multipart-only; values support {name} {mime} {secret}
+#   # Provide at most one of secret_file or secret_env. The resolved secret
+#   # replaces a literal "{secret}" placeholder in headers/extra_fields values.
+#   secret_file: ~/.goshareit/custom-secret.secret
+#   # secret_env: GOSHAREIT_CUSTOM_SECRET
+#   response_url_path: ""                      # dot path into a JSON response, e.g. "data.link"
+#   response_direct_url_path: ""               # same, for the direct URL; blank = same as public URL
+#   response_url_regex: ""                     # used instead of response_url_path; first capture group is the URL
 
 after_capture:
   copy_image_to_clipboard: false
@@ -65,7 +139,7 @@ editor:
   helper_path: ""         # "" -> goshareit-editor next to the host binary
   timeout_seconds: 0      # 0 -> no timeout
   default_tool: arrow
-  stroke_width: 3
+  stroke_width: 6       # px; 3 is near-invisible on retina-resolution captures
   color: "#ff3b30"
   tools: [crop, arrow, rect, text, blur, highlight, step]
 
