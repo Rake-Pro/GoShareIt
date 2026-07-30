@@ -143,11 +143,12 @@ type UploadConfig struct {
 	FilenameTemplate string `yaml:"filename_template"`
 	ShareExpireDays  int    `yaml:"share_expire_days"`
 	SharePassword    string `yaml:"share_password"`
-	// AllowInsecureHTTP opts out of the https requirement on the server base
-	// URLs (nextcloud.base_url, webdav.base_url). Both upload paths
-	// authenticate with HTTP basic auth, so plain http puts the app password
-	// on the wire in cleartext; this exists only for servers that genuinely
-	// have no TLS and whose traffic never leaves a trusted network.
+	// AllowInsecureHTTP opts out of the https requirement on the endpoint URLs
+	// (nextcloud.base_url, webdav.base_url, custom.url). Each of those
+	// requests carries a credential - basic auth for the first two, the
+	// substituted {secret} for custom - so plain http puts it on the wire in
+	// cleartext; this exists only for servers that genuinely have no TLS and
+	// whose traffic never leaves a trusted network.
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
 }
 
@@ -544,10 +545,11 @@ func (c *Config) resolveSFTPSecrets(active bool) error {
 	return nil
 }
 
-// ValidateBaseURL enforces TLS on a server base URL that carries credentials.
-// Nextcloud and WebDAV both authenticate with HTTP basic auth, and the
-// Nextcloud Login Flow returns a freshly minted app password over the same
-// connection, so plain http means a cleartext credential on the wire. https is
+// ValidateBaseURL enforces TLS on an endpoint URL that carries credentials.
+// Nextcloud and WebDAV both authenticate with HTTP basic auth, the Nextcloud
+// Login Flow returns a freshly minted app password over the same connection,
+// and the custom destination substitutes its resolved secret into the request
+// headers, so plain http means a cleartext credential on the wire. https is
 // always accepted; http is accepted only when the host cannot leave the local
 // network (loopback, or an RFC1918 / link-local / unique-local literal), or
 // when the user has explicitly set upload.allow_insecure_http. field names the
@@ -654,6 +656,12 @@ func (c *Config) validate() error {
 	case "custom":
 		if c.Custom.URL == "" {
 			return fmt.Errorf("config: custom.url is required")
+		}
+		// The resolved secret is substituted into Headers/ExtraFields, so the
+		// endpoint carries a credential the same way the basic-auth
+		// destinations do. {name}/{mime} placeholders parse fine.
+		if err := ValidateBaseURL("custom.url", c.Custom.URL, c.Upload.AllowInsecureHTTP); err != nil {
+			return err
 		}
 	}
 	return nil
