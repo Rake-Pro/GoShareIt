@@ -34,6 +34,11 @@ upload:
   filename_template: "goshareit_{datetime}_{rand}.{ext}"
   share_expire_days: 0
   share_password: ""
+  # Endpoint URLs (nextcloud.base_url, webdav.base_url, custom.url) must be
+  # https:// - they carry a credential and would otherwise put it on the wire
+  # in cleartext. http:// is always allowed for loopback/LAN addresses; set
+  # this to true only for a TLS-less server on a trusted network.
+  allow_insecure_http: false
 
 after_capture:
   copy_image_to_clipboard: false

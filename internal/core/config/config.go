@@ -4,6 +4,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,6 +143,13 @@ type UploadConfig struct {
 	FilenameTemplate string `yaml:"filename_template"`
 	ShareExpireDays  int    `yaml:"share_expire_days"`
 	SharePassword    string `yaml:"share_password"`
+	// AllowInsecureHTTP opts out of the https requirement on the endpoint URLs
+	// (nextcloud.base_url, webdav.base_url, custom.url). Each of those
+	// requests carries a credential - basic auth for the first two, the
+	// substituted {secret} for custom - so plain http puts it on the wire in
+	// cleartext; this exists only for servers that genuinely have no TLS and
+	// whose traffic never leaves a trusted network.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http"`
 }
 
 // UploadEnabled reports the effective upload state (default true).
@@ -536,6 +545,52 @@ func (c *Config) resolveSFTPSecrets(active bool) error {
 	return nil
 }
 
+// ValidateBaseURL enforces TLS on an endpoint URL that carries credentials.
+// Nextcloud and WebDAV both authenticate with HTTP basic auth, the Nextcloud
+// Login Flow returns a freshly minted app password over the same connection,
+// and the custom destination substitutes its resolved secret into the request
+// headers, so plain http means a cleartext credential on the wire. https is
+// always accepted; http is accepted only when the host cannot leave the local
+// network (loopback, or an RFC1918 / link-local / unique-local literal), or
+// when the user has explicitly set upload.allow_insecure_http. field names the
+// setting in the error so the message is actionable. The URL is never
+// rewritten - an unusable value is reported, not silently "fixed".
+func ValidateBaseURL(field, raw string, allowInsecure bool) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("config: %s is not a valid URL: %w", field, err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("config: %s must be a full URL, e.g. https://cloud.example.com", field)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if allowInsecure || isLocalHostname(u.Hostname()) {
+			return nil
+		}
+		return fmt.Errorf("config: %s uses plain http://, which sends the password in cleartext; use https:// (or set upload.allow_insecure_http: true if this server has no TLS and is only reachable on a trusted network)", field)
+	default:
+		return fmt.Errorf("config: %s must start with https://", field)
+	}
+}
+
+// isLocalHostname reports whether host is unambiguously local without doing
+// any name resolution: literal loopback/private/link-local addresses, or the
+// reserved localhost names. Anything that would need a DNS lookup to classify
+// is treated as remote.
+func isLocalHostname(host string) bool {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
 func (c *Config) validate() error {
 	switch c.Theme {
 	case "", "light", "dark", "system":
@@ -559,8 +614,8 @@ func (c *Config) validate() error {
 		if c.Nextcloud.BaseURL == "" {
 			return fmt.Errorf("config: nextcloud.base_url is required (or set upload.enabled: false for local-only use)")
 		}
-		if !strings.HasPrefix(c.Nextcloud.BaseURL, "http://") && !strings.HasPrefix(c.Nextcloud.BaseURL, "https://") {
-			return fmt.Errorf("config: nextcloud.base_url must start with http:// or https://")
+		if err := ValidateBaseURL("nextcloud.base_url", c.Nextcloud.BaseURL, c.Upload.AllowInsecureHTTP); err != nil {
+			return err
 		}
 		if c.Nextcloud.Username == "" {
 			return fmt.Errorf("config: nextcloud.username is required")
@@ -595,9 +650,18 @@ func (c *Config) validate() error {
 		if c.WebDAV.BaseURL == "" {
 			return fmt.Errorf("config: webdav.base_url is required")
 		}
+		if err := ValidateBaseURL("webdav.base_url", c.WebDAV.BaseURL, c.Upload.AllowInsecureHTTP); err != nil {
+			return err
+		}
 	case "custom":
 		if c.Custom.URL == "" {
 			return fmt.Errorf("config: custom.url is required")
+		}
+		// The resolved secret is substituted into Headers/ExtraFields, so the
+		// endpoint carries a credential the same way the basic-auth
+		// destinations do. {name}/{mime} placeholders parse fine.
+		if err := ValidateBaseURL("custom.url", c.Custom.URL, c.Upload.AllowInsecureHTTP); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -221,11 +221,13 @@ type LoginResult struct {
 // minutes. Persisting is deferred to Save.
 func (s *Service) BrowserLogin(baseURL string) (*LoginResult, error) {
 	baseURL = strings.TrimSpace(baseURL)
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		return nil, fmt.Errorf("enter the server URL first (https://...)")
-	}
 	cur, err := s.Load()
 	if err != nil {
+		return nil, err
+	}
+	// The flow returns a freshly minted app password over this connection, so
+	// it gets the same TLS requirement as the saved config.
+	if err := config.ValidateBaseURL("nextcloud.base_url", baseURL, cur.Config.Upload.AllowInsecureHTTP); err != nil {
 		return nil, err
 	}
 	if cur.Config.Nextcloud.PasswordEnv != "" {
