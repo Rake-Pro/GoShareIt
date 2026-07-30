@@ -31,6 +31,11 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 
+	<!-- AppIcon.icns is generated from build/icons/goshareit_icon.png and
+	     copied into Contents/Resources by scripts/bundle.sh. -->
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+
 	<!-- Marketing version (e.g. 1.2.3) and build number; both from VERSION. -->
 	<key>CFBundleShortVersionString</key>
 	<string>__VERSION__</string>

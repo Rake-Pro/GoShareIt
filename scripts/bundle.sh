@@ -70,10 +70,31 @@ sed -e "s|__VERSION__|$VERSION|g" \
     -e "s|__BUNDLE_ID__|$BUNDLE_ID|g" \
     "$PLIST_SRC" > "$CONTENTS/Info.plist"
 
-# Icon placeholder. Drop an AppIcon.icns into build/macos/ and uncomment the copy
-# below (and add a CFBundleIconFile=AppIcon key to Info.plist) to ship an icon.
-# A menubar (LSUIElement) app has no Dock icon, so this is optional.
-#   cp "$REPO_ROOT/build/macos/AppIcon.icns" "$RES_DIR/AppIcon.icns"
-: > "$RES_DIR/.keep"
+# App icon: build/icons/goshareit_icon.png (1024x1024 source) is rendered into
+# an .iconset and compiled to AppIcon.icns via sips/iconutil (macOS-only tools;
+# bundle.sh only ever runs on macOS - dev-build.sh cross-compiles with cgo, and
+# release.yml's macos job is the only CI caller). Referenced by CFBundleIconFile
+# in Info.plist. The app also shows in the Finder/Dock icon picker even though
+# LSUIElement hides the Dock icon at runtime (e.g. Finder, "About", Force Quit).
+ICON_SRC="${ICON_SRC:-$REPO_ROOT/build/icons/goshareit_icon.png}"
+if [ -f "$ICON_SRC" ]; then
+	if command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+		ICONSET_TMP="$(mktemp -d)"
+		ICONSET="$ICONSET_TMP/AppIcon.iconset"
+		mkdir -p "$ICONSET"
+		for size in 16 32 128 256 512; do
+			sips -z "$size" "$size" "$ICON_SRC" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+			double=$((size * 2))
+			sips -z "$double" "$double" "$ICON_SRC" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+		done
+		iconutil -c icns "$ICONSET" -o "$RES_DIR/AppIcon.icns"
+		rm -rf "$ICONSET_TMP"
+		echo "  + generated app icon: AppIcon.icns"
+	else
+		echo "  ! sips/iconutil not found; app icon will be unavailable" >&2
+	fi
+else
+	echo "  ! icon source not found ($ICON_SRC); app icon will be unavailable" >&2
+fi
 
 echo "bundled $APP (version $VERSION, id $BUNDLE_ID)"
