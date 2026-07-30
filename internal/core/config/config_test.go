@@ -130,3 +130,57 @@ nextcloud:
 		t.Fatal("expected error on non-http base_url")
 	}
 }
+
+// Plain http would put the basic-auth app password on the wire in cleartext,
+// so it is rejected for remote hosts, allowed for local ones, and allowed
+// anywhere only behind the explicit opt-in.
+func TestValidateBaseURLRequiresTLS(t *testing.T) {
+	cases := []struct {
+		url           string
+		allowInsecure bool
+		wantErr       bool
+	}{
+		{"https://cloud.example.com", false, false},
+		{"http://cloud.example.com", false, true},
+		{"http://cloud.example.com", true, false},
+		{"http://localhost:8080", false, false},
+		{"http://127.0.0.1:8080", false, false},
+		{"http://[::1]:8080", false, false},
+		{"http://192.168.1.50", false, false},
+		{"http://10.0.0.5", false, false},
+		{"http://172.16.4.4", false, false},
+		{"http://8.8.8.8", false, true},
+		{"ftp://cloud.example.com", true, true},
+		{"cloud.example.com", false, true},
+		{"https://", false, true},
+	}
+	for _, tc := range cases {
+		err := ValidateBaseURL("nextcloud.base_url", tc.url, tc.allowInsecure)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("ValidateBaseURL(%q, allowInsecure=%v) = %v, wantErr=%v", tc.url, tc.allowInsecure, err, tc.wantErr)
+		}
+	}
+}
+
+// The opt-in has to actually take effect through a loaded config, and webdav
+// must be held to the same rule as nextcloud.
+func TestInsecureBaseURLOptIn(t *testing.T) {
+	dir := t.TempDir()
+	pwPath := writeFile(t, dir, "pw.secret", "p")
+	body := "nextcloud:\n  base_url: http://cloud.example.com\n  username: u\n  password_file: " + pwPath + "\n"
+
+	cfgPath := writeFile(t, dir, "config.yaml", body)
+	if _, err := Load(cfgPath); err == nil {
+		t.Fatal("expected error on plain http nextcloud.base_url")
+	}
+
+	optIn := writeFile(t, dir, "optin.yaml", body+"upload:\n  allow_insecure_http: true\n")
+	if _, err := Load(optIn); err != nil {
+		t.Fatalf("allow_insecure_http should permit http: %v", err)
+	}
+
+	dav := writeFile(t, dir, "dav.yaml", "upload:\n  destination: webdav\nwebdav:\n  base_url: http://dav.example.com\n")
+	if _, err := Load(dav); err == nil {
+		t.Fatal("expected error on plain http webdav.base_url")
+	}
+}

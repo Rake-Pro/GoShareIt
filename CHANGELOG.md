@@ -6,7 +6,22 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
-## [0.0.8] - 2026-07-30
+### Security
+- Server base URLs now require TLS. `nextcloud.base_url` and `webdav.base_url`
+  are validated as real URLs and must be `https://`: both destinations
+  authenticate with HTTP basic auth, and the Nextcloud Login Flow returns a
+  freshly minted app password over the same connection, so plain `http://` put
+  the credential on the wire in cleartext. `http://` is still accepted for
+  hosts that cannot leave the local network (loopback, `localhost`, and
+  RFC1918 / link-local / unique-local literals), and the new
+  `upload.allow_insecure_http` opt-in (settings UI: "Allow insecure http://
+  server URL") re-enables it everywhere for a TLS-less server on a trusted
+  network. URLs are never silently rewritten, and an already-saved `http://`
+  config does not brick the app - the loader reports the error and the host
+  opens the settings UI, same as any other invalid config. (#2)
+- The upload history log (`~/.goshareit/history.jsonl`) is created 0600 instead
+  of 0644, in a 0700 directory, and an existing 0644 log is tightened on open.
+  Entries hold public share URLs, which are capability links. (#3)
 
 First release signed with a real Developer ID Application certificate and
 notarized by Apple (notarytool: Accepted, ticket stapled). Note: there is no

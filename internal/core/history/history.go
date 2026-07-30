@@ -34,9 +34,14 @@ func New(path string) (*History, error) {
 	if path == "" {
 		return nil, fmt.Errorf("history: empty path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("history: mkdir: %w", err)
 	}
+	// Entries hold public share URLs, which are capability links: anyone with
+	// the URL can fetch the file. Tighten a log written by an older version
+	// (0644) so the fix is not limited to fresh installs. Best-effort: a
+	// missing file or a filesystem without unix modes is not an error.
+	_ = os.Chmod(path, 0o600)
 	return &History{path: path}, nil
 }
 
@@ -47,7 +52,7 @@ func (h *History) Append(e Entry) error {
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
-	f, err := os.OpenFile(h.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(h.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("history: open: %w", err)
 	}

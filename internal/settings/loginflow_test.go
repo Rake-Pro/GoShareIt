@@ -88,9 +88,15 @@ func TestBrowserLoginMintsAndStoresPassword(t *testing.T) {
 }
 
 func TestBrowserLoginRejectsBadURL(t *testing.T) {
+	testHome(t)
 	svc := &Service{ConfigPath: "unused"}
 	if _, err := svc.BrowserLogin("cloud.example.com"); err == nil {
 		t.Fatal("expected error for URL without scheme")
+	}
+	// The flow returns a minted app password, so it must not run over cleartext
+	// http to a remote host.
+	if _, err := svc.BrowserLogin("http://cloud.example.com"); err == nil {
+		t.Fatal("expected error for plain http server URL")
 	}
 }
 
