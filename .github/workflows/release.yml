@@ -176,7 +176,20 @@ jobs:
           rm /tmp/devid_g1.cer /tmp/devid_g2.cer
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           rm /tmp/cert.p12
-          APP=dist/GoShareIt.app scripts/sign.sh
+          # Sign by the identity's SHA-1 hash instead of the DEVELOPER_ID_APP
+          # name string: codesign matches -s <name> against the exact cert CN,
+          # so any formatting drift in the secret fails with "no identity
+          # found" even though the identity is present and valid. The build
+          # keychain only ever holds the one imported identity, so the first
+          # valid hash is unambiguous.
+          IDENTITY_HASH=$(security find-identity -v -p codesigning build.keychain \
+            | awk '/^ *1\)/{print $2; exit}')
+          if [ -z "$IDENTITY_HASH" ]; then
+            echo "sign: no valid codesigning identity in build.keychain" >&2
+            security find-identity -p codesigning build.keychain >&2
+            exit 1
+          fi
+          APP=dist/GoShareIt.app DEVELOPER_ID_APP="$IDENTITY_HASH" scripts/sign.sh
 
       # No cert secrets: ad-hoc sign the WHOLE bundle so it has one consistent
       # identity. TCC grants (Screen Recording etc.) then persist within an

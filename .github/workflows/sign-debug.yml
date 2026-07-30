@@ -65,4 +65,9 @@ jobs:
           echo "== codesign with explicit --keychain =="
           codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID_APP" --keychain build.keychain /tmp/t \
             && echo CODESIGN-OK-EXPLICIT || echo CODESIGN-FAIL-EXPLICIT
+          echo "== codesign by identity SHA-1 hash (release.yml fix) =="
+          IDENTITY_HASH=$(security find-identity -v -p codesigning build.keychain | awk '/^ *1\)/{print $2; exit}')
+          echo "hash: $IDENTITY_HASH"
+          codesign --force --options runtime --timestamp --sign "$IDENTITY_HASH" /tmp/t \
+            && echo CODESIGN-OK-HASH || echo CODESIGN-FAIL-HASH
           true
