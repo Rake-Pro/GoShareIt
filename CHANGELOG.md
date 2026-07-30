@@ -7,6 +7,17 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 ## [Unreleased]
 
 ### Added
+- New `notify.Confirmer` seam (`internal/core/notify`) for blocking native
+  yes/no dialogs, alongside `Notifier`: darwin via `osascript display dialog`
+  (120s auto-cancel, Esc/-128 treated as "no"), windows via a PowerShell WPF
+  `MessageBox` (fixed Yes/No buttons - the interface's custom labels are
+  advisory on this platform), wired through `core.Providers`/`core.App`
+  exactly like `Notifier` (optional; nil-tolerant on linux/dev, where it is
+  now backed by `fake.Confirmer`). Manually clicking "Check for Updates" and
+  finding an update now pops a native "Update Now?" dialog and installs
+  immediately on yes, instead of retitling the tray item and telling the user
+  to click the menu again; background periodic checks are unchanged (still
+  quiet: notification + tray retitle only, never a popup).
 - CI: Trivy filesystem CVE scan of the module tree (org security-scanning
   standard adapted for a no-container repo): HIGH+CRITICAL reported for
   visibility, fixable CRITICALs block the aggregate `build` gate.

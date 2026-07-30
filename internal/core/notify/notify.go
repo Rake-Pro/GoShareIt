@@ -13,3 +13,9 @@ type Notification struct {
 type Notifier interface {
 	Notify(n Notification) error
 }
+
+// Confirmer shows a native blocking yes/no dialog and reports the user's
+// choice. true means the user chose okLabel.
+type Confirmer interface {
+	Confirm(title, body, okLabel, cancelLabel string) (bool, error)
+}

@@ -22,6 +22,7 @@ func buildProviders(_ *config.Config) (core.Providers, error) {
 		Capturer:  capturer,
 		Clipboard: windows.NewClipboard(),
 		Notifier:  windows.NewNotifier(),
+		Confirmer: windows.NewConfirmer(),
 		Tray:      windows.NewTray(),
 		Hotkeys:   windows.NewHotkeyManager(),
 		Recorder:  recorder,

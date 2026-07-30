@@ -197,6 +197,38 @@ func (n *Notifier) Count() int {
 	return len(n.Notifications)
 }
 
+// ConfirmCall records one Confirmer.Confirm invocation.
+type ConfirmCall struct {
+	Title, Body, OKLabel, CancelLabel string
+}
+
+// Confirmer is an in-memory Confirmer: it records calls and returns a canned
+// answer (Result, Err) without blocking.
+type Confirmer struct {
+	Result bool
+	Err    error
+
+	mu    sync.Mutex
+	Calls []ConfirmCall
+}
+
+func (c *Confirmer) Confirm(title, body, okLabel, cancelLabel string) (bool, error) {
+	c.mu.Lock()
+	c.Calls = append(c.Calls, ConfirmCall{Title: title, Body: body, OKLabel: okLabel, CancelLabel: cancelLabel})
+	c.mu.Unlock()
+	if c.Err != nil {
+		return false, c.Err
+	}
+	return c.Result, nil
+}
+
+// Count returns how many Confirm calls were recorded.
+func (c *Confirmer) Count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.Calls)
+}
+
 // Tray is a no-op tray that blocks until ctx is done.
 type Tray struct{}
 
