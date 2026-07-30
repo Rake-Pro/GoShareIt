@@ -35,6 +35,7 @@ func buildProviders(_ *config.Config) (core.Providers, error) {
 		Recorder:  recorder,
 		Clipboard: darwin.NewClipboard(),
 		Notifier:  darwin.NewNotifier(),
+		Confirmer: darwin.NewConfirmer(),
 		Tray:      darwin.NewTray(),
 		Hotkeys:   darwin.NewHotkeyManager(),
 	}, nil

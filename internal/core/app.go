@@ -29,6 +29,7 @@ type Providers struct {
 	Uploader  upload.Uploader
 	Clipboard clipboard.Clipboard
 	Notifier  notify.Notifier
+	Confirmer notify.Confirmer // optional; nil = no blocking confirm dialogs (e.g. linux/dev)
 	Tray      tray.Tray
 	Hotkeys   hotkey.Manager
 	Editor    edit.Editor // optional; nil -> NoopEditor
@@ -50,6 +51,7 @@ type App struct {
 	uploader  upload.Uploader
 	clipboard clipboard.Clipboard
 	notifier  notify.Notifier
+	confirmer notify.Confirmer
 	tray      tray.Tray
 	hotkeys   hotkey.Manager
 	editor    edit.Editor
@@ -79,6 +81,7 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 		uploader:  p.Uploader,
 		clipboard: p.Clipboard,
 		notifier:  p.Notifier,
+		confirmer: p.Confirmer,
 		tray:      p.Tray,
 		hotkeys:   p.Hotkeys,
 		editor:    editor,
@@ -114,6 +117,9 @@ func (a *App) Tray() tray.Tray { return a.tray }
 
 // Notifier exposes the notifier (may be nil).
 func (a *App) Notifier() notify.Notifier { return a.notifier }
+
+// Confirmer exposes the confirm-dialog provider (may be nil).
+func (a *App) Confirmer() notify.Confirmer { return a.confirmer }
 
 // RunCapture drives the full pipeline for the given mode.
 func (a *App) RunCapture(ctx context.Context, mode capture.Mode) (upload.UploadResult, error) {

@@ -107,6 +107,32 @@ func (c *updateController) check(ctx context.Context, manual bool) {
 	c.mu.Unlock()
 	c.setTitle("Install Update v" + rel.Version)
 	log.Info().Str("version", rel.Version).Msg("update available")
+
+	// Manual clicks get a native confirm dialog instead of the quiet
+	// notify+retitle fallback; background checks always stay quiet. The
+	// pending state and tray title above are set first regardless, so the
+	// tray-menu install path still works if the dialog errors.
+	//
+	// check() always runs off the tray's main loop: menuItem's OnClick wraps
+	// onClick in `go`, and the periodic path in start() runs inside its own
+	// goroutine - so blocking here on Confirm never stalls tray/menu handling.
+	if manual {
+		if confirmer := c.app.Confirmer(); confirmer != nil {
+			ok, err := confirmer.Confirm(
+				"Update available",
+				"GoShareIt v"+rel.Version+" is ready to install. Update now?",
+				"Update Now", "Later",
+			)
+			if err != nil {
+				log.Debug().Err(err).Msg("update confirm dialog failed")
+				return
+			}
+			if ok {
+				c.install(ctx, rel)
+			}
+			return
+		}
+	}
 	c.notify("Update available", "GoShareIt v"+rel.Version+" is ready - use the tray menu to install.")
 }
 

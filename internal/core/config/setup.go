@@ -17,6 +17,9 @@ import (
 const StarterConfig = `# GoShareIt configuration. Set base_url/username for your Nextcloud server,
 # then put an app password in the file referenced by password_file (a leading
 # ~ is expanded) - or just use "Sign in with browser" in the settings UI.
+
+theme: system   # light | dark | system - applies to the editor + settings UI
+
 nextcloud:
   base_url: ""          # e.g. https://cloud.example.com
   username: ""          # e.g. you@example.com
@@ -26,6 +29,7 @@ nextcloud:
 
 upload:
   enabled: true           # false = local-only mode (Nextcloud section optional)
+  destination: nextcloud
   direct_link: true
   filename_template: "goshareit_{datetime}_{rand}.{ext}"
   share_expire_days: 0
@@ -65,7 +69,7 @@ editor:
   helper_path: ""         # "" -> goshareit-editor next to the host binary
   timeout_seconds: 0      # 0 -> no timeout
   default_tool: arrow
-  stroke_width: 3
+  stroke_width: 6
   color: "#ff3b30"
   tools: [crop, arrow, rect, text, blur, highlight, step]
 

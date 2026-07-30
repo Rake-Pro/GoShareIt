@@ -6,7 +6,91 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Added
+- New `notify.Confirmer` seam (`internal/core/notify`) for blocking native
+  yes/no dialogs, alongside `Notifier`: darwin via `osascript display dialog`
+  (120s auto-cancel, Esc/-128 treated as "no"), windows via a PowerShell WPF
+  `MessageBox` (fixed Yes/No buttons - the interface's custom labels are
+  advisory on this platform), wired through `core.Providers`/`core.App`
+  exactly like `Notifier` (optional; nil-tolerant on linux/dev, where it is
+  now backed by `fake.Confirmer`). Manually clicking "Check for Updates" and
+  finding an update now pops a native "Update Now?" dialog and installs
+  immediately on yes, instead of retitling the tray item and telling the user
+  to click the menu again; background periodic checks are unchanged (still
+  quiet: notification + tray retitle only, never a popup).
+- CI: Trivy filesystem CVE scan of the module tree (org security-scanning
+  standard adapted for a no-container repo): HIGH+CRITICAL reported for
+  visibility, fixable CRITICALs block the aggregate `build` gate.
+- Four new `Uploader` implementations in `internal/core/upload`: `S3`
+  (S3-compatible buckets - AWS S3, B2, R2, MinIO - via `minio-go/v7`, public
+  URL template or presigned GET), `SFTP` (via `pkg/sftp` + `x/crypto/ssh`,
+  key or password auth, optional host key fingerprint pinning), `WebDAV`
+  (plain PUT with basic auth, no OCS share step), and `Custom` (
+  generic HTTP uploader: multipart or raw body, JSON dot-path or regex
+  response parsing), plus `CustomPresets()` with starter configs for imgur,
+  catbox, and 0x0.st. New deps: `github.com/minio/minio-go/v7`,
+  `github.com/pkg/sftp` (both added via `go get`, not `go mod tidy`);
+  `golang.org/x/crypto` moves from an indirect to a direct dependency
+  (`crypto/ssh`).
+- Selectable upload destination: new `upload.destination` config setting
+  (`nextcloud | s3 | sftp | webdav | custom`, default `nextcloud`) plus
+  matching top-level `s3:`, `sftp:`, `webdav:`, and `custom:` yaml sections
+  (see `config.example.yaml`). Secrets follow the existing Nextcloud
+  `password_file`/`password_env` pattern - `s3.secret_key_file`/`_env`,
+  `sftp.password_file`/`_env` (or `sftp.private_key_file`, which takes
+  precedence, plus an optional `sftp.passphrase_file`/`_env` for an encrypted
+  key), `webdav.password_file`/`_env`, `custom.secret_file`/`_env` (the
+  resolved value substitutes a literal `{secret}` placeholder in `custom`
+  header and extra-field values). Validation is fail-closed but scoped to the
+  active destination only, and only when `upload.enabled`; an `sftp` config
+  with no `host_key_fingerprint` still loads but logs a startup warning
+  (host key left unverified). `cmd/goshareit` gained `buildUploader(cfg)`,
+  switching on the destination to construct the right `Uploader`; `main.go`
+  now fatals through it instead of hardcoding Nextcloud. The settings UI
+  (`goshareit-settings`) consolidates Nextcloud/S3/SFTP/WebDAV/Custom into a
+  single Upload section: a Destination select drives one inset destination
+  panel holding a sub-panel per destination (all rendered, only the selected
+  one visible - hidden via the select's change handler rather than greyed),
+  plus a Custom-panel preset picker (imgur/catbox/0x0) backed by a new
+  `Service.Presets()` method; headers and extra fields are edited as one
+  `key=value` per line. Upload-enabled-off still greys the Destination
+  select, the whole destination panel, and the filename template
+  (local-only mode). `SaveRequest` gained
+  one write-only secret field per new destination secret
+  (`NewS3SecretKey`, `NewSFTPPassword`, `NewSFTPPassphrase`,
+  `NewWebDAVPassword`, `NewCustomSecret`), matching the existing
+  `NewPassword`/`NewToken` pattern.
+- `theme` config setting (`light | dark | system`, default system): applies
+  to the annotation editor and the settings window. The editor helper
+  resolves "system" via native OS detection (macOS: `AppleInterfaceStyle`
+  global default; Windows: `AppsUseLightTheme` registry value), falling back
+  to dark on detection error.
+- Editor confirm button label now reflects the post-capture pipeline (e.g.
+  "Copy & Upload", "Save & Upload", "Copy, Save & Upload", "Done") instead of
+  a generic "Confirm", composed host-side from `after_capture`/`upload.enabled`.
+
+### Changed
+- Default annotation stroke width raised from 3px to 6px (`editor.stroke_width`
+  default, starter config, and editor fallback): 3px was near-invisible on
+  retina-resolution captures. The in-editor stroke control is relabeled from
+  "w3" to "6 px" and its +/- range clamped to 1-32 (was 1-64).
+- Editor toolbar restyled to actually use the theme: toolbar and canvas get
+  explicit themed background fills (previously the toolbar showed through to
+  the stock white Gio surface above a hardcoded dark canvas), the selected
+  tool is an accent-filled button instead of "[bracket]" text, unselected
+  tools/undo/redo/Cancel get a subtle themed background, Confirm is
+  accent-filled, buttons share a consistent corner radius/text size/spacing,
+  the color-swatch selection ring uses the theme fg color instead of a fixed
+  black (invisible on dark swatches), the white swatch gets a hairline
+  border in light mode, and the text field gets a themed background pill.
+
 ### Fixed
+- Settings Save now applies without further user action: on success the
+  settings window closes itself (new shell-injected `Service.CloseWindow`),
+  which is what lets the blocked host process apply the config and restart
+  immediately - previously the user had to close the window by hand before
+  anything took effect (found on-device on macOS). On save failure the window
+  stays open with the error.
 - Default record hotkey moved off `{mod}+Shift+R` to `{mod}+Shift+2`: browsers
   use Cmd/Ctrl+Shift+R for hard reload, and because the global-hotkey event tap
   consumes matched chords, every hard-reload attempt silently toggled a

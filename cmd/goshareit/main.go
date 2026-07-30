@@ -26,7 +26,6 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
 	"github.com/Rake-Pro/GoShareIt/internal/core/update"
-	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 	"github.com/Rake-Pro/GoShareIt/internal/core/version"
 )
 
@@ -75,26 +74,24 @@ func main() {
 		logger.Fatal().Err(err).Msg("build providers")
 	}
 	// The uploader is portable; wire it from config here regardless of GOOS.
-	providers.Uploader = upload.NewNextcloud(upload.NextcloudConfig{
-		BaseURL:         cfg.Nextcloud.BaseURL,
-		Username:        cfg.Nextcloud.Username,
-		DavUser:         cfg.Nextcloud.DavUser,
-		Password:        cfg.Password(),
-		RemoteDir:       cfg.Nextcloud.RemoteDir,
-		ShareExpireDays: cfg.Upload.ShareExpireDays,
-		SharePassword:   cfg.Upload.SharePassword,
-	}, nil)
+	uploader, err := buildUploader(cfg)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("build uploader")
+	}
+	providers.Uploader = uploader
 
 	// The editor launcher is portable (CGO-free); the GUI it spawns lives in a
 	// separate goshareit-editor binary. It is only ever invoked when
 	// cfg.Editor.Enabled, so a missing editor binary is harmless when disabled.
 	providers.Editor = edit.Launcher{
-		HelperPath:  cfg.Editor.HelperPath,
-		Timeout:     time.Duration(cfg.Editor.TimeoutSeconds) * time.Second,
-		Tool:        cfg.Editor.DefaultTool,
-		Color:       cfg.Editor.Color,
-		StrokeWidth: cfg.Editor.StrokeWidth,
-		Tools:       cfg.Editor.Tools,
+		HelperPath:   cfg.Editor.HelperPath,
+		Timeout:      time.Duration(cfg.Editor.TimeoutSeconds) * time.Second,
+		Tool:         cfg.Editor.DefaultTool,
+		Color:        cfg.Editor.Color,
+		StrokeWidth:  cfg.Editor.StrokeWidth,
+		Tools:        cfg.Editor.Tools,
+		Theme:        cfg.Theme,
+		ConfirmLabel: composeConfirmLabel(cfg),
 	}
 
 	app, err := core.New(cfg, providers, logger, hist)

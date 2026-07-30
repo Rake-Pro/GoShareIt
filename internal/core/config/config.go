@@ -16,8 +16,17 @@ const EnvConfigPath = "GOSHAREIT_CONFIG_PATH"
 
 // Config is the root configuration.
 type Config struct {
+	// Theme selects the app-wide UI theme: "light", "dark", or "system"
+	// (default/empty = system). Applies to the annotation editor and the
+	// settings window.
+	Theme string `yaml:"theme"`
+
 	Nextcloud    NextcloudConfig    `yaml:"nextcloud"`
 	Upload       UploadConfig       `yaml:"upload"`
+	S3           S3Config           `yaml:"s3"`
+	SFTP         SFTPConfig         `yaml:"sftp"`
+	WebDAV       WebDAVConfig       `yaml:"webdav"`
+	Custom       CustomConfig       `yaml:"custom"`
 	AfterCapture AfterCaptureConfig `yaml:"after_capture"`
 	AfterUpload  AfterUploadConfig  `yaml:"after_upload"`
 	Hotkeys      HotkeysConfig      `yaml:"hotkeys"`
@@ -25,9 +34,85 @@ type Config struct {
 	Update       UpdateConfig       `yaml:"update"`
 	Logging      LoggingConfig      `yaml:"logging"`
 
-	// password and updateToken are resolved at load time, never serialized.
-	password    string `yaml:"-"`
-	updateToken string `yaml:"-"`
+	// password, updateToken, and the destination secrets below are resolved
+	// at load time, never serialized.
+	password          string `yaml:"-"`
+	updateToken       string `yaml:"-"`
+	s3SecretKey       string `yaml:"-"`
+	sftpPassword      string `yaml:"-"`
+	sftpPrivateKeyPEM string `yaml:"-"`
+	sftpPassphrase    string `yaml:"-"`
+	webdavPassword    string `yaml:"-"`
+	customSecret      string `yaml:"-"`
+}
+
+// validUploadDestinations enumerates upload.destination values.
+var validUploadDestinations = map[string]bool{
+	"nextcloud": true, "s3": true, "sftp": true, "webdav": true, "custom": true,
+}
+
+// S3Config configures the S3-compatible upload destination (upload.destination:
+// s3). SecretKey is resolved from exactly one of SecretKeyFile/SecretKeyEnv,
+// never inline.
+type S3Config struct {
+	Endpoint       string `yaml:"endpoint"`
+	Region         string `yaml:"region"`
+	Bucket         string `yaml:"bucket"`
+	AccessKey      string `yaml:"access_key"`
+	SecretKeyFile  string `yaml:"secret_key_file"`
+	SecretKeyEnv   string `yaml:"secret_key_env"`
+	Prefix         string `yaml:"prefix"`
+	URLTemplate    string `yaml:"url_template"`
+	UsePathStyle   bool   `yaml:"use_path_style"`
+	PresignSeconds int    `yaml:"presign_seconds"`
+}
+
+// SFTPConfig configures the SFTP upload destination (upload.destination:
+// sftp). Password is resolved from PasswordFile/PasswordEnv and used only
+// when PrivateKeyFile is empty; PrivateKeyFile's contents are loaded into the
+// resolved PEM, optionally decrypted with the resolved passphrase.
+type SFTPConfig struct {
+	Host               string `yaml:"host"`
+	Port               int    `yaml:"port"`
+	User               string `yaml:"user"`
+	PasswordFile       string `yaml:"password_file"`
+	PasswordEnv        string `yaml:"password_env"`
+	PrivateKeyFile     string `yaml:"private_key_file"`
+	PassphraseFile     string `yaml:"passphrase_file"`
+	PassphraseEnv      string `yaml:"passphrase_env"`
+	RemoteDir          string `yaml:"remote_dir"`
+	URLTemplate        string `yaml:"url_template"`
+	HostKeyFingerprint string `yaml:"host_key_fingerprint"`
+}
+
+// WebDAVConfig configures the generic WebDAV upload destination
+// (upload.destination: webdav). Password is resolved from exactly one of
+// PasswordFile/PasswordEnv, never inline.
+type WebDAVConfig struct {
+	BaseURL      string `yaml:"base_url"`
+	Username     string `yaml:"username"`
+	PasswordFile string `yaml:"password_file"`
+	PasswordEnv  string `yaml:"password_env"`
+	RemoteDir    string `yaml:"remote_dir"`
+	URLTemplate  string `yaml:"url_template"`
+}
+
+// CustomConfig configures a generic HTTP upload destination
+// (upload.destination: custom). The resolved secret (SecretFile/SecretEnv)
+// substitutes a literal "{secret}" placeholder wherever it appears in Headers
+// and ExtraFields values, so tokens never live in the YAML.
+type CustomConfig struct {
+	Method                string            `yaml:"method"`
+	URL                   string            `yaml:"url"`
+	Headers               map[string]string `yaml:"headers"`
+	Body                  string            `yaml:"body"`
+	FileField             string            `yaml:"file_field"`
+	ExtraFields           map[string]string `yaml:"extra_fields"`
+	SecretFile            string            `yaml:"secret_file"`
+	SecretEnv             string            `yaml:"secret_env"`
+	ResponseURLPath       string            `yaml:"response_url_path"`
+	ResponseDirectURLPath string            `yaml:"response_direct_url_path"`
+	ResponseURLRegex      string            `yaml:"response_url_regex"`
 }
 
 // NextcloudConfig holds connection settings. The password itself comes from
@@ -46,7 +131,12 @@ type NextcloudConfig struct {
 // Nextcloud section (server, credentials) is not required at all and can be
 // toggled back on later.
 type UploadConfig struct {
-	Enabled          *bool  `yaml:"enabled"`
+	Enabled *bool `yaml:"enabled"`
+	// Destination selects the active upload provider: nextcloud, s3, sftp,
+	// webdav, or custom (empty defaults to nextcloud). DirectLink,
+	// ShareExpireDays, and SharePassword are Nextcloud-only and only take
+	// effect for that destination.
+	Destination      string `yaml:"destination"`
 	DirectLink       bool   `yaml:"direct_link"`
 	FilenameTemplate string `yaml:"filename_template"`
 	ShareExpireDays  int    `yaml:"share_expire_days"`
@@ -147,6 +237,24 @@ type LoggingConfig struct {
 // Password returns the resolved Nextcloud password.
 func (c *Config) Password() string { return c.password }
 
+// S3SecretKey returns the resolved S3 secret key.
+func (c *Config) S3SecretKey() string { return c.s3SecretKey }
+
+// SFTPPassword returns the resolved SFTP password.
+func (c *Config) SFTPPassword() string { return c.sftpPassword }
+
+// SFTPPrivateKeyPEM returns the resolved SFTP private key contents (PEM).
+func (c *Config) SFTPPrivateKeyPEM() string { return c.sftpPrivateKeyPEM }
+
+// SFTPPassphrase returns the resolved SFTP private key passphrase.
+func (c *Config) SFTPPassphrase() string { return c.sftpPassphrase }
+
+// WebDAVPassword returns the resolved WebDAV password.
+func (c *Config) WebDAVPassword() string { return c.webdavPassword }
+
+// CustomSecret returns the resolved custom-destination secret.
+func (c *Config) CustomSecret() string { return c.customSecret }
+
 // expandHome expands a leading ~ or ~/ to the user's home directory. Go does
 // not do this automatically, so config paths like ~/.config/... need it.
 func expandHome(p string) string {
@@ -219,6 +327,9 @@ func LoadFile(path string) (*Config, error) {
 	if err := cfg.resolveUpdateToken(); err != nil {
 		return nil, err
 	}
+	if err := cfg.resolveDestinationSecrets(); err != nil {
+		return nil, err
+	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -226,6 +337,9 @@ func LoadFile(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if c.Upload.Destination == "" {
+		c.Upload.Destination = "nextcloud"
+	}
 	if c.Upload.FilenameTemplate == "" {
 		c.Upload.FilenameTemplate = "goshareit_{datetime}_{rand}.{ext}"
 	}
@@ -244,6 +358,10 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Update.IntervalHours <= 0 {
 		c.Update.IntervalHours = 24
+	}
+	if c.Editor.StrokeWidth <= 0 {
+		// 6px default: 3px is near-invisible on retina-resolution captures.
+		c.Editor.StrokeWidth = 6
 	}
 }
 
@@ -269,9 +387,10 @@ func (c *Config) resolveUpdateToken() error {
 func (c *Config) resolvePassword() error {
 	file := strings.TrimSpace(c.Nextcloud.PasswordFile)
 	env := strings.TrimSpace(c.Nextcloud.PasswordEnv)
-	if !c.UploadEnabled() {
-		// Local-only mode: credentials are optional. Resolve best-effort so
-		// re-enabling uploads later picks up an existing secret unchanged.
+	if !c.UploadEnabled() || c.Upload.Destination != "nextcloud" {
+		// Local-only mode, or another destination is active: credentials are
+		// optional. Resolve best-effort so switching back to nextcloud later
+		// picks up an existing secret unchanged.
 		if file != "" {
 			if b, err := os.ReadFile(expandHome(file)); err == nil {
 				c.password = strings.TrimSpace(string(b))
@@ -306,25 +425,180 @@ func (c *Config) resolvePassword() error {
 	return nil
 }
 
+// resolveSecretPair resolves a secret from exactly one of file/env, the same
+// way Nextcloud's password is resolved (tilde expansion, trimmed). When
+// required is true, both set, neither set, or an empty resolved value are all
+// errors named after fieldPrefix (e.g. "s3.secret_key"). When required is
+// false, resolution is best-effort and never fails: file wins over env if
+// both happen to be set, and a missing/unreadable file resolves to "".
+func resolveSecretPair(fieldPrefix, file, env string, required bool) (string, error) {
+	file = strings.TrimSpace(file)
+	env = strings.TrimSpace(env)
+	if !required {
+		if file != "" {
+			if b, err := os.ReadFile(expandHome(file)); err == nil {
+				return strings.TrimSpace(string(b)), nil
+			}
+			return "", nil
+		}
+		if env != "" {
+			return os.Getenv(env), nil
+		}
+		return "", nil
+	}
+	switch {
+	case file != "" && env != "":
+		return "", fmt.Errorf("config: set exactly one of %[1]s_file or %[1]s_env, not both", fieldPrefix)
+	case file != "":
+		b, err := os.ReadFile(expandHome(file))
+		if err != nil {
+			return "", fmt.Errorf("config: read %s_file %s: %w", fieldPrefix, file, err)
+		}
+		v := strings.TrimSpace(string(b))
+		if v == "" {
+			return "", fmt.Errorf("config: %s_file %s is empty", fieldPrefix, file)
+		}
+		return v, nil
+	case env != "":
+		v := os.Getenv(env)
+		if v == "" {
+			return "", fmt.Errorf("config: %s_env %s is unset or empty", fieldPrefix, env)
+		}
+		return v, nil
+	default:
+		return "", fmt.Errorf("config: set exactly one of %s_file or %s_env", fieldPrefix, fieldPrefix)
+	}
+}
+
+// resolveDestinationSecrets resolves the secrets for every non-Nextcloud
+// destination. Only the active destination (when uploads are enabled) is
+// fail-closed; the rest resolve best-effort so switching destinations later
+// picks up an already-configured secret unchanged.
+func (c *Config) resolveDestinationSecrets() error {
+	active := "" // the active destination, or "" when uploads are disabled
+	if c.UploadEnabled() {
+		active = c.Upload.Destination
+	}
+
+	s3Key, err := resolveSecretPair("s3.secret_key", c.S3.SecretKeyFile, c.S3.SecretKeyEnv, active == "s3")
+	if err != nil {
+		return err
+	}
+	c.s3SecretKey = s3Key
+
+	if err := c.resolveSFTPSecrets(active == "sftp"); err != nil {
+		return err
+	}
+
+	webdavPw, err := resolveSecretPair("webdav.password", c.WebDAV.PasswordFile, c.WebDAV.PasswordEnv, false)
+	if err != nil {
+		return err
+	}
+	c.webdavPassword = webdavPw
+
+	customSecret, err := resolveSecretPair("custom.secret", c.Custom.SecretFile, c.Custom.SecretEnv, false)
+	if err != nil {
+		return err
+	}
+	c.customSecret = customSecret
+	return nil
+}
+
+// resolveSFTPSecrets loads the private key contents (if configured) and the
+// password/passphrase. The password is required only when sftp is active and
+// no private key is configured, since either auth method satisfies "password
+// or key".
+func (c *Config) resolveSFTPSecrets(active bool) error {
+	keyFile := strings.TrimSpace(c.SFTP.PrivateKeyFile)
+	if keyFile != "" {
+		b, err := os.ReadFile(expandHome(keyFile))
+		if err != nil {
+			if active {
+				return fmt.Errorf("config: read sftp.private_key_file %s: %w", keyFile, err)
+			}
+		} else {
+			c.sftpPrivateKeyPEM = string(b)
+		}
+	}
+
+	pwRequired := active && c.sftpPrivateKeyPEM == ""
+	pw, err := resolveSecretPair("sftp.password", c.SFTP.PasswordFile, c.SFTP.PasswordEnv, pwRequired)
+	if err != nil {
+		return err
+	}
+	c.sftpPassword = pw
+
+	passphrase, err := resolveSecretPair("sftp.passphrase", c.SFTP.PassphraseFile, c.SFTP.PassphraseEnv, false)
+	if err != nil {
+		return err
+	}
+	c.sftpPassphrase = passphrase
+	return nil
+}
+
 func (c *Config) validate() error {
+	switch c.Theme {
+	case "", "light", "dark", "system":
+	default:
+		return fmt.Errorf("config: theme must be one of light, dark, system, or empty (system)")
+	}
 	if c.Upload.ShareExpireDays < 0 {
 		return fmt.Errorf("config: upload.share_expire_days must be >= 0")
 	}
+	if !validUploadDestinations[c.Upload.Destination] {
+		return fmt.Errorf("config: upload.destination must be one of nextcloud, s3, sftp, webdav, custom")
+	}
 	if !c.UploadEnabled() {
-		// Local-only mode: the Nextcloud section is entirely optional.
+		// Local-only mode: every destination section is entirely optional.
 		return nil
 	}
-	if c.Nextcloud.BaseURL == "" {
-		return fmt.Errorf("config: nextcloud.base_url is required (or set upload.enabled: false for local-only use)")
-	}
-	if !strings.HasPrefix(c.Nextcloud.BaseURL, "http://") && !strings.HasPrefix(c.Nextcloud.BaseURL, "https://") {
-		return fmt.Errorf("config: nextcloud.base_url must start with http:// or https://")
-	}
-	if c.Nextcloud.Username == "" {
-		return fmt.Errorf("config: nextcloud.username is required")
-	}
-	if c.Nextcloud.DavUser == "" {
-		return fmt.Errorf("config: nextcloud.dav_user could not be derived; set it explicitly")
+	// Fail-closed, but scoped to the active destination only: an invalid
+	// section for a destination that is not selected must not block save/load.
+	switch c.Upload.Destination {
+	case "nextcloud":
+		if c.Nextcloud.BaseURL == "" {
+			return fmt.Errorf("config: nextcloud.base_url is required (or set upload.enabled: false for local-only use)")
+		}
+		if !strings.HasPrefix(c.Nextcloud.BaseURL, "http://") && !strings.HasPrefix(c.Nextcloud.BaseURL, "https://") {
+			return fmt.Errorf("config: nextcloud.base_url must start with http:// or https://")
+		}
+		if c.Nextcloud.Username == "" {
+			return fmt.Errorf("config: nextcloud.username is required")
+		}
+		if c.Nextcloud.DavUser == "" {
+			return fmt.Errorf("config: nextcloud.dav_user could not be derived; set it explicitly")
+		}
+	case "s3":
+		if c.S3.Endpoint == "" {
+			return fmt.Errorf("config: s3.endpoint is required")
+		}
+		if c.S3.Bucket == "" {
+			return fmt.Errorf("config: s3.bucket is required")
+		}
+		if c.S3.AccessKey == "" {
+			return fmt.Errorf("config: s3.access_key is required")
+		}
+		if c.s3SecretKey == "" {
+			return fmt.Errorf("config: set exactly one of s3.secret_key_file or s3.secret_key_env")
+		}
+	case "sftp":
+		if c.SFTP.Host == "" {
+			return fmt.Errorf("config: sftp.host is required")
+		}
+		if c.SFTP.User == "" {
+			return fmt.Errorf("config: sftp.user is required")
+		}
+		if c.sftpPassword == "" && c.sftpPrivateKeyPEM == "" {
+			return fmt.Errorf("config: sftp requires a password (password_file/password_env) or a private_key_file")
+		}
+	case "webdav":
+		if c.WebDAV.BaseURL == "" {
+			return fmt.Errorf("config: webdav.base_url is required")
+		}
+	case "custom":
+		if c.Custom.URL == "" {
+			return fmt.Errorf("config: custom.url is required")
+		}
 	}
 	return nil
 }
