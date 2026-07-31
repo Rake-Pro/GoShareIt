@@ -188,6 +188,39 @@ func TestSaveDestinationSecretRejectedWhenEnvSourced(t *testing.T) {
 	}
 }
 
+// DidSave drives the helper's ExitSaved exit code: it must flip only on a
+// successful Save, never on load or a rejected one.
+func TestDidSaveOnlyAfterSuccessfulSave(t *testing.T) {
+	testHome(t)
+	svc := &Service{ConfigPath: filepath.Join(t.TempDir(), "config.yaml")}
+	res, err := svc.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.DidSave() {
+		t.Error("DidSave() = true before any save")
+	}
+
+	bad := *res.Config
+	bad.Nextcloud.BaseURL = "not-a-url"
+	bad.Nextcloud.Username = "u"
+	if err := svc.Save(&SaveRequest{Config: &bad, NewPassword: "x"}); err == nil {
+		t.Fatal("expected invalid config to be rejected")
+	}
+	if svc.DidSave() {
+		t.Error("DidSave() = true after a failed save")
+	}
+
+	res.Config.Nextcloud.BaseURL = "https://cloud.example.com"
+	res.Config.Nextcloud.Username = "user"
+	if err := svc.Save(&SaveRequest{Config: res.Config, NewPassword: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.DidSave() {
+		t.Error("DidSave() = false after a successful save")
+	}
+}
+
 func TestPresets(t *testing.T) {
 	svc := &Service{}
 	presets := svc.Presets()
