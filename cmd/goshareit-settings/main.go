@@ -76,4 +76,9 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("settings ui")
 	}
+	// Tell the host whether anything was saved: it restarts to apply only on
+	// ExitSaved, so closing without saving discards cleanly.
+	if svc.DidSave() {
+		os.Exit(settings.ExitSaved)
+	}
 }

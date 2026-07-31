@@ -1,25 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core"
 	"github.com/Rake-Pro/GoShareIt/internal/core/notify"
 	"github.com/Rake-Pro/GoShareIt/internal/core/update"
+	"github.com/Rake-Pro/GoShareIt/internal/settings"
 )
 
 // settingsLauncher opens the out-of-process goshareit-settings UI (sibling
-// binary, like the editor helper). When the settings process exits and the
-// config file changed, the host restarts itself so every subsystem (hotkeys,
-// uploader, tray labels) picks up the new config cleanly.
+// binary, like the editor helper). The helper signals via settings.ExitSaved
+// that the user actually hit Save; only then - and only if the config content
+// really changed - does the host restart itself so every subsystem (hotkeys,
+// uploader, tray labels) picks up the new config cleanly. Closing the window
+// without saving discards and never restarts.
 type settingsLauncher struct {
 	configPath string
 	app        *core.App
@@ -49,18 +53,24 @@ func (s *settingsLauncher) open(ctx context.Context) {
 		s.notify("Settings unavailable", "goshareit-settings binary not found next to the app")
 		return
 	}
-	before := mtime(s.configPath)
+	before, _ := os.ReadFile(s.configPath)
 
-	cmd := exec.CommandContext(ctx, helper, "--config", s.configPath)
-	if err := cmd.Run(); err != nil && ctx.Err() == nil {
+	saved, err := runSettingsHelper(exec.CommandContext(ctx, helper, "--config", s.configPath))
+	if err != nil && ctx.Err() == nil {
 		log.Error().Err(err).Msg("settings: helper failed")
 		return
 	}
 	if ctx.Err() != nil {
 		return
 	}
-	if after := mtime(s.configPath); !after.After(before) {
-		return // nothing saved
+	if !saved {
+		return // closed without saving - discard, nothing to apply
+	}
+	// Saved, but byte-identical config (e.g. Save with no edits): a restart
+	// would apply nothing, so skip it.
+	if after, _ := os.ReadFile(s.configPath); bytes.Equal(before, after) {
+		log.Debug().Msg("settings: saved without changes - no restart needed")
+		return
 	}
 
 	log.Info().Msg("settings changed - restarting to apply")
@@ -101,6 +111,18 @@ func resolveSettingsHelper() (string, error) {
 	return p, nil
 }
 
+// runSettingsHelper runs the settings binary and reports whether the user
+// saved at least once (signalled by settings.ExitSaved, which is not an
+// error). A plain close exits 0 -> saved=false.
+func runSettingsHelper(cmd *exec.Cmd) (saved bool, err error) {
+	err = cmd.Run()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == settings.ExitSaved {
+		return true, nil
+	}
+	return false, err
+}
+
 // runSettingsBlocking launches the settings UI and waits for it to close.
 // Used at startup (first run or invalid config) as onboarding, before any
 // tray exists - the alternative is a silent exit, which on windowsgui builds
@@ -110,7 +132,8 @@ func runSettingsBlocking(ctx context.Context, cfgPath string) error {
 	if err != nil {
 		return err
 	}
-	return exec.CommandContext(ctx, helper, "--config", cfgPath).Run()
+	_, err = runSettingsHelper(exec.CommandContext(ctx, helper, "--config", cfgPath))
+	return err
 }
 
 func (s *settingsLauncher) notify(title, body string) {
@@ -119,12 +142,4 @@ func (s *settingsLauncher) notify(title, body string) {
 			log.Debug().Err(err).Msg("settings notification failed")
 		}
 	}
-}
-
-func mtime(path string) time.Time {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-	return fi.ModTime()
 }
