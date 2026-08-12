@@ -216,3 +216,34 @@ func TestInsecureCustomURL(t *testing.T) {
 		t.Fatalf("allow_insecure_http should permit http: %v", err)
 	}
 }
+
+// s3.endpoint is scheme-less by convention (host[:port], TLS on), but an
+// explicit http:// prefix turns TLS off in the uploader - so it gets the same
+// local-or-opt-in gate as the credentialed base URLs.
+func TestInsecureS3Endpoint(t *testing.T) {
+	dir := t.TempDir()
+	secret := writeFile(t, dir, "s3.secret", "sk")
+	body := func(endpoint, uploadExtra string) string {
+		return "upload:\n  destination: s3\n" + uploadExtra +
+			"s3:\n  endpoint: " + endpoint + "\n  bucket: b\n  access_key: ak\n  secret_key_file: " + secret + "\n"
+	}
+	cases := []struct {
+		name     string
+		endpoint string
+		extra    string
+		wantErr  bool
+	}{
+		{"bare host", "s3.us-west-002.backblazeb2.com", "", false},
+		{"https", "https://s3.example.com", "", false},
+		{"http remote", "http://s3.example.com", "", true},
+		{"http remote opt-in", "http://s3.example.com", "  allow_insecure_http: true\n", false},
+		{"http local", "http://127.0.0.1:9000", "", false},
+	}
+	for _, tc := range cases {
+		cfgPath := writeFile(t, dir, tc.name+".yaml", body(tc.endpoint, tc.extra))
+		_, err := Load(cfgPath)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: Load() = %v, wantErr=%v", tc.name, err, tc.wantErr)
+		}
+	}
+}
