@@ -627,6 +627,20 @@ func (c *Config) validate() error {
 		if c.S3.Endpoint == "" {
 			return fmt.Errorf("config: s3.endpoint is required")
 		}
+		// s3.endpoint is documented as scheme-less host[:port] (TLS on), but an
+		// http:// prefix silently disables TLS in the uploader. SigV4 keeps the
+		// secret key off the wire, yet it still exposes the access key ID and
+		// full request/response bytes - so hold http to the same local-or-opt-in
+		// rule as the base URLs.
+		if strings.HasPrefix(c.S3.Endpoint, "http://") {
+			u, err := url.Parse(c.S3.Endpoint)
+			if err != nil || u.Hostname() == "" {
+				return fmt.Errorf("config: s3.endpoint is not a valid URL: %v", err)
+			}
+			if !c.Upload.AllowInsecureHTTP && !isLocalHostname(u.Hostname()) {
+				return fmt.Errorf("config: s3.endpoint uses plain http://, which disables TLS for uploads; use https:// or a bare host[:port] (or set upload.allow_insecure_http: true if this server is only reachable on a trusted network)")
+			}
+		}
 		if c.S3.Bucket == "" {
 			return fmt.Errorf("config: s3.bucket is required")
 		}
