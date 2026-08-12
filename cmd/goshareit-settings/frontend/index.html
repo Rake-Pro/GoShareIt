@@ -47,9 +47,16 @@
   }
   section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
     color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-  .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-  .row label.name { flex: 0 0 170px; color: var(--text); }
-  .row .hint { color: var(--muted); font-size: 11px; }
+  section .note { color: var(--muted); font-size: 11px; margin: -6px 0 10px; }
+  /* Two-column grid per row: fixed label column, full-width control column.
+     The hint sits UNDER the control (grid-column 2, next implicit row) so
+     every input in a section lines up at the same width instead of being
+     squeezed by however long its instruction text happens to be. */
+  .row { display: grid; grid-template-columns: 170px minmax(0, 1fr);
+    column-gap: 10px; align-items: center; margin-bottom: 10px; }
+  .row label.name { color: var(--text); }
+  .row .control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .row .hint { grid-column: 2; color: var(--muted); font-size: 11px; margin-top: 2px; }
   input[type=text], input[type=password], input[type=number], select, textarea {
     flex: 1; min-width: 0; background: var(--input-bg); color: var(--text);
     border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
@@ -66,7 +73,7 @@
     background: var(--inset); border: 1px solid var(--border); border-radius: 6px;
     padding: 12px 12px 6px; margin: 4px 0 8px;
   }
-  .destpanel .row label.name { flex-basis: 158px; }
+  .destpanel .row { grid-template-columns: 158px minmax(0, 1fr); }
   .desttag { font-size: 11px; color: var(--muted); margin: -4px 0 10px; }
   .hidden { display: none; }
   footer {
@@ -102,6 +109,7 @@
   <div id="status"></div>
   <span class="ver" id="ver"></span>
   <button type="button" id="reset" class="secondary">Reset to defaults</button>
+  <button type="button" id="discard" class="secondary">Discard Changes</button>
   <button id="save">Save</button>
 </footer>
 <script>
@@ -201,9 +209,10 @@ const SCHEMA = [
     { p: "AfterUpload.CopyURLToClipboard", l: "Copy link to clipboard", t: "bool" },
     { p: "AfterUpload.Notify", l: "Show notification", t: "bool" },
   ]},
-  { title: "Hotkeys", fields: [
-    { p: "Hotkeys.Region",     l: "Capture region", t: "text",
-      hint: "comma-separates alternatives, e.g. Cmd+Shift+1, Ctrl+PrintScreen" },
+  { title: "Hotkeys",
+    note: "Comma-separate alternatives, e.g. Cmd+Shift+1, Ctrl+PrintScreen. Leave a field blank to disable that hotkey.",
+    fields: [
+    { p: "Hotkeys.Region",     l: "Capture region", t: "text" },
     { p: "Hotkeys.FullScreen", l: "Capture full screen", t: "text" },
     { p: "Hotkeys.Window",     l: "Capture window", t: "text" },
     { p: "Hotkeys.RegionEdit",     l: "Capture region + edit", t: "text", hint: "always opens the editor" },
@@ -355,8 +364,8 @@ function renderFieldRow(f) {
       }
     }
   }
-  row.innerHTML = `<label class="name">${f.l}</label>${control}` +
-    (f.hint ? `<span class="hint">${f.hint}</span>` : "");
+  row.innerHTML = `<label class="name">${f.l}</label><div class="control">${control}</div>` +
+    (f.hint ? `<div class="hint">${f.hint}</div>` : "");
   return row;
 }
 
@@ -366,7 +375,7 @@ function render() {
   for (const sec of SCHEMA) {
     const s = document.createElement("section");
     s.dataset.section = sec.title;
-    s.innerHTML = `<h2>${sec.title}</h2>`;
+    s.innerHTML = `<h2>${sec.title}</h2>` + (sec.note ? `<p class="note">${sec.note}</p>` : "");
     for (const f of sec.fields) s.appendChild(renderFieldRow(f));
     if (sec.destPanels) {
       // One inset container; each destination gets its own always-rendered
@@ -538,6 +547,12 @@ $("save").addEventListener("click", async () => {
     status(String(e), "err");
     $("save").disabled = false;
   }
+});
+
+// Discard Changes: close without saving. The helper exits 0 (no ExitSaved),
+// so the host discards - same as closing the window by hand, but explicit.
+$("discard").addEventListener("click", () => {
+  svc().CloseWindow().catch(() => status("Close this window to discard your changes.", ""));
 });
 
 $("form").addEventListener("change", (e) => {

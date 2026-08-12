@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -19,6 +20,11 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
+
+// ExitSaved is the settings helper's process exit code when the user saved at
+// least once. The host restarts to apply the new config only on this code; a
+// plain window close (or Discard Changes) exits 0 and the host does nothing.
+const ExitSaved = 42
 
 // Service is bound into the Wails frontend. All methods are invoked from JS.
 // PickDir and OpenURL are injected by the GUI shell (native dialogs/browser);
@@ -30,7 +36,12 @@ type Service struct {
 	PickDir func() (string, error) // native directory picker
 	OpenURL func(url string) error // native browser open; nil -> osOpenURL
 	Close   func()                 // close the settings window; nil in tests
+
+	saved atomic.Bool // set once Save succeeds; drives the ExitSaved exit code
 }
+
+// DidSave reports whether Save succeeded at least once in this session.
+func (s *Service) DidSave() bool { return s.saved.Load() }
 
 // LoadResult is what the frontend edits. Secrets are never returned - only
 // whether they are set.
@@ -164,6 +175,7 @@ func (s *Service) Save(req *SaveRequest) error {
 		os.Remove(tmp.Name())
 		return fmt.Errorf("settings: install config: %w", err)
 	}
+	s.saved.Store(true)
 	return nil
 }
 

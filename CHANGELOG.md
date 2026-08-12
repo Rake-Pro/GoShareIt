@@ -29,6 +29,28 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   multipart form fields, never into the URL, so it cannot end up in a query
   string. `{name}`/`{mime}` placeholders in the URL are unaffected.
 
+### Fixed
+- Settings: the host restarts to apply changes only when Save was actually
+  used. The settings helper now signals a completed save via its exit code
+  (`settings.ExitSaved`) instead of the host inferring one from the config
+  file's mtime, which also fired on writes the settings window never made
+  (e.g. the tray upload toggle) and on a Save with no edits - both looked
+  like "closing settings restarts the app". Closing the window without
+  saving now always discards, and a save that leaves the config
+  byte-identical skips the restart too.
+
+### Added
+- Settings UI: a Discard Changes button next to Save that closes the window
+  without saving, as an explicit alternative to just closing it.
+
+### Changed
+- Settings UI: field hints ("blank = derived from username", "always opens
+  the editor", ...) moved from beside each input to underneath it, so every
+  input in a section is the same full width instead of being squeezed by
+  however long its instruction text is. The comma-separated-alternatives
+  instruction on hotkeys is now a single note under the Hotkeys heading
+  rather than a hint crammed next to the first field.
+
 ## [0.0.8] - 2026-07-30
 
 First release signed with a real Developer ID Application certificate and
