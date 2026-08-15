@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	fyne.io/systray v1.12.2
-	gioui.org v0.10.1
+	gioui.org v0.10.2
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/pkg/sftp v1.13.11
@@ -19,7 +19,7 @@ require (
 )
 
 require (
-	gioui.org/shader v1.0.8 // indirect
+	gioui.org/shader v1.0.9 // indirect
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
