@@ -12,7 +12,7 @@ require (
 	github.com/wailsapp/wails/v2 v2.13.0
 	golang.design/x/clipboard v0.8.0
 	golang.design/x/hotkey v0.6.1
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.55.0
 	golang.org/x/image v0.44.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -66,6 +66,6 @@ require (
 	golang.org/x/exp/shiny v0.0.0-20260709172345-9ea1abe57597 // indirect
 	golang.org/x/mobile v0.0.0-20260709172247-6129f5bee9d5 // indirect
 	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
 )
