@@ -47,6 +47,44 @@ updater check (with a PAT, correctly reports up-to-date).
   (not bundled) - document where to get one and where it goes in
   config.example.yaml / the settings UI preset picker.
 
+## Wails v3 migration (do at v3.0.0-rc.1, targeted 2026-09-12)
+
+Migration is inevitable: v2 is bugfix-only with no maintenance commitment past
+v3 GA (milestones: beta.2 code freeze Sep 1, rc.1 Sep 12, GA Sep 15 - expect
+slippage; check the wailsapp/wails milestone board mid-September). The v3
+architecture (namespaced managers, services bindings) is settled - zero
+breaking changes across the beta series - and the no-node/no-CLI build path is
+officially supported (`v3/examples/plain`), so our zero-tooling shape survives.
+Assessed 2026-08-16; scope is roughly half a day plus an on-device pass.
+
+Structural changes when we do it (all in `cmd/goshareit-settings/`):
+
+- `main.go`: `wails.Run(&options.App{...})` -> `application.New(application.Options{
+  Services: []application.Service{application.NewService(svc)}, Assets: ...})`,
+  then `app.Window.New()` (WebviewWindowOptions: title/size) + `app.Run()`.
+  The OnStartup context capture goes away - runtime calls hang off `app`
+  directly: `app.Dialog` (OpenDirectoryDialog), browser-open util, `app.Quit()`.
+- `frontend/index.html`: `window.go.settings.Service.<Method>` no longer
+  exists. Add `<script type="module" src="/wails/runtime.js"></script>` (served
+  from the binary, no npm) and a small shim mapping our methods over
+  `window.wails.Call.ByName("github.com/Rake-Pro/GoShareIt/internal/settings.Service.<Method>", ...)`.
+  ByName takes the full import-path FQN - keep it in ONE shim constant so a
+  package move can't silently break scattered call sites.
+- Makefile + scripts/dev-build.sh: build tag `desktop,production` -> just
+  `production` (no `desktop` tag in v3). Drop the
+  `CGO_LDFLAGS="-framework UniformTypeIdentifiers"` workaround (v3 declares it
+  properly) - verify, then delete.
+- macOS bundle: our own bundle/sign/notarize scripts carry over unchanged (we
+  never used the wails CLI), but v3 links new system frameworks (QuartzCore,
+  Carbon, ServiceManagement) - do one signed-build TCC pass on device.
+- Do NOT adopt the wails3 CLI/Taskfile (their build tooling is still unsettled
+  - "Wake" experiment); plain `go build` remains our path.
+- Watch wailsapp/wails#5868 (v2->v3 migration validation for RC1) and the GA
+  deprecation-removal gate for anything that lands between now and rc.1.
+- Later option (separate decision, not this migration): v3 has native systray,
+  global shortcuts, and login-item autostart - could eventually consolidate
+  the tray host / hotkey / start-at-login architecture.
+
 ## Release / distribution
 
 - Windows .exe icon: `goshareit.exe`/`-editor.exe`/`-settings.exe` ship with
