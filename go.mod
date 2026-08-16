@@ -13,7 +13,7 @@ require (
 	golang.design/x/clipboard v0.8.0
 	golang.design/x/hotkey v0.6.1
 	golang.org/x/crypto v0.55.0
-	golang.org/x/image v0.44.0
+	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
