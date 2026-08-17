@@ -118,13 +118,13 @@ Releases are cut by CI (merge to `prod` mints the next semver tag and builds
 all three platforms in one run - see [docs/RELEASE.md](docs/RELEASE.md) for
 the full flow): a macOS universal `.dmg`/`.zip`, a Windows Inno Setup
 installer + `.zip`, and an experimental Linux `.tar.gz`, plus a
-`checksums.txt`. The macOS `.app` is codesigned in CI (menubar-only,
-`LSUIElement`); notarization is not yet wired up (see docs/RELEASE.md for the
-current signing state).
+`checksums.txt`. The macOS `.app` is codesigned with a Developer ID
+certificate and notarized in CI (menubar-only, `LSUIElement`); see
+docs/RELEASE.md for the signing flow.
 
-The app self-updates: `goshareit` polls the GitHub Releases API on an
-interval, and the tray "Check for Updates" item lets you check and install
-on demand.
+The app self-updates: `goshareit` polls the GitHub Releases API anonymously
+on an interval, and the tray "Check for Updates" item lets you check and
+install on demand. No credentials or configuration are needed for updates.
 
 - [docs/RELEASE.md](docs/RELEASE.md) - the CI release path, signing secrets,
   and the local `make release` runbook.
