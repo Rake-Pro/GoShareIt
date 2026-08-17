@@ -26,8 +26,8 @@ type CustomConfig struct {
 	ResponseURLRegex      string            // used for the public URL when ResponseURLPath is empty; the first capture group is the URL
 }
 
-// Custom uploads via an arbitrary HTTP endpoint, "custom uploader"
-// style: multipart or raw body, JSON dot-path or regex response parsing.
+// Custom uploads via an arbitrary HTTP endpoint using a configurable request
+// template: multipart or raw body, JSON dot-path or regex response parsing.
 type Custom struct {
 	cfg    CustomConfig
 	client *http.Client

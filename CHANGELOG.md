@@ -100,8 +100,8 @@ deleted; numbering jumps from 0.0.6 to 0.0.8.
   (S3-compatible buckets - AWS S3, B2, R2, MinIO - via `minio-go/v7`, public
   URL template or presigned GET), `SFTP` (via `pkg/sftp` + `x/crypto/ssh`,
   key or password auth, optional host key fingerprint pinning), `WebDAV`
-  (plain PUT with basic auth, no OCS share step), and `Custom` (
-  generic HTTP uploader: multipart or raw body, JSON dot-path or regex
+  (plain PUT with basic auth, no OCS share step), and `Custom` (generic HTTP
+  uploader: multipart or raw body, JSON dot-path or regex
   response parsing), plus `CustomPresets()` with starter configs for imgur,
   catbox, and 0x0.st. New deps: `github.com/minio/minio-go/v7`,
   `github.com/pkg/sftp` (both added via `go get`, not `go mod tidy`);
