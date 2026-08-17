@@ -235,8 +235,6 @@ const SCHEMA = [
   { title: "Updates", fields: [
     { p: "Update.Enabled", l: "Check for updates", t: "bool" },
     { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number" },
-    { p: "@token", l: "GitHub token", t: "secret",
-      hint: "read-only PAT; only needed while the repo is private" },
   ]},
   { title: "Logging", fields: [
     { p: "Logging.Level", l: "Level", t: "select", opts: ["trace","debug","info","warn","error"] },
@@ -248,7 +246,6 @@ const SCHEMA = [
 // separately in render()/collect() because of the browser sign-in flow.
 const SECRET_FIELDS = {
   "@password":        { has: "hasPassword",       saveKey: "newPassword" },
-  "@token":           { has: "hasToken",           saveKey: "newToken" },
   "@s3_secret_key":   { has: "hasS3SecretKey",     saveKey: "newS3SecretKey" },
   "@sftp_password":   { has: "hasSFTPPassword",    saveKey: "newSFTPPassword" },
   "@sftp_passphrase": { has: "hasSFTPPassphrase",  saveKey: "newSFTPPassphrase" },
@@ -257,7 +254,7 @@ const SECRET_FIELDS = {
 };
 
 // secretEnvVar returns the *_env value that sources a "@..." secret field
-// ("" if it is file-sourced or has no env option, e.g. the update token).
+// ("" if it is file-sourced or has no env option).
 function secretEnvVar(p) {
   switch (p) {
     case "@password":        return model.config.Nextcloud.PasswordEnv || "";
@@ -443,7 +440,7 @@ function syncEnabledState() {
 function collect() {
   const cfg = model.config;
   let newPassword = "";
-  const secrets = { newToken: "", newS3SecretKey: "", newSFTPPassword: "", newSFTPPassphrase: "", newWebDAVPassword: "", newCustomSecret: "" };
+  const secrets = { newS3SecretKey: "", newSFTPPassword: "", newSFTPPassphrase: "", newWebDAVPassword: "", newCustomSecret: "" };
   for (const sec of SCHEMA) {
     for (const f of allFields(sec)) {
       const id = fieldId(f.p);

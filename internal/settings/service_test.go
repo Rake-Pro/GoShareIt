@@ -24,7 +24,7 @@ func TestLoadMissingConfigGivesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.HasPassword || res.HasToken {
+	if res.HasPassword {
 		t.Error("fresh setup should have no secrets")
 	}
 	if res.Config.Update.Repo != "Rake-Pro/GoShareIt" {
@@ -52,7 +52,7 @@ func TestSaveRoundTrip(t *testing.T) {
 	cfg.Nextcloud.Username = "user@example.com"
 	cfg.Hotkeys.Region = "Ctrl+Shift+5"
 
-	if err := svc.Save(&SaveRequest{Config: cfg, NewPassword: "pw-abc", NewToken: "tok-xyz"}); err != nil {
+	if err := svc.Save(&SaveRequest{Config: cfg, NewPassword: "pw-abc"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,9 +63,6 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 	if loaded.Password() != "pw-abc" {
 		t.Errorf("password = %q", loaded.Password())
-	}
-	if loaded.UpdateToken() != "tok-xyz" {
-		t.Errorf("token = %q", loaded.UpdateToken())
 	}
 	if loaded.Hotkeys.Region != "Ctrl+Shift+5" {
 		t.Errorf("hotkey = %q", loaded.Hotkeys.Region)
@@ -79,7 +76,7 @@ func TestSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res2.HasPassword || !res2.HasToken {
+	if !res2.HasPassword {
 		t.Error("secrets should be reported present after save")
 	}
 
@@ -92,8 +89,8 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 }
 
-// Destination secrets round-trip the same way NewPassword/NewToken do: write
-// on non-empty, leave untouched when omitted, reject writes when the
+// Destination secrets round-trip the same way NewPassword does: write on
+// non-empty, leave untouched when omitted, reject writes when the
 // corresponding *_env is set.
 func TestSaveDestinationSecrets(t *testing.T) {
 	testHome(t)

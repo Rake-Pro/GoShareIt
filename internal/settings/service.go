@@ -1,7 +1,7 @@
 // Package settings is the backend of the goshareit-settings UI: it loads the
 // raw config for editing and saves it back with validation, handling the
-// secret files (Nextcloud app password, GitHub token) that never live inline
-// in the YAML. Pure Go and GUI-free so it is testable on linux.
+// secret files (Nextcloud app password, destination secrets) that never live
+// inline in the YAML. Pure Go and GUI-free so it is testable on linux.
 package settings
 
 import (
@@ -49,7 +49,6 @@ type LoadResult struct {
 	Config      *config.Config `json:"config"`
 	ConfigPath  string         `json:"configPath"`
 	HasPassword bool           `json:"hasPassword"`
-	HasToken    bool           `json:"hasToken"`
 	// Destination secrets, one flag per non-Nextcloud secret below.
 	HasS3SecretKey    bool   `json:"hasS3SecretKey"`
 	HasSFTPPassword   bool   `json:"hasSFTPPassword"`
@@ -64,7 +63,6 @@ type LoadResult struct {
 type SaveRequest struct {
 	Config      *config.Config `json:"config"`
 	NewPassword string         `json:"newPassword"`
-	NewToken    string         `json:"newToken"`
 	// Destination secrets, one write-only field per non-Nextcloud secret.
 	NewS3SecretKey    string `json:"newS3SecretKey"`
 	NewSFTPPassword   string `json:"newSFTPPassword"`
@@ -94,7 +92,6 @@ func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 		Config:            cfg,
 		ConfigPath:        s.ConfigPath,
 		HasPassword:       secretPresent(cfg.Nextcloud.PasswordFile, cfg.Nextcloud.PasswordEnv),
-		HasToken:          secretPresent(cfg.Update.TokenFile, ""),
 		HasS3SecretKey:    secretPresent(cfg.S3.SecretKeyFile, cfg.S3.SecretKeyEnv),
 		HasSFTPPassword:   secretPresent(cfg.SFTP.PasswordFile, cfg.SFTP.PasswordEnv),
 		HasSFTPPassphrase: secretPresent(cfg.SFTP.PassphraseFile, cfg.SFTP.PassphraseEnv),
@@ -119,11 +116,6 @@ func (s *Service) Save(req *SaveRequest) error {
 			return fmt.Errorf("settings: password is sourced from env var %s; unset password_env to use a file", cfg.Nextcloud.PasswordEnv)
 		}
 		if err := writeSecret(cfg.Nextcloud.PasswordFile, req.NewPassword); err != nil {
-			return err
-		}
-	}
-	if req.NewToken != "" {
-		if err := writeSecret(cfg.Update.TokenFile, req.NewToken); err != nil {
 			return err
 		}
 	}
@@ -279,9 +271,6 @@ func applyEditingDefaults(cfg *config.Config) {
 	tilde := func(name string) string { return "~/" + filepath.Base(dir) + "/" + name }
 	if cfg.Nextcloud.PasswordFile == "" && cfg.Nextcloud.PasswordEnv == "" {
 		cfg.Nextcloud.PasswordFile = tilde("app-password.secret")
-	}
-	if cfg.Update.TokenFile == "" {
-		cfg.Update.TokenFile = tilde("github-token.secret")
 	}
 	if cfg.Update.Enabled == nil {
 		t := true

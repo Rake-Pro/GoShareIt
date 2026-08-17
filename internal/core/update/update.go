@@ -1,8 +1,8 @@
 // Package update implements self-update from GitHub Releases. It is portable
-// and CGO-free: the release feed is the GitHub REST API (anonymous once the
-// repo is public; a fine-grained read-only token while it is private), assets
-// are verified against the release's checksums.txt, and Apply swaps the
-// installed binaries (windows/linux) or the whole .app bundle (darwin).
+// and CGO-free: the release feed is the GitHub REST API (the repo is public,
+// so requests are anonymous), assets are verified against the release's
+// checksums.txt, and Apply swaps the installed binaries (windows/linux) or
+// the whole .app bundle (darwin).
 package update
 
 import (
@@ -31,7 +31,6 @@ const checksumsAsset = "checksums.txt"
 // Config configures an Updater.
 type Config struct {
 	Repo       string // "owner/name", e.g. "Rake-Pro/GoShareIt"
-	Token      string // optional; required while the repo is private
 	Current    string // running version, e.g. "1.2.3" or "0.0.0-dev"
 	APIBaseURL string // override for tests; DefaultAPIBaseURL when empty
 	HTTPClient *http.Client
@@ -94,8 +93,7 @@ func (u *Updater) Check(ctx context.Context) (*Release, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		// Private repo without a token also reads as 404.
-		return nil, fmt.Errorf("update: no release found (404): private repo without a token, or no releases yet")
+		return nil, fmt.Errorf("update: no release found (404): no releases published yet")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("update: check: unexpected status %s", resp.Status)
@@ -190,9 +188,6 @@ func (u *Updater) apiRequest(ctx context.Context, path, accept string) (*http.Re
 	}
 	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if u.cfg.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+u.cfg.Token)
-	}
 	return req, nil
 }
 

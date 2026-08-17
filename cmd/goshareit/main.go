@@ -108,7 +108,6 @@ func main() {
 	if cfg.UpdateEnabled() {
 		upd, err := update.New(update.Config{
 			Repo:    cfg.Update.Repo,
-			Token:   cfg.UpdateToken(),
 			Current: version.Version,
 		})
 		if err != nil {
