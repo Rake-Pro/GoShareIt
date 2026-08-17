@@ -36,10 +36,9 @@ type Config struct {
 	Update       UpdateConfig       `yaml:"update"`
 	Logging      LoggingConfig      `yaml:"logging"`
 
-	// password, updateToken, and the destination secrets below are resolved
-	// at load time, never serialized.
+	// password and the destination secrets below are resolved at load time,
+	// never serialized.
 	password          string `yaml:"-"`
-	updateToken       string `yaml:"-"`
 	s3SecretKey       string `yaml:"-"`
 	sftpPassword      string `yaml:"-"`
 	sftpPrivateKeyPEM string `yaml:"-"`
@@ -220,13 +219,10 @@ type EditorConfig struct {
 }
 
 // UpdateConfig controls self-update from GitHub Releases. Enabled defaults to
-// true; TokenFile is optional and only needed while the repo is private (a
-// fine-grained read-only PAT; the file lives beside the other secrets and is
-// provisioned per machine, never committed anywhere).
+// true.
 type UpdateConfig struct {
 	Enabled       *bool  `yaml:"enabled"`
 	Repo          string `yaml:"repo"`
-	TokenFile     string `yaml:"token_file"`
 	IntervalHours int    `yaml:"interval_hours"`
 }
 
@@ -234,9 +230,6 @@ type UpdateConfig struct {
 func (c *Config) UpdateEnabled() bool {
 	return c.Update.Enabled == nil || *c.Update.Enabled
 }
-
-// UpdateToken returns the resolved GitHub token ("" when not configured).
-func (c *Config) UpdateToken() string { return c.updateToken }
 
 // LoggingConfig controls logging.
 type LoggingConfig struct {
@@ -333,9 +326,6 @@ func LoadFile(path string) (*Config, error) {
 	if err := cfg.resolvePassword(); err != nil {
 		return nil, err
 	}
-	if err := cfg.resolveUpdateToken(); err != nil {
-		return nil, err
-	}
 	if err := cfg.resolveDestinationSecrets(); err != nil {
 		return nil, err
 	}
@@ -372,25 +362,6 @@ func (c *Config) applyDefaults() {
 		// 6px default: 3px is near-invisible on retina-resolution captures.
 		c.Editor.StrokeWidth = 6
 	}
-}
-
-// resolveUpdateToken reads the optional GitHub token file. A missing or empty
-// file is not an error: the updater then calls the API anonymously, which
-// works once the repo is public.
-func (c *Config) resolveUpdateToken() error {
-	file := strings.TrimSpace(c.Update.TokenFile)
-	if file == "" {
-		return nil
-	}
-	b, err := os.ReadFile(expandHome(file))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("config: read update.token_file %s: %w", file, err)
-	}
-	c.updateToken = strings.TrimSpace(string(b))
-	return nil
 }
 
 func (c *Config) resolvePassword() error {

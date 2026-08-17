@@ -6,6 +6,15 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Removed
+- The updater's optional GitHub token support (`update.token_file`, settings
+  UI "GitHub token" field). It existed only for the fine-grained read-only PAT
+  needed while the repo was private; now that the repo is public, the updater
+  calls the GitHub API anonymously and the option is dead weight. Existing
+  configs with `update.token_file` set are unaffected - the field is simply
+  ignored - and any `github-token.secret` file can be deleted; fresh installs
+  no longer scaffold one.
+
 ### Security
 - Server base URLs now require TLS. `nextcloud.base_url` and `webdav.base_url`
   are validated as real URLs and must be `https://`: both destinations

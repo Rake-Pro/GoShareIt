@@ -95,6 +95,4 @@ Structural changes when we do it (all in `cmd/goshareit-settings/`):
   a `.syso` resource) and wire it into goshareit.iss.
 - Windows Authenticode signing (SmartScreen). Deliberately deferred - not a
   priority for now (owner call, 2026-07-30).
-- Public release: repo audit pass, then public visibility; updater switches
-  to anonymous GitHub API automatically.
-- 1.0.0 criteria: all on-device validation above green + public release.
+- 1.0.0 criteria: all on-device validation above green.

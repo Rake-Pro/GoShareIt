@@ -81,10 +81,6 @@ editor:
 update:
   enabled: true           # self-update from GitHub Releases
   repo: Rake-Pro/GoShareIt
-  # Optional while the repo is private: a fine-grained read-only PAT
-  # (Contents: Read on the repo above). Missing/empty file -> anonymous API,
-  # which works once the repo is public.
-  token_file: {confdir}/github-token.secret
   interval_hours: 24
 
 logging:
@@ -163,15 +159,6 @@ func WriteStarter(configPath string) (secretPath string, err error) {
 	if _, err := os.Stat(secretPath); os.IsNotExist(err) {
 		if err := os.WriteFile(secretPath, nil, 0o600); err != nil {
 			return "", fmt.Errorf("config: create secret %s: %w", secretPath, err)
-		}
-	}
-	// Optional GitHub token for self-update while the repo is private. An empty
-	// file is fine (anonymous API); scaffolded so the path in the starter config
-	// always exists with sane permissions.
-	tokenPath := filepath.Join(dir, "github-token.secret")
-	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
-		if err := os.WriteFile(tokenPath, nil, 0o600); err != nil {
-			return "", fmt.Errorf("config: create secret %s: %w", tokenPath, err)
 		}
 	}
 	return secretPath, nil
