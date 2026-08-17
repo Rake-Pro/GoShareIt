@@ -85,7 +85,7 @@ upload:
 #   remote_dir: ""
 #   url_template: ""                           # public link template; {name} {path}; blank = the PUT URL
 
-# Generic HTTP uploader. Used when upload.destination is "custom".
+# Generic HTTP uploader for arbitrary endpoints. Used when upload.destination is "custom".
 # See internal/core/upload/presets.go (or the settings UI's preset picker) for
 # ready-made imgur/catbox/0x0 starting points.
 # custom:

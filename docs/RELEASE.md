@@ -136,8 +136,7 @@ make release VERSION=1.2.3
 
 Individual steps are also available: `make bundle`, `make sign`, `make notarize`.
 
-For an unsigned local dev loop instead, use `make dev-run` (see
-[docs/STATUS.md](STATUS.md#build--run-quick-reference)): it auto-discovers a
+For an unsigned local dev loop instead, use `make dev-run`: it auto-discovers a
 local dev signing identity so TCC grants persist across rebuilds, without
 needing a real Developer ID cert.
 

@@ -4,7 +4,7 @@ A cross-platform screenshot and screen-recording tool for macOS and Windows.
 Capture a region, window, or full screen; optionally annotate it (crop, arrow,
 text, blur, and more) in a light/dark/system-themed editor; upload to
 Nextcloud (default), S3-compatible storage, SFTP, WebDAV, or a custom HTTP
-endpoint (, with imgur/catbox/0x0.st presets), with a public
+endpoint (with imgur/catbox/0x0.st presets), with a public
 share link or direct URL copied to your clipboard - or run entirely in
 local-only mode with uploads off. Ships as a self-updating menu-bar/tray app.
 
@@ -148,3 +148,7 @@ on demand.
 
 Signing/notarization require `DEVELOPER_ID_APP`, `TEAM_ID`, `AC_NOTARY_PROFILE`,
 and `BUNDLE_ID` (see docs/RELEASE.md).
+
+## License
+
+MIT - see [LICENSE](LICENSE).

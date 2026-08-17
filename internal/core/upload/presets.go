@@ -1,6 +1,6 @@
 package upload
 
-// CustomPresets returns starter CustomConfig values for popular 
+// CustomPresets returns starter CustomConfig values for popular image-host
 // endpoints, keyed by a short id. They are data for the settings UI to
 // prefill and edit (e.g. imgur's client ID is a literal placeholder), not
 // ready-to-use credentials.

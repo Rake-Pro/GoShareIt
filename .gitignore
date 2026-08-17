@@ -1,6 +1,8 @@
 # binaries / build artifacts
 # NOTE: anchored to repo root so it never matches the cmd/goshareit/ package dir
 /goshareit
+/goshareit-settings
+/goshareit-editor
 *.exe
 *.app
 /dist/
@@ -16,5 +18,3 @@ config.local.yaml
 *.test
 *.out
 
-# vendored/experimental binaries never belong in git
-_prototype/bin/
