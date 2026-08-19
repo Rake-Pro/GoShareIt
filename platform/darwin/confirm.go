@@ -2,64 +2,46 @@
 
 package darwin
 
+/*
+#cgo LDFLAGS: -framework AppKit
+#include <stdlib.h>
+
+int gsi_confirm(const char *title, const char *body, const char *ok, const char *cancel, int giveUpSeconds);
+*/
+import "C"
+
 import (
 	"fmt"
-	"os/exec"
-	"strings"
+	"unsafe"
 )
 
-// Confirmer shows blocking native dialogs via osascript `display dialog`.
+// Confirmer shows blocking native NSAlert dialogs (confirm.m).
 type Confirmer struct{}
 
 // NewConfirmer returns a macOS confirm-dialog provider.
 func NewConfirmer() *Confirmer { return &Confirmer{} }
 
-// Confirm shows a two-button dialog and blocks until the user answers, the
-// dialog times out (120s, treated as "no"), or an actual error occurs.
+// Confirm shows a two-button alert on the app's main run loop and blocks until
+// the user answers, Escape is hit, or the alert times out (120s) - the latter
+// two are a normal "no" answer, not an error.
 //
-// A click on a button literally named "Cancel" (or hitting Escape) makes
-// osascript exit non-zero with AppleScript error -128 ("User canceled") -
-// that is a normal "no" answer, not an error worth surfacing.
+// The alert occupies the main thread while open (tray menu handling resumes
+// when it closes), which is standard modal behavior and bounded by the timeout.
 func (c *Confirmer) Confirm(title, body, okLabel, cancelLabel string) (bool, error) {
-	script := fmt.Sprintf(
-		"display dialog %s with title %s buttons {%s, %s} default button %s giving up after 120",
-		osaQuote(body), osaQuote(title), osaQuote(cancelLabel), osaQuote(okLabel), osaQuote(okLabel),
-	)
-	cmd := exec.Command("osascript", "-e", script)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(out), "-128") {
-			return false, nil
-		}
-		return false, fmt.Errorf("darwin confirm: osascript failed: %v: %s", err, out)
+	ctitle, cbody := C.CString(title), C.CString(body)
+	cok, ccancel := C.CString(okLabel), C.CString(cancelLabel)
+	defer C.free(unsafe.Pointer(ctitle))
+	defer C.free(unsafe.Pointer(cbody))
+	defer C.free(unsafe.Pointer(cok))
+	defer C.free(unsafe.Pointer(ccancel))
+	switch rc := C.gsi_confirm(ctitle, cbody, cok, ccancel, 120); rc {
+	case 1:
+		return true, nil
+	case 0:
+		return false, nil // cancel button, Escape, or timeout
+	case -2:
+		return false, fmt.Errorf("darwin confirm: another dialog is already open")
+	default:
+		return false, fmt.Errorf("darwin confirm: cannot host the dialog (code %d)", int(rc))
 	}
-	button, gaveUp, ok := parseDialogOutput(string(out))
-	if !ok {
-		return false, fmt.Errorf("darwin confirm: unrecognized osascript output: %s", out)
-	}
-	if gaveUp {
-		// An ignored dialog reports gave up:true and echoes the default button
-		// as the one "returned" even though osascript exits 0 - that must not
-		// be read as the user actively choosing okLabel.
-		return false, nil
-	}
-	return button == okLabel, nil
-}
-
-// parseDialogOutput parses osascript's `display dialog` stdout, of the form
-// "button returned:X, gave up:false".
-func parseDialogOutput(out string) (button string, gaveUp bool, ok bool) {
-	const marker = "button returned:"
-	idx := strings.Index(out, marker)
-	if idx == -1 {
-		return "", false, false
-	}
-	rest := out[idx+len(marker):]
-	if giveIdx := strings.Index(rest, ", gave up:"); giveIdx >= 0 {
-		button = rest[:giveIdx]
-		gaveUp = strings.Contains(rest[giveIdx:], "gave up:true")
-	} else {
-		button = strings.TrimSpace(rest)
-	}
-	return strings.TrimRight(button, "\n"), gaveUp, true
 }
