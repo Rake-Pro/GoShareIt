@@ -4,125 +4,284 @@
 <meta charset="utf-8">
 <title>GoShareIt Settings</title>
 <style>
+  /* Token structure is three-state on purpose: :root carries the light
+     defaults, the media block applies dark ONLY when the config has not
+     forced light, and the [data-theme] blocks let applyTheme() override
+     prefers-color-scheme in either direction. */
   :root {
-    --bg: #f5f6f8; --panel: #ffffff; --text: #1c1e21; --muted: #6b7280;
-    --border: #d7dade; --accent: #0a84ff; --ok: #1f9d55; --err: #d64545;
-    --input-bg: #ffffff; --inset: #f7f8fa;
+    color-scheme: light dark;
+    --bg-window: #ececec;
+    --bg-sidebar: #e9e9eb;
+    --bg-bar: #e9e9eb;
+    --bg-content: #ffffff;
+    --bg-card: #ffffff;
+    --bg-control: #ffffff;
+    --text-primary: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --text-tertiary: #a1a1a6;
+    --hairline: rgba(0, 0, 0, 0.12);
+    --hairline-card: rgba(0, 0, 0, 0.09);
+    --accent: #0a84ff;
+    --switch-off: rgba(0, 0, 0, 0.17);
+    --focus-ring: rgba(10, 132, 255, 0.55);
+    --keycap-bg: linear-gradient(180deg, #ffffff, #eeeeef);
+    --ok: #1f9d55;
+    --err: #d64545;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1b1d21; --panel: #24272c; --text: #e8eaed; --muted: #9aa0a8;
-      --border: #3a3e45; --accent: #409cff; --ok: #34c07a; --err: #ff6b6b;
-      --input-bg: #1e2126; --inset: #202329;
+    :root:not([data-theme="light"]) {
+      --bg-window: #1e1e1e;
+      --bg-sidebar: #262629;
+      --bg-bar: #262629;
+      --bg-content: #1e1e1e;
+      --bg-card: #2c2c2e;
+      --bg-control: #3a3a3c;
+      --text-primary: #f5f5f7;
+      --text-secondary: #98989d;
+      --text-tertiary: #6e6e73;
+      --hairline: rgba(255, 255, 255, 0.13);
+      --hairline-card: rgba(255, 255, 255, 0.1);
+      --accent: #0a84ff;
+      --switch-off: rgba(255, 255, 255, 0.18);
+      --focus-ring: rgba(10, 132, 255, 0.65);
+      --keycap-bg: linear-gradient(180deg, #48484a, #3a3a3c);
+      --ok: #34c07a;
+      --err: #ff6b6b;
     }
   }
-  /* Explicit theme override (data-theme set from the loaded config's Theme
-     field): forces light/dark regardless of prefers-color-scheme. Left unset
-     for "system" so the media query above applies. */
   :root[data-theme="light"] {
-    --bg: #f5f6f8; --panel: #ffffff; --text: #1c1e21; --muted: #6b7280;
-    --border: #d7dade; --accent: #0a84ff; --ok: #1f9d55; --err: #d64545;
-    --input-bg: #ffffff; --inset: #f7f8fa;
+    color-scheme: light;
+    --bg-window: #ececec;
+    --bg-sidebar: #e9e9eb;
+    --bg-bar: #e9e9eb;
+    --bg-content: #ffffff;
+    --bg-card: #ffffff;
+    --bg-control: #ffffff;
+    --text-primary: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --text-tertiary: #a1a1a6;
+    --hairline: rgba(0, 0, 0, 0.12);
+    --hairline-card: rgba(0, 0, 0, 0.09);
+    --accent: #0a84ff;
+    --switch-off: rgba(0, 0, 0, 0.17);
+    --focus-ring: rgba(10, 132, 255, 0.55);
+    --keycap-bg: linear-gradient(180deg, #ffffff, #eeeeef);
+    --ok: #1f9d55;
+    --err: #d64545;
   }
   :root[data-theme="dark"] {
-    --bg: #1b1d21; --panel: #24272c; --text: #e8eaed; --muted: #9aa0a8;
-    --border: #3a3e45; --accent: #409cff; --ok: #34c07a; --err: #ff6b6b;
-    --input-bg: #1e2126; --inset: #202329;
+    color-scheme: dark;
+    --bg-window: #1e1e1e;
+    --bg-sidebar: #262629;
+    --bg-bar: #262629;
+    --bg-content: #1e1e1e;
+    --bg-card: #2c2c2e;
+    --bg-control: #3a3a3c;
+    --text-primary: #f5f5f7;
+    --text-secondary: #98989d;
+    --text-tertiary: #6e6e73;
+    --hairline: rgba(255, 255, 255, 0.13);
+    --hairline-card: rgba(255, 255, 255, 0.1);
+    --accent: #0a84ff;
+    --switch-off: rgba(255, 255, 255, 0.18);
+    --focus-ring: rgba(10, 132, 255, 0.65);
+    --keycap-bg: linear-gradient(180deg, #48484a, #3a3a3c);
+    --ok: #34c07a;
+    --err: #ff6b6b;
   }
+
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-window);
+    color: var(--text-primary);
     font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
     -webkit-user-select: none; user-select: none;
   }
-  header {
-    padding: 14px 20px 10px; display: flex; align-items: baseline; gap: 10px;
+  input, textarea { -webkit-user-select: text; user-select: text; }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  /* sidebar */
+  .sidebar {
+    width: 180px; flex: none;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--hairline);
+    display: flex; flex-direction: column;
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header .path { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-  main { padding: 0 20px 90px; }
-  section {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-    margin-bottom: 12px; padding: 12px 16px 14px;
+  .sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .nav-item {
+    width: 100%; display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px; margin-bottom: 1px;
+    border: none; border-radius: 6px; background: transparent;
+    color: var(--text-primary);
+    font-family: inherit; font-size: 13px; text-align: left; cursor: pointer;
   }
-  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-  section .note { color: var(--muted); font-size: 11px; margin: -6px 0 10px; }
-  /* Two-column grid per row: fixed label column, full-width control column.
-     The hint sits UNDER the control (grid-column 2, next implicit row) so
-     every input in a section lines up at the same width instead of being
-     squeezed by however long its instruction text happens to be. */
-  .row { display: grid; grid-template-columns: 170px minmax(0, 1fr);
-    column-gap: 10px; align-items: center; margin-bottom: 10px; }
-  .row label.name { color: var(--text); }
-  .row .control { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .row .hint { grid-column: 2; color: var(--muted); font-size: 11px; margin-top: 2px; }
-  input[type=text], input[type=password], input[type=number], select, textarea {
-    flex: 1; min-width: 0; background: var(--input-bg); color: var(--text);
-    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
-    font: inherit; -webkit-user-select: text; user-select: text;
+  .nav-item:hover { background: rgba(127, 127, 127, 0.12); }
+  .nav-item.active, .nav-item.active:hover { background: var(--accent); color: #fff; }
+  .nav-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+  .nav-item.dim .nav-label { opacity: 0.45; }
+  .nav-item.dim .icon-sq { opacity: 0.5; }
+  .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icon-sq {
+    width: 22px; height: 22px; border-radius: 6px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35);
   }
-  textarea { resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
-  input[type=checkbox] { accent-color: var(--accent); }
-  .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1; }
-  .checks label { display: inline-flex; align-items: center; gap: 5px; color: var(--text); }
-  /* The one destination container: everything provider-specific lives inside
-     this inset panel and swaps with the Destination select. */
-  .destpanel {
-    background: var(--inset); border: 1px solid var(--border); border-radius: 6px;
-    padding: 12px 12px 6px; margin: 4px 0 8px;
+  .icon-sq svg { width: 13px; height: 13px; }
+
+  .sidebar-footer { flex: none; padding: 8px 12px 10px; border-top: 1px solid var(--hairline); }
+  .version { font-size: 11px; color: var(--text-secondary); }
+  .config-path {
+    font-size: 10px; color: var(--text-tertiary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
   }
-  .destpanel .row { grid-template-columns: 158px minmax(0, 1fr); }
-  .desttag { font-size: 11px; color: var(--muted); margin: -4px 0 10px; }
-  .hidden { display: none; }
+
+  /* content + panes */
+  .content { flex: 1; overflow-y: auto; padding: 20px 24px 24px; background: var(--bg-content); }
+  .pane h1 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  .pane-note { font-size: 11.5px; color: var(--text-secondary); margin: 0 0 14px; line-height: 1.5; max-width: 460px; }
+  .pane > h1 + .group, .pane > .pane-note + .group { margin-top: 14px; }
+  .group { margin-bottom: 16px; }
+  .caption { font-size: 11px; color: var(--text-secondary); margin: 0 0 6px 2px; }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--hairline-card);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 9px 12px; min-height: 20px;
+  }
+  .row + .row { border-top: 1px solid var(--hairline-card); }
+  .row.stacked { flex-direction: column; align-items: stretch; }
+  .row-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .row-label { font-size: 13px; color: var(--text-primary); }
+  .row-hint { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+  .row-control { flex: none; display: flex; align-items: center; gap: 8px; }
+  .row.stacked .row-control { flex: 1 1 100%; flex-wrap: wrap; margin-top: 6px; }
+  /* .dim greys out what does not apply while uploads are off; the inputs
+     themselves are also really disabled by syncEnabledState(). */
+  .dim { opacity: 0.42; }
+  .hidden { display: none !important; }
+
+  /* toggle switch */
+  .switch { position: relative; width: 34px; height: 20px; flex: none; display: inline-block; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .switch .track { position: absolute; inset: 0; background: var(--switch-off); border-radius: 999px; transition: background .15s ease; }
+  .switch .thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); transition: transform .15s ease; }
+  .switch input:checked ~ .track { background: var(--accent); }
+  .switch input:checked ~ .track .thumb { transform: translateX(14px); }
+  .switch input:focus-visible ~ .track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .switch input:disabled { cursor: default; }
+  .switch input:disabled ~ .track { opacity: .55; }
+
+  /* popup select */
+  .popup { position: relative; display: inline-flex; align-items: center; }
+  .popup select {
+    appearance: none; -webkit-appearance: none;
+    font-family: inherit; font-size: 12.5px;
+    color: var(--text-primary); background: var(--bg-control);
+    border: 1px solid var(--hairline); border-radius: 6px;
+    padding: 4px 24px 4px 9px; min-width: 140px; max-width: 300px;
+  }
+  .popup select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .popup .chevron {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 9px; height: 9px; pointer-events: none;
+    fill: none; stroke: var(--text-secondary); stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+
+  .input {
+    font-family: inherit; font-size: 12.5px;
+    color: var(--text-primary); background: var(--bg-control);
+    border: 1px solid var(--hairline); border-radius: 6px; padding: 5px 9px;
+  }
+  .input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .input.w-sm { width: 74px; }
+  .input.w-md { width: 190px; }
+  .input.w-lg { width: 250px; }
+  textarea.input {
+    width: 100%; resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+
+  .keycap {
+    font-family: inherit; font-size: 12px; text-align: center;
+    color: var(--text-primary); background: var(--keycap-bg);
+    border: 1px solid var(--hairline); border-bottom-width: 2px;
+    border-radius: 6px; padding: 5px 10px; width: 190px;
+  }
+  .keycap:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+  .chip-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-primary); padding: 3px 6px 3px 0; }
+  .chip-check input { accent-color: var(--accent); width: 13px; height: 13px; }
+
+  .btn { font-family: inherit; font-size: 12.5px; padding: 6px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
+  .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-plain { background: var(--bg-control); border-color: var(--hairline); color: var(--text-primary); }
+  .btn-subtle { background: transparent; border-color: transparent; color: var(--text-secondary); }
+  .btn-pill { background: transparent; border: 1px solid var(--hairline); border-radius: 999px; color: var(--text-primary); padding: 5px 13px; font-size: 12px; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn.danger { background: var(--err); border-color: transparent; color: #fff; }
+
+  /* footer */
   footer {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    background: var(--panel); border-top: 1px solid var(--border);
-    padding: 12px 20px; display: flex; align-items: center; gap: 14px;
+    flex: none; min-height: 50px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px;
+    background: var(--bg-bar);
+    border-top: 1px solid var(--hairline);
   }
-  button {
-    background: var(--accent); color: #fff; border: 0; border-radius: 6px;
-    padding: 8px 22px; font: inherit; font-weight: 600; cursor: pointer;
+  #status {
+    flex: 1; min-width: 0; font-size: 11.5px; line-height: 1.35;
+    color: var(--text-secondary); white-space: pre-wrap;
   }
-  button:disabled { opacity: .5; cursor: default; }
-  button.mini {
-    background: transparent; color: var(--accent);
-    border: 1px solid var(--border); padding: 5px 10px;
-    font-weight: 500; flex: 0 0 auto; white-space: nowrap;
-  }
-  button.secondary {
-    background: transparent; color: var(--muted);
-    border: 1px solid var(--border); font-weight: 500;
-  }
-  button.danger { background: var(--err); color: #fff; border: 0; }
-  #status { flex: 1; font-size: 12px; white-space: pre-wrap; }
   #status.ok { color: var(--ok); }
   #status.err { color: var(--err); }
-  .ver { color: var(--muted); font-size: 11px; }
 </style>
 </head>
 <body>
-<header><h1>GoShareIt Settings</h1><span class="path" id="cfgpath"></span></header>
-<main id="form"></main>
+<div class="body">
+  <nav class="sidebar">
+    <div class="sidebar-list" role="tablist" id="nav"></div>
+    <div class="sidebar-footer">
+      <div class="version" id="ver"></div>
+      <div class="config-path" id="cfgpath"></div>
+    </div>
+  </nav>
+  <main class="content" id="form"></main>
+</div>
 <footer>
   <div id="status"></div>
-  <span class="ver" id="ver"></span>
-  <button type="button" id="reset" class="secondary">Reset to defaults</button>
-  <button type="button" id="discard" class="secondary">Discard Changes</button>
-  <button id="save">Save</button>
+  <button type="button" id="reset" class="btn btn-subtle">Reset to defaults</button>
+  <button type="button" id="discard" class="btn btn-plain">Discard Changes</button>
+  <button type="button" id="save" class="btn btn-accent">Save</button>
 </footer>
 <script>
 "use strict";
 
 // Declarative form schema. path = dot-path into the Config object (Go field
 // names, since config.Config has no json tags). Special types "secret:*" map
-// to the write-only SaveRequest fields.
+// to the write-only SaveRequest fields. Each section also carries the sidebar
+// glyph (raw inline SVG) and the tint of its rounded icon square.
 const SCHEMA = [
-  { title: "Appearance", fields: [
+  { title: "Appearance", tint: "#8e8e93",
+    icon: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#fff"/><path d="M12 4a8 8 0 000 16z" fill="rgba(0,0,0,.35)"/></svg>`,
+    fields: [
     { p: "Theme", l: "Theme", t: "select", opts: ["system", "light", "dark"] },
   ]},
-  { title: "Upload", fields: [
+  { title: "Upload", tint: "#0a84ff",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16a4 4 0 01.5-7.9A5 5 0 0117 9a3.5 3.5 0 01-.5 7H7z"/><path d="M12 12v6M9.5 14.5L12 12l2.5 2.5"/></svg>`,
+    fields: [
     { p: "Upload.Enabled", l: "Upload captures", t: "bool",
       hint: "off = local-only: no data leaves this machine, server settings optional" },
     { p: "Upload.Destination", l: "Destination", t: "select",
@@ -200,16 +359,21 @@ const SCHEMA = [
       { p: "Upload.FilenameTemplate", l: "Filename template", t: "text", hint: "{date} {time} {datetime} {rand} {ext}" },
     ],
   },
-  { title: "After capture", fields: [
+  { title: "After capture", tint: "#30d158",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13.5" r="3.3"/></svg>`,
+    fields: [
     { p: "AfterCapture.CopyImageToClipboard", l: "Copy image to clipboard", t: "bool" },
     { p: "AfterCapture.SaveLocal", l: "Keep a local copy", t: "bool" },
     { p: "AfterCapture.SaveDir",   l: "Local save folder", t: "dir" },
   ]},
-  { title: "After upload", fields: [
+  { title: "After upload", tint: "#ff9f0a",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5l5-5"/><path d="M8 16l-1.5 1.5a3 3 0 01-4.2-4.2L4 11.6"/><path d="M16 8l1.5-1.5a3 3 0 014.2 4.2L20 12.4"/></svg>`,
+    fields: [
     { p: "AfterUpload.CopyURLToClipboard", l: "Copy link to clipboard", t: "bool" },
     { p: "AfterUpload.Notify", l: "Show notification", t: "bool" },
   ]},
-  { title: "Hotkeys",
+  { title: "Hotkeys", tint: "#ff375f",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10"/></svg>`,
     note: "Comma-separate alternatives, e.g. Cmd+Shift+1, Ctrl+PrintScreen. Leave a field blank to disable that hotkey.",
     fields: [
     { p: "Hotkeys.Region",     l: "Capture region", t: "text" },
@@ -222,7 +386,9 @@ const SCHEMA = [
     { p: "Hotkeys.Record",     l: "Toggle recording", t: "text" },
     { p: "Hotkeys.Quit",       l: "Quit", t: "text" },
   ]},
-  { title: "Editor", fields: [
+  { title: "Editor", tint: "#5e5ce6",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 7l3 3"/></svg>`,
+    fields: [
     { p: "Editor.Enabled", l: "Open editor after capture", t: "bool" },
     { p: "Editor.OnModes", l: "For capture modes", t: "checks", opts: ["region", "fullscreen", "window"] },
     { p: "Editor.Tools",   l: "Tools", t: "checks",
@@ -232,11 +398,15 @@ const SCHEMA = [
     { p: "Editor.Color",       l: "Color", t: "text", hint: "#rrggbb" },
     { p: "Editor.StrokeWidth", l: "Stroke width", t: "number", hint: "px, editor default" },
   ]},
-  { title: "Updates", fields: [
+  { title: "Updates", tint: "#64d2ff",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0113.7-5.6L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 01-13.7 5.6L4 16"/><path d="M4 20v-4h4"/></svg>`,
+    fields: [
     { p: "Update.Enabled", l: "Check for updates", t: "bool" },
     { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number" },
   ]},
-  { title: "Logging", fields: [
+  { title: "Logging", tint: "#636366",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`,
+    fields: [
     { p: "Logging.Level", l: "Level", t: "select", opts: ["trace","debug","info","warn","error"] },
   ]},
 ];
@@ -271,6 +441,9 @@ const $ = (id) => document.getElementById(id);
 let model = null;
 let presets = {}; // custom-uploader presets, loaded from the backend at init
 let pendingLoginPassword = ""; // minted by browser sign-in, applied on Save
+let activePane = 0; // sidebar selection, preserved across re-renders
+
+const CHEVRON = `<svg class="chevron" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></svg>`;
 
 function kvToText(obj) {
   return Object.entries(obj || {}).map(([k, v]) => `${k}=${v}`).join("\n");
@@ -295,10 +468,14 @@ const set = (obj, path, v) => {
 
 function fieldId(p) { return "f_" + p.replace(/[.@]/g, "_"); }
 
+// paneId maps a section title to its pane element id; the sidebar button
+// points at the same id via data-pane.
+function paneId(title) { return "pane_" + title.replace(/[^a-z0-9]+/gi, "_").toLowerCase(); }
+
 // allFields flattens a SCHEMA section into its plain fields plus (if present)
 // every destPanels sub-panel's fields and tailFields, in DOM order. Used by
 // collect() so every rendered input - visible or hidden behind the
-// destination swap - is still read back.
+// destination swap or the pane switch - is still read back.
 function allFields(sec) {
   const out = [...sec.fields];
   if (sec.destPanels) for (const panel of sec.destPanels) out.push(...panel.fields);
@@ -311,95 +488,152 @@ function allFields(sec) {
 function renderFieldRow(f) {
   const cfg = model.config;
   const row = document.createElement("div");
-  row.className = "row";
   const id = fieldId(f.p);
+  row.dataset.row = id;
+  let stacked = false;
   let control = "";
   const val = f.p.startsWith("@") ? "" : get(cfg, f.p);
   if (f.t === "text") {
-    control = `<input type="text" id="${id}" value="${esc(val ?? "")}">`;
+    // Hotkeys read as key combinations, so they get the keycap treatment.
+    const cls = f.p.startsWith("Hotkeys.") ? "keycap" : "input w-lg";
+    control = `<input type="text" class="${cls}" id="${id}" value="${esc(val ?? "")}">`;
   } else if (f.t === "dir") {
-    control = `<input type="text" id="${id}" value="${esc(val ?? "")}">` +
-      `<button type="button" class="mini" data-browse="${id}">Browse...</button>`;
+    control = `<input type="text" class="input w-md" id="${id}" value="${esc(val ?? "")}">` +
+      `<button type="button" class="btn btn-plain btn-sm" data-browse="${id}">Browse...</button>`;
   } else if (f.t === "number") {
-    control = `<input type="number" id="${id}" min="0" step="1" value="${Number(val ?? 0)}">`;
+    control = `<input type="number" class="input w-sm" id="${id}" min="0" step="1" value="${Number(val ?? 0)}">`;
   } else if (f.t === "bool") {
-    // *bool fields default to true when null.
+    // *bool fields default to true when null. The checkbox is a real input
+    // inside the switch, so every id/checked path keeps working.
     const defaultTrue = f.p === "Update.Enabled" || f.p === "Upload.Enabled";
     const on = defaultTrue ? (val !== false) : !!val;
-    control = `<input type="checkbox" id="${id}" ${on ? "checked" : ""}>`;
+    control = `<label class="switch"><input type="checkbox" id="${id}" ${on ? "checked" : ""}>` +
+      `<span class="track"><span class="thumb"></span></span></label>`;
   } else if (f.t === "select") {
     // opts entries are either a plain string (value === label) or
     // { v, l } when the displayed label needs to differ from the enum value.
-    control = `<select id="${id}">` + f.opts.map(o => {
+    control = `<span class="popup"><select id="${id}">` + f.opts.map(o => {
       const v = (typeof o === "object") ? o.v : o;
       const l = (typeof o === "object") ? o.l : o;
       return `<option value="${esc(v)}" ${v === val ? "selected" : ""}>${esc(l)}</option>`;
-    }).join("") + `</select>`;
+    }).join("") + `</select>${CHEVRON}</span>`;
   } else if (f.t === "checks") {
+    stacked = true;
     const cur = new Set(val || []);
-    control = `<div class="checks">` + f.opts.map(o =>
-      `<label><input type="checkbox" data-group="${id}" value="${o}" ${cur.has(o) ? "checked" : ""}>${o}</label>`).join("") + `</div>`;
+    control = f.opts.map(o =>
+      `<label class="chip-check"><input type="checkbox" data-group="${id}" value="${o}" ${cur.has(o) ? "checked" : ""}>${o}</label>`).join("");
   } else if (f.t === "kv") {
-    control = `<textarea id="${id}" rows="3">${esc(kvToText(val))}</textarea>`;
+    stacked = true;
+    control = `<textarea class="input" id="${id}" rows="3">${esc(kvToText(val))}</textarea>`;
   } else if (f.t === "preset") {
-    control = `<select id="${id}"><option value="">(choose a preset)</option>` +
-      Object.keys(presets).sort().map(k => `<option value="${k}">${esc(k)}</option>`).join("") + `</select>` +
-      `<button type="button" class="mini" id="btn_apply_preset">Apply preset</button>`;
+    control = `<span class="popup"><select id="${id}"><option value="">(choose a preset)</option>` +
+      Object.keys(presets).sort().map(k => `<option value="${k}">${esc(k)}</option>`).join("") + `</select>${CHEVRON}</span>` +
+      `<button type="button" class="btn btn-plain btn-sm" id="btn_apply_preset">Apply preset</button>`;
   } else if (f.t === "secret") {
     const envVar = secretEnvVar(f.p);
     if (envVar) {
       // Env-sourced secrets are read-only here; Save() rejects file writes.
       // data-locked keeps syncEnabledState() from re-enabling it.
-      control = `<input type="password" id="${id}" disabled data-locked="1" placeholder="(managed by env var ${esc(envVar)})">`;
+      control = `<input type="password" class="input w-md" id="${id}" disabled data-locked="1" placeholder="(managed by env var ${esc(envVar)})">`;
     } else {
       const has = model[SECRET_FIELDS[f.p].has];
-      control = `<input type="password" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
+      control = `<input type="password" class="input w-md" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
       if (f.p === "@password") {
         // Browser sign-in (Login Flow v2): the server-side auth - incl.
         // OIDC/SSO - happens in the browser; we receive an app password.
-        control += `<button type="button" class="mini" id="btn_login">Sign in with browser</button>`;
+        control += `<button type="button" class="btn btn-pill" id="btn_login">Sign in with browser</button>`;
       }
     }
   }
-  row.innerHTML = `<label class="name">${f.l}</label><div class="control">${control}</div>` +
-    (f.hint ? `<div class="hint">${f.hint}</div>` : "");
+  row.className = stacked ? "row stacked" : "row";
+  row.innerHTML = `<div class="row-text"><div class="row-label">${f.l}</div>` +
+    (f.hint ? `<div class="row-hint">${f.hint}</div>` : "") + `</div>` +
+    `<div class="row-control">${control}</div>`;
   return row;
 }
 
+// card builds a grouped inset card (hairline-separated rows) from a field
+// list, optionally preceded by a small caption.
+function card(fields, caption) {
+  const group = document.createElement("div");
+  group.className = "group";
+  if (caption) {
+    const c = document.createElement("div");
+    c.className = "caption";
+    c.textContent = caption;
+    group.appendChild(c);
+  }
+  const box = document.createElement("div");
+  box.className = "card";
+  for (const f of fields) box.appendChild(renderFieldRow(f));
+  group.appendChild(box);
+  return group;
+}
+
 function render() {
+  const nav = $("nav");
   const root = $("form");
+  nav.innerHTML = "";
   root.innerHTML = "";
   for (const sec of SCHEMA) {
+    const id = paneId(sec.title);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "nav-item";
+    btn.dataset.pane = id;
+    btn.setAttribute("role", "tab");
+    btn.innerHTML = `<span class="icon-sq" style="background:${sec.tint}">${sec.icon}</span>` +
+      `<span class="nav-label">${sec.title}</span>`;
+    nav.appendChild(btn);
+
+    // Every pane stays in the DOM (hidden via .hidden) so collect() can read
+    // every input regardless of which pane is on screen.
     const s = document.createElement("section");
+    s.className = "pane";
+    s.id = id;
     s.dataset.section = sec.title;
-    s.innerHTML = `<h2>${sec.title}</h2>` + (sec.note ? `<p class="note">${sec.note}</p>` : "");
-    for (const f of sec.fields) s.appendChild(renderFieldRow(f));
+    s.innerHTML = `<h1>${sec.title}</h1>` + (sec.note ? `<p class="pane-note">${sec.note}</p>` : "");
+    s.appendChild(card(sec.fields));
     if (sec.destPanels) {
-      // One inset container; each destination gets its own always-rendered
-      // sub-panel so collect() keeps reading every input. syncDestPanel()
-      // toggles which one is visible.
+      // One container; each destination gets its own always-rendered card so
+      // collect() keeps reading every input. syncDestPanel() toggles which
+      // one is visible.
       const dp = document.createElement("div");
-      dp.className = "destpanel";
       dp.id = "destpanel";
       for (const panel of sec.destPanels) {
-        const pdiv = document.createElement("div");
-        pdiv.id = "destpanel_" + panel.key;
-        const tag = document.createElement("div");
-        tag.className = "desttag";
-        tag.textContent = panel.label;
-        pdiv.appendChild(tag);
-        for (const f of panel.fields) pdiv.appendChild(renderFieldRow(f));
-        dp.appendChild(pdiv);
+        const sub = card(panel.fields, panel.label);
+        sub.id = "destpanel_" + panel.key;
+        dp.appendChild(sub);
       }
       s.appendChild(dp);
     }
-    if (sec.tailFields) for (const f of sec.tailFields) s.appendChild(renderFieldRow(f));
+    if (sec.tailFields) {
+      const tail = card(sec.tailFields);
+      tail.id = "tailgroup";
+      s.appendChild(tail);
+    }
     root.appendChild(s);
   }
   $("cfgpath").textContent = model.configPath;
+  $("cfgpath").title = model.configPath;
   $("ver").textContent = "v" + model.version;
+  selectPane(activePane);
   syncDestPanel();
   syncEnabledState();
+}
+
+// selectPane shows exactly one pane and marks the matching sidebar item.
+function selectPane(i) {
+  const items = [...document.querySelectorAll(".nav-item")];
+  if (i < 0 || i >= items.length) i = 0;
+  activePane = i;
+  items.forEach((b, n) => {
+    b.classList.toggle("active", n === i);
+    b.setAttribute("aria-selected", n === i ? "true" : "false");
+  });
+  const target = items[i] ? items[i].dataset.pane : "";
+  document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("hidden", p.id !== target));
 }
 
 // syncDestPanel shows only the destPanels sub-panel matching the current
@@ -418,23 +652,33 @@ function syncDestPanel() {
 
 // syncEnabledState greys out everything that does not apply when uploads are
 // off (local-only mode): the destination select, the whole destination
-// panel, the filename template, and After upload. Which destination
-// sub-panel is visible is handled separately by syncDestPanel().
+// panel, the filename template, and After upload (rows plus its sidebar
+// item, which stays clickable). Which destination sub-panel is visible is
+// handled separately by syncDestPanel().
 function syncEnabledState() {
   const uploadsBox = $(fieldId("Upload.Enabled"));
   if (!uploadsBox) return;
   const uploadsOn = uploadsBox.checked;
   const destSel = $(fieldId("Upload.Destination"));
   if (destSel) destSel.disabled = !uploadsOn;
+  const destRow = document.querySelector(`[data-row="${fieldId("Upload.Destination")}"]`);
+  if (destRow) destRow.classList.toggle("dim", !uploadsOn);
   const panel = $("destpanel");
   if (panel) {
+    panel.classList.toggle("dim", !uploadsOn);
     panel.querySelectorAll("input, select, textarea, button")
       .forEach((el) => { if (!el.dataset.locked) el.disabled = !uploadsOn; });
   }
   const filenameInput = $(fieldId("Upload.FilenameTemplate"));
   if (filenameInput) filenameInput.disabled = !uploadsOn;
+  const tail = $("tailgroup");
+  if (tail) tail.classList.toggle("dim", !uploadsOn);
   document.querySelectorAll(`[data-section="After upload"] input, [data-section="After upload"] select, [data-section="After upload"] button`)
     .forEach((el) => { el.disabled = !uploadsOn; });
+  document.querySelectorAll(`[data-section="After upload"] .card`)
+    .forEach((el) => el.classList.toggle("dim", !uploadsOn));
+  const navItem = document.querySelector(`.nav-item[data-pane="${paneId("After upload")}"]`);
+  if (navItem) navItem.classList.toggle("dim", !uploadsOn);
 }
 
 function collect() {
@@ -521,6 +765,14 @@ async function init() {
     status("Load failed: " + e, "err");
   }
 }
+
+// Sidebar routing. The buttons are rebuilt by render(), so the listener sits
+// on the list container.
+$("nav").addEventListener("click", (e) => {
+  const btn = e.target.closest(".nav-item");
+  if (!btn) return;
+  selectPane([...document.querySelectorAll(".nav-item")].indexOf(btn));
+});
 
 $("save").addEventListener("click", async () => {
   if (!model) return;
