@@ -85,22 +85,45 @@ func (c *updateController) onClick(ctx context.Context) {
 }
 
 // check queries the feed. Manual checks report "up to date" and errors via
-// notification; background checks only surface a found update.
+// notification; background checks only surface a found update. It holds the
+// busy flag across its whole span - confirm dialog included - so a second tray
+// click or a background tick can neither run a parallel check nor take the
+// pending-install path underneath a still-open dialog.
 func (c *updateController) check(ctx context.Context, manual bool) {
+	c.mu.Lock()
+	if c.busy {
+		c.mu.Unlock()
+		return
+	}
+	c.busy = true
+	c.mu.Unlock()
+	rel := c.doCheck(ctx, manual)
+	c.mu.Lock()
+	c.busy = false
+	c.mu.Unlock()
+	// install() takes busy itself, so it must run after check releases it.
+	if rel != nil {
+		c.install(ctx, rel)
+	}
+}
+
+// doCheck runs the feed query + user interaction and returns a non-nil release
+// only when the user confirmed installing it now.
+func (c *updateController) doCheck(ctx context.Context, manual bool) *update.Release {
 	rel, err := c.upd.Check(ctx)
 	if err != nil {
 		log.Warn().Err(err).Msg("update check failed")
 		if manual {
 			c.notify("Update check failed", err.Error())
 		}
-		return
+		return nil
 	}
 	if rel == nil {
 		log.Debug().Msg("update: up to date")
 		if manual {
 			c.notify("Up to date", "You are running the latest version.")
 		}
-		return
+		return nil
 	}
 	c.mu.Lock()
 	c.pending = rel
@@ -115,7 +138,9 @@ func (c *updateController) check(ctx context.Context, manual bool) {
 	//
 	// check() always runs off the tray's main loop: menuItem's OnClick wraps
 	// onClick in `go`, and the periodic path in start() runs inside its own
-	// goroutine - so blocking here on Confirm never stalls tray/menu handling.
+	// goroutine. On darwin the Confirmer itself dispatches a modal alert onto
+	// the main run loop, so tray handling pauses only while the dialog is
+	// actually open (bounded by its timeout) - standard modal behavior.
 	if manual {
 		if confirmer := c.app.Confirmer(); confirmer != nil {
 			ok, err := confirmer.Confirm(
@@ -125,15 +150,16 @@ func (c *updateController) check(ctx context.Context, manual bool) {
 			)
 			if err != nil {
 				log.Debug().Err(err).Msg("update confirm dialog failed")
-				return
+				return nil
 			}
 			if ok {
-				c.install(ctx, rel)
+				return rel
 			}
-			return
+			return nil
 		}
 	}
 	c.notify("Update available", "GoShareIt v"+rel.Version+" is ready - use the tray menu to install.")
+	return nil
 }
 
 func (c *updateController) install(ctx context.Context, rel *update.Release) {
