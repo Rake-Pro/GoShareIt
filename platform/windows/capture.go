@@ -21,9 +21,11 @@ import (
 	"unsafe"
 
 	"github.com/kbinani/screenshot"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/windows"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
+	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 )
 
 // ErrCaptureCancelled is returned when the user dismisses an interactive capture
@@ -58,12 +60,14 @@ type rect struct {
 // Capturer captures still images via Win32 GDI (through kbinani/screenshot) and,
 // for interactive selection, the built-in Windows 10/11 screen snip tool.
 type Capturer struct {
+	// Region, when set, is the app's own overlay (goshareit-editor --region)
+	// used for interactive selection; the Windows snip UI is only a fallback.
+	Region region.Selector
+
 	mu sync.Mutex
-	// lastRegion would hold the most recent interactive region rect for
-	// LastRegion replay. ms-screenclip does not report the chosen rect, so this
-	// stays empty and LastRegion falls back to RegionInteractive.
-	// TODO(P2): capture the selected rect (e.g. via a custom overlay) so
-	// LastRegion can re-grab the same area with screenshot.CaptureRect.
+	// lastRegion holds the most recent overlay-selected rect for LastRegion
+	// replay; the ms-screenclip fallback cannot report a rect, so it stays
+	// empty on that path and LastRegion falls back to RegionInteractive.
 	lastRegion image.Rectangle
 }
 
@@ -189,6 +193,26 @@ func (c *Capturer) captureForegroundWindow() ([]byte, error) {
 // image beforehand, launch the snip UI, then poll the clipboard until a NEW
 // image appears or snipTimeout elapses (treated as user cancellation).
 func (c *Capturer) captureInteractive(ctx context.Context) ([]byte, error) {
+	if c.Region != nil {
+		rect, ok, err := c.Region.Select(ctx)
+		switch {
+		case err != nil:
+			log.Warn().Err(err).Msg("region overlay failed; falling back to Windows snip UI")
+		case !ok:
+			return nil, ErrCaptureCancelled
+		default:
+			// Let the overlay window disappear before grabbing the pixels.
+			time.Sleep(150 * time.Millisecond)
+			img, err := screenshot.CaptureRect(rect)
+			if err != nil {
+				return nil, fmt.Errorf("windows capture: region BitBlt: %w", err)
+			}
+			c.mu.Lock()
+			c.lastRegion = rect
+			c.mu.Unlock()
+			return encodePNG(img)
+		}
+	}
 	if err := clipboardInit(); err != nil {
 		return nil, fmt.Errorf("windows capture: clipboard init: %w", err)
 	}

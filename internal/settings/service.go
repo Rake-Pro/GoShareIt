@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -56,6 +57,7 @@ type LoadResult struct {
 	HasWebDAVPassword bool   `json:"hasWebDAVPassword"`
 	HasCustomSecret   bool   `json:"hasCustomSecret"`
 	Version           string `json:"version"`
+	OS                string `json:"os"`
 }
 
 // SaveRequest carries the edited config plus optional new secret values
@@ -98,6 +100,7 @@ func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 		HasWebDAVPassword: secretPresent(cfg.WebDAV.PasswordFile, cfg.WebDAV.PasswordEnv),
 		HasCustomSecret:   secretPresent(cfg.Custom.SecretFile, cfg.Custom.SecretEnv),
 		Version:           s.Version,
+		OS:                runtime.GOOS,
 	}
 }
 

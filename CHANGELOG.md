@@ -6,6 +6,30 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Added
+- Settings UI: a "Record" button next to every hotkey field. Click it and
+  press a key combination; the chord is written in the host's token format
+  (Ctrl/Cmd/Win/Alt/Shift + key, F-keys, PrintScreen, punctuation). Esc
+  cancels, Backspace clears the field. Manual typing still works, so
+  comma-separated alternatives can be added by hand.
+- Windows: `hotkeys.disable_snipping_printscreen` (settings UI, Hotkeys pane:
+  "Free the PrintScreen key"). Windows 11 ships with "Use the Print screen key
+  to open screen capture" on, so Snipping Tool owns PrintScreen and any
+  GoShareIt chord built on it silently fails to register. When enabled the app
+  flips that per-user setting off at startup (HKCU, no elevation); Windows may
+  only honor it after the next sign-in. Off by default.
+
+### Changed
+- Windows: interactive region capture now uses GoShareIt's own overlay
+  (`goshareit-editor --region`) and grabs the selected rectangle directly,
+  instead of launching the Windows snip UI (`ms-screenclip:`) and polling the
+  clipboard. The snip UI is now only a fallback when the overlay cannot run,
+  so a disabled or missing Snipping Tool no longer turns region capture into a
+  silent 60 s timeout. The overlay also makes "last region" replay work on
+  Windows.
+- Windows: the hotkey log line for an unregistrable PrintScreen chord now
+  points at the new setting.
+
 ### Removed
 - The updater's optional GitHub token support (`update.token_file`, settings
   UI "GitHub token" field). It existed only for the fine-grained read-only PAT

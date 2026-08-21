@@ -81,7 +81,11 @@ func (m *HotkeyManager) Run(ctx context.Context) error {
 		// Best-effort: one failed chord (duplicate, OS-claimed like PrtScn by
 		// Snipping Tool) must not take down every other hotkey.
 		if err := b.hk.Register(); err != nil {
-			log.Warn().Err(err).Str("keys", b.keys).Msg("hotkey unavailable; skipping")
+			msg := "hotkey unavailable; skipping"
+			if strings.Contains(strings.ToLower(b.keys), "print") || strings.Contains(strings.ToLower(b.keys), "prtsc") {
+				msg += " (Snipping Tool owns PrintScreen: enable hotkeys.disable_snipping_printscreen, then sign out and back in)"
+			}
+			log.Warn().Err(err).Str("keys", b.keys).Msg(msg)
 			continue
 		}
 		active = append(active, b)
