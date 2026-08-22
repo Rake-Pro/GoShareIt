@@ -6,6 +6,15 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+### Fixed
+- Only one GoShareIt host can run per user session. Launching a second copy
+  (Start Menu shortcut, startup entry plus manual launch, `open -n`) used to
+  yield duplicate tray icons and double hotkey registrations; it now exits
+  quietly with a log line. Windows uses a session-local named mutex, macOS
+  and Linux an `flock` on `<app root>/goshareit.lock`; both are released by
+  the OS on crash. The lock waits up to 15 s so settings-save and updater
+  relaunches (new process starts before the old one exits) keep working.
+
 ### Added
 - Windows release binaries and the installer are Authenticode-signed via
   SignPath Foundation when `SIGNPATH_API_TOKEN` is configured (two signing

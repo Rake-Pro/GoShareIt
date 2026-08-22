@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -22,6 +23,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/edit"
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
+	"github.com/Rake-Pro/GoShareIt/internal/core/instance"
 	"github.com/Rake-Pro/GoShareIt/internal/core/notify"
 	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
@@ -34,6 +36,18 @@ func main() {
 	flag.Parse()
 
 	setupFileLog()
+
+	// One host per session. The wait covers relaunch (settings save, updater):
+	// the new process starts a beat before the old one has exited.
+	releaseInstance, err := instance.Acquire(15 * time.Second)
+	if err != nil {
+		if errors.Is(err, instance.ErrRunning) {
+			log.Warn().Msg("GoShareIt is already running - exiting this instance")
+			os.Exit(0)
+		}
+		log.Fatal().Err(err).Msg("single-instance lock")
+	}
+	defer releaseInstance()
 
 	cfgFile, didSetup, secretPath, err := acquireConfig(*cfgPath)
 	if err != nil {
