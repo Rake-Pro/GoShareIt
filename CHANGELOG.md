@@ -16,7 +16,6 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   relaunches (new process starts before the old one exits) keep working.
 
 ### Added
-### Added
 - Windows release binaries and the installer are Authenticode-signed via
   SignPath Foundation when `SIGNPATH_API_TOKEN` is configured (two signing
   requests per release, manual approval in SignPath, signatures verified in
