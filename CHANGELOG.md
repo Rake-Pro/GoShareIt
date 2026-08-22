@@ -16,6 +16,9 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   relaunches (new process starts before the old one exits) keep working.
 
 ### Added
+- PRIVACY.md: the app collects no user data; documents the only network
+  endpoints (your configured upload destination, anonymous GitHub update
+  checks) and where local files live. Linked from the README.
 - Windows release binaries and the installer are Authenticode-signed via
   SignPath Foundation when `SIGNPATH_API_TOKEN` is configured (two signing
   requests per release, manual approval in SignPath, signatures verified in
