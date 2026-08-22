@@ -16,6 +16,12 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   relaunches (new process starts before the old one exits) keep working.
 
 ### Added
+- Windows release binaries and the installer are Authenticode-signed via
+  SignPath Foundation when `SIGNPATH_API_TOKEN` is configured (two signing
+  requests per release, manual approval in SignPath, signatures verified in
+  CI). Fixes Smart App Control's "Part of this app has been blocked" and the
+  SmartScreen first-run warning once the project is approved. See
+  docs/RELEASE.md.
 - PRIVACY.md: the app collects no user data; documents the only network
   endpoints (your configured upload destination, anonymous GitHub update
   checks) and where local files live. Linked from the README.
