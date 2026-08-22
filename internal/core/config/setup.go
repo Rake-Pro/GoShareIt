@@ -32,7 +32,7 @@ upload:
   destination: nextcloud
   direct_link: true
   filename_template: "goshareit_{datetime}_{rand}.{ext}"
-  share_expire_days: 0
+  share_expire_days: 30    # public share links expire after N days; 0 = never
   share_password: ""
   # Endpoint URLs (nextcloud.base_url, webdav.base_url, custom.url) must be
   # https:// - they carry a credential and would otherwise put it on the wire
