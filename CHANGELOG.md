@@ -7,6 +7,14 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 ## [Unreleased]
 
 ### Added
+- Windows release binaries and the installer are Authenticode-signed via
+  SignPath Foundation when `SIGNPATH_API_TOKEN` is configured (two signing
+  requests per release, manual approval in SignPath, signatures verified in
+  CI). Fixes Smart App Control's "Part of this app has been blocked" and the
+  SmartScreen first-run warning once the project is approved. See
+  docs/RELEASE.md.
+
+### Added
 - Settings UI: a "Record" button next to every hotkey field. Click it and
   press a key combination; the chord is written in the host's token format
   (Ctrl/Cmd/Win/Alt/Shift + key, F-keys, PrintScreen, punctuation). Esc
