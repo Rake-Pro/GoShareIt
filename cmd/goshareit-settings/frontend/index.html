@@ -219,6 +219,8 @@
     border-radius: 6px; padding: 5px 10px; width: 190px;
   }
   .keycap:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .keycap.recording { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-style: dashed; }
+  .keycap + [data-record] { margin-left: 6px; }
 
   .chip-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-primary); padding: 3px 6px 3px 0; }
   .chip-check input { accent-color: var(--accent); width: 13px; height: 13px; }
@@ -374,7 +376,7 @@ const SCHEMA = [
   ]},
   { title: "Hotkeys", tint: "#ff375f",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10"/></svg>`,
-    note: "Comma-separate alternatives, e.g. Cmd+Shift+1, Ctrl+PrintScreen. Leave a field blank to disable that hotkey.",
+    note: "Click Record and press a key combination, or type it. Comma-separate alternatives, e.g. Cmd+Shift+1, Ctrl+PrintScreen. Leave a field blank to disable that hotkey.",
     fields: [
     { p: "Hotkeys.Region",     l: "Capture region", t: "text" },
     { p: "Hotkeys.FullScreen", l: "Capture full screen", t: "text" },
@@ -385,6 +387,8 @@ const SCHEMA = [
     { p: "Hotkeys.UploadToggle", l: "Toggle uploads", t: "text", hint: "flip local-only mode on/off" },
     { p: "Hotkeys.Record",     l: "Toggle recording", t: "text" },
     { p: "Hotkeys.Quit",       l: "Quit", t: "text" },
+    { p: "Hotkeys.DisableSnippingPrintScreen", l: "Free the PrintScreen key", t: "bool", os: "windows",
+      hint: "turns off Windows' \"Use the Print screen key to open screen capture\" so Snipping Tool stops claiming PrintScreen; sign out and back in if a PrintScreen hotkey still does not fire" },
   ]},
   { title: "Editor", tint: "#5e5ce6",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 7l3 3"/></svg>`,
@@ -490,13 +494,18 @@ function renderFieldRow(f) {
   const row = document.createElement("div");
   const id = fieldId(f.p);
   row.dataset.row = id;
+  // OS-specific fields stay in the DOM (collect() reads every input) but are
+  // hidden on other platforms.
+  if (f.os && model.os && f.os !== model.os) row.style.display = "none";
   let stacked = false;
   let control = "";
   const val = f.p.startsWith("@") ? "" : get(cfg, f.p);
   if (f.t === "text") {
     // Hotkeys read as key combinations, so they get the keycap treatment.
-    const cls = f.p.startsWith("Hotkeys.") ? "keycap" : "input w-lg";
-    control = `<input type="text" class="${cls}" id="${id}" value="${esc(val ?? "")}">`;
+    const hk = f.p.startsWith("Hotkeys.");
+    const cls = hk ? "keycap" : "input w-lg";
+    control = `<input type="text" class="${cls}" id="${id}" value="${esc(val ?? "")}">` +
+      (hk ? `<button type="button" class="btn btn-plain btn-sm" data-record="${id}" title="Press a key combination to fill this field">Record</button>` : "");
   } else if (f.t === "dir") {
     control = `<input type="text" class="input w-md" id="${id}" value="${esc(val ?? "")}">` +
       `<button type="button" class="btn btn-plain btn-sm" data-browse="${id}">Browse...</button>`;
@@ -811,7 +820,77 @@ $("form").addEventListener("change", (e) => {
 });
 
 // Delegated clicks for per-row buttons (rows re-render, this listener does not).
+// Hotkey recorder: "Record" arms the next key chord and writes it into the
+// field in the host parser's token format (Ctrl/Cmd/Win/Alt/Shift + key).
+// Esc cancels, Backspace/Delete with no modifiers clears the field.
+let recording = null; // { input, btn, label }
+const CODE_TOKENS = {
+  Space: "Space", PrintScreen: "PrintScreen", Backquote: "`", Minus: "-", Equal: "=",
+  BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'", Comma: ",",
+  Period: ".", Slash: "/", Backslash: "\\",
+};
+function chordToken(e) {
+  const c = e.code || "";
+  let m;
+  if ((m = /^Key([A-Z])$/.exec(c))) return m[1];
+  if ((m = /^Digit([0-9])$/.exec(c))) return m[1];
+  if ((m = /^(F[1-9]|F1[0-9]|F20)$/.exec(c))) return m[1];
+  return CODE_TOKENS[c] || null;
+}
+function chordFromEvent(e) {
+  const mac = model.os === "darwin";
+  const mods = [];
+  if (e.ctrlKey) mods.push("Ctrl");
+  if (e.metaKey) mods.push(mac ? "Cmd" : "Win");
+  if (e.altKey) mods.push(mac ? "Option" : "Alt");
+  if (e.shiftKey) mods.push("Shift");
+  const key = chordToken(e);
+  if (!key) return null;
+  // Bare letters/digits/punctuation would swallow normal typing system-wide;
+  // F-keys and PrintScreen are fine on their own.
+  if (!mods.length && !/^(F\d+|PrintScreen)$/.test(key)) return null;
+  return [...mods, key].join("+");
+}
+function stopRecording() {
+  if (!recording) return;
+  recording.btn.textContent = recording.label;
+  recording.input.classList.remove("recording");
+  recording = null;
+}
+function startRecording(btn) {
+  stopRecording();
+  const input = $(btn.dataset.record);
+  recording = { input, btn, label: btn.textContent };
+  btn.textContent = "Press keys... (Esc cancels)";
+  input.classList.add("recording");
+  input.focus();
+}
+function onRecordKey(e) {
+  if (!recording) return;
+  // PrintScreen only reports keyup on Windows; everything else on keydown.
+  if (e.type === "keyup" && e.code !== "PrintScreen") return;
+  if (e.type === "keydown" && e.code === "PrintScreen") { e.preventDefault(); return; }
+  e.preventDefault(); e.stopPropagation();
+  if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+  if (e.key === "Escape") { stopRecording(); return; }
+  if ((e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    recording.input.value = ""; stopRecording(); return;
+  }
+  const chord = chordFromEvent(e);
+  if (!chord) { status("Add a modifier (Ctrl/Cmd/Alt/Shift) or use an F-key / PrintScreen", "err"); return; }
+  recording.input.value = chord;
+  status("", "");
+  stopRecording();
+}
+document.addEventListener("keydown", onRecordKey, true);
+document.addEventListener("keyup", onRecordKey, true);
+document.addEventListener("mousedown", (e) => {
+  if (recording && !e.target.closest("[data-record]")) stopRecording();
+}, true);
+
 $("form").addEventListener("click", async (e) => {
+  const rec = e.target.closest("[data-record]");
+  if (rec) { if (recording && recording.btn === rec) stopRecording(); else startRecording(rec); return; }
   const browse = e.target.closest("[data-browse]");
   if (browse) {
     try {

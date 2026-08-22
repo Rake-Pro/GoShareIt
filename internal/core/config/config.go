@@ -183,6 +183,10 @@ type HotkeysConfig struct {
 	UploadToggle   string `yaml:"upload_toggle"`
 	Record         string `yaml:"record"`
 	Quit           string `yaml:"quit"`
+	// DisableSnippingPrintScreen (Windows only) turns off the Windows 11
+	// "Use the Print screen key to open screen capture" setting at startup so
+	// Snipping Tool stops claiming PrtScn and chords on it can register.
+	DisableSnippingPrintScreen bool `yaml:"disable_snipping_printscreen,omitempty"`
 }
 
 // SetUploadEnabledFile flips upload.enabled in the config file in place so a

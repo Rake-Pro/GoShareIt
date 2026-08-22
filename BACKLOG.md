@@ -19,8 +19,10 @@ updater check (with a PAT, correctly reports up-to-date).
   of the tool set and text entry still owed, plus the toolbar-overflow bug
   under Features.
 - Windows: annotation editor UI, recording (ffmpeg), toast notifications,
-  region overlay coordinates, settings UI and editor beyond first-run,
-  updater apply loop, PrintScreen hotkey chords.
+  region overlay coordinates (now also the path for still region capture),
+  settings UI and editor beyond first-run, updater apply loop, PrintScreen
+  hotkey chords (with `hotkeys.disable_snipping_printscreen`: confirm whether
+  the registry flip takes effect live or only after sign-out).
 - Both: browser sign-in (Nextcloud Login Flow v2) end-to-end.
 - v0.0.6 settings/editor UI (click-through on real hardware, not just
   container JS parse-checks): the consolidated Upload destination panel
@@ -94,5 +96,10 @@ Structural changes when we do it (all in `cmd/goshareit-settings/`):
   build/icons/goshareit_icon.png - embed it into the Windows binaries (e.g.
   a `.syso` resource) and wire it into goshareit.iss.
 - Windows Authenticode signing (SmartScreen). Deliberately deferred - not a
-  priority for now (owner call, 2026-07-30).
+  priority for now (owner call, 2026-07-30). Seen in the field 2026-08-21:
+  Smart App Control raises "Part of this app has been blocked" on a Windows
+  11 machine because none of the shipped exes are signed; SAC cannot be
+  bypassed by the app, only by signing or by the user turning SAC off
+  (one-way until a reinstall). Azure Trusted Signing (~USD 10/mo) is the
+  cheap route for a cert.
 - 1.0.0 criteria: all on-device validation above green.
