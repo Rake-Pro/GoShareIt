@@ -73,41 +73,6 @@ identity shadows the new one); see [PERMISSIONS.md](PERMISSIONS.md).
 resolved by hash); it is still used by `scripts/sign.sh` for local builds
 (see below), where it must be the exact identity string.
 
-### CI signing (Windows, SignPath Foundation)
-
-Windows binaries are Authenticode-signed through [SignPath Foundation](https://signpath.org)'s
-free open-source program. Without it Smart App Control on Windows 11 blocks
-the unsigned exes ("Part of this app has been blocked") and SmartScreen
-warns on first run.
-
-| Setting | Kind | Purpose |
-|---|---|---|
-| `SIGNPATH_API_TOKEN` | secret | SignPath API token for the CI user (submit signing requests only). Absent -> Windows job ships unsigned and stays green. |
-| `SIGNPATH_ORGANIZATION_ID` | variable | organization id from the SignPath UI |
-| `SIGNPATH_PROJECT_SLUG` | variable (optional) | defaults to `GoShareIt` |
-
-SignPath-side setup (one-time, in the SignPath UI):
-
-1. Apply at <https://signpath.org/apply.html> (OSI license, public repo,
-   2FA on GitHub and SignPath for every maintainer, builds from GitHub-hosted
-   runners).
-2. Project `GoShareIt` with the GitHub repository connected as its trusted
-   build system (origin verification; keep `disallow_reruns`).
-3. Two artifact configurations, pasted from `build/windows/signpath/`:
-   `windows-binaries` (zip of the three exes) and `windows-installer` (the
-   Inno Setup exe).
-4. Signing policy `release-signing` with manual approval (the Foundation
-   requires it for OSS projects).
-
-Per release the Windows job submits two signing requests - first the loose
-exes, then the installer built from the signed exes - and blocks until each
-is approved in the SignPath UI (timeout 2 h; a lapsed request fails the job,
-re-run it after approving). A `Verify signatures` step fails the job if any
-shipped exe is not `Valid`. The signer shows as "SignPath Foundation", not
-Rake-Pro; the private key never leaves SignPath's HSM, and the GitHub
-connector only verifies that the artifact came from this repository's
-workflow run.
-
 ## Local build (`make release`), secondary
 
 For a manual local macOS build (testing signing, building outside CI):

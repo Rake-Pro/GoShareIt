@@ -255,42 +255,6 @@ jobs:
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit-editor.exe ./cmd/goshareit-editor
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -ldflags "$ldflags" -o dist/windows/goshareit-settings.exe ./cmd/goshareit-settings
 
-      # Authenticode via SignPath Foundation (free OSS signing). Gated on the
-      # SIGNPATH_API_TOKEN secret: absent -> binaries ship unsigned, job stays
-      # green. Two signing requests per release (loose exes, then the
-      # installer built from the signed exes); the release-signing policy
-      # requires a manual approval in the SignPath UI for each, and the
-      # submit step blocks until it arrives (or the timeout below lapses).
-      - name: Check signing secrets
-        id: secrets
-        shell: bash
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: echo "sign=$([ -n "$SIGNPATH_API_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload unsigned binaries
-        if: steps.secrets.outputs.sign == 'true'
-        id: unsigned-bin
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-unsigned-binaries
-          path: dist/windows/*.exe
-          if-no-files-found: error
-
-      - name: Sign binaries (SignPath)
-        if: steps.secrets.outputs.sign == 'true'
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'GoShareIt' }}
-          signing-policy-slug: release-signing
-          artifact-configuration-slug: windows-binaries
-          github-artifact-id: ${{ steps.unsigned-bin.outputs.artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 7200
-          output-artifact-directory: dist/windows
-
       - name: Package zip (updater feed)
         shell: bash
         run: |
@@ -307,40 +271,6 @@ jobs:
           }
           iscc "/DAppVersion=$env:VERSION" "/DBinDir=$PWD\dist\windows" /Oout build\windows\goshareit.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Upload unsigned installer
-        if: steps.secrets.outputs.sign == 'true'
-        id: unsigned-setup
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-unsigned-installer
-          path: out/*_setup.exe
-          if-no-files-found: error
-
-      - name: Sign installer (SignPath)
-        if: steps.secrets.outputs.sign == 'true'
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'GoShareIt' }}
-          signing-policy-slug: release-signing
-          artifact-configuration-slug: windows-installer
-          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 7200
-          output-artifact-directory: out
-
-      - name: Verify signatures
-        if: steps.secrets.outputs.sign == 'true'
-        shell: pwsh
-        run: |
-          $files = @(Get-ChildItem dist/windows/*.exe) + @(Get-ChildItem out/*_setup.exe)
-          foreach ($f in $files) {
-            $sig = Get-AuthenticodeSignature $f.FullName
-            "$($f.Name): $($sig.Status) $($sig.SignerCertificate.Subject)"
-            if ($sig.Status -ne 'Valid') { exit 1 }
-          }
 
       - uses: actions/upload-artifact@v7
         with:
@@ -395,9 +325,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: assets
-          # Only the packaged outputs; the windows-unsigned-* artifacts are
-          # SignPath inputs and must not reach the release.
-          pattern: "{macos,windows,linux}"
           merge-multiple: true
 
       - name: Checksums
