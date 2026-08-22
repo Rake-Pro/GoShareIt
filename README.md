@@ -149,6 +149,10 @@ install on demand. No credentials or configuration are needed for updates.
 Signing/notarization require `DEVELOPER_ID_APP`, `TEAM_ID`, `AC_NOTARY_PROFILE`,
 and `BUNDLE_ID` (see docs/RELEASE.md).
 
+## Privacy
+
+GoShareIt collects no user data and has no telemetry. See [PRIVACY.md](PRIVACY.md).
+
 ## License
 
 MIT - see [LICENSE](LICENSE).
