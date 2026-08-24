@@ -8,15 +8,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
 )
 
-// cancelledExitCode is the sentinel the editor helper returns when the user
-// skips or cancels (no --out is written).
-const cancelledExitCode = 64
+// Helper exit codes: the sentinels the editor helper returns via its exit
+// status. 0 (plain confirm) is handled implicitly by cmd.Run() returning nil.
+const (
+	cancelledExitCode = 64 // skip/cancel/Esc/window-close: --out not written
+	copyExitCode      = 65 // Copy action: --out written
+	saveExitCode      = 66 // Save action: --out written
+	uploadExitCode    = 67 // Upload action: --out written
+)
 
 // Launcher is the host-side Editor implementation. It does not draw anything:
 // it spawns a separate editor helper process, hands it the captured PNG via a
@@ -35,26 +41,26 @@ type Launcher struct {
 }
 
 // Edit implements Editor by invoking the out-of-process editor helper.
-func (l Launcher) Edit(ctx context.Context, in capture.Result) (capture.Result, bool, error) {
+func (l Launcher) Edit(ctx context.Context, in capture.Result, opts Opts) (capture.Result, Action, bool, error) {
 	if in.Kind != capture.KindImage {
-		return in, false, nil
+		return in, ActionDefault, false, nil
 	}
 
 	helper, err := l.resolveHelper()
 	if err != nil {
-		return in, false, err
+		return in, ActionDefault, false, err
 	}
 
 	dir, err := os.MkdirTemp("", "goshareit-edit-")
 	if err != nil {
-		return in, false, fmt.Errorf("editor: temp dir: %w", err)
+		return in, ActionDefault, false, fmt.Errorf("editor: temp dir: %w", err)
 	}
 	defer os.RemoveAll(dir)
 
 	inPath := filepath.Join(dir, "in.png")
 	outPath := filepath.Join(dir, "out.png")
 	if err := os.WriteFile(inPath, in.Bytes, 0o600); err != nil {
-		return in, false, fmt.Errorf("editor: write input: %w", err)
+		return in, ActionDefault, false, fmt.Errorf("editor: write input: %w", err)
 	}
 
 	if l.Timeout > 0 {
@@ -63,7 +69,7 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result) (capture.Result, 
 		defer cancel()
 	}
 
-	args := []string{"--in", inPath, "--out", outPath}
+	args := []string{"--in", inPath, "--out", outPath, "--actions", "--upload-enabled=" + strconv.FormatBool(opts.CanUpload)}
 	if l.Tool != "" {
 		args = append(args, "--tool", l.Tool)
 	}
@@ -86,30 +92,43 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result) (capture.Result, 
 	cmd := exec.CommandContext(ctx, helper, args...)
 	runErr := cmd.Run()
 	if runErr == nil {
-		edited, err := os.ReadFile(outPath)
-		if err != nil {
-			return in, false, fmt.Errorf("editor: read output: %w", err)
-		}
-		return capture.Result{
-			Path:  "",
-			Bytes: edited,
-			Mime:  "image/png",
-			Kind:  capture.KindImage,
-		}, true, nil
+		return l.readEdited(in, outPath, ActionDefault, true)
 	}
 
 	var exitErr *exec.ExitError
 	if errors.As(runErr, &exitErr) {
 		switch code := exitErr.ExitCode(); code {
 		case cancelledExitCode:
-			return in, false, nil
+			return in, ActionDefault, false, nil
+		case copyExitCode:
+			return l.readEdited(in, outPath, ActionCopy, true)
+		case saveExitCode:
+			return l.readEdited(in, outPath, ActionSave, true)
+		case uploadExitCode:
+			return l.readEdited(in, outPath, ActionUpload, true)
 		default:
-			return in, false, fmt.Errorf("editor: helper exit %d", code)
+			return in, ActionDefault, false, fmt.Errorf("editor: helper exit %d", code)
 		}
 	}
 
 	// Non-ExitError: helper missing, not executable, killed by ctx, etc. Fail-open.
-	return in, false, fmt.Errorf("editor: run helper: %w", runErr)
+	return in, ActionDefault, false, fmt.Errorf("editor: run helper: %w", runErr)
+}
+
+// readEdited reads the edited PNG the helper wrote to outPath. On a read
+// failure it fails open exactly like the confirmed-read-failure path: the
+// original Result, ok=false, action=ActionDefault, plus the error.
+func (l Launcher) readEdited(in capture.Result, outPath string, action Action, ok bool) (capture.Result, Action, bool, error) {
+	edited, err := os.ReadFile(outPath)
+	if err != nil {
+		return in, ActionDefault, false, fmt.Errorf("editor: read output: %w", err)
+	}
+	return capture.Result{
+		Path:  "",
+		Bytes: edited,
+		Mime:  "image/png",
+		Kind:  capture.KindImage,
+	}, action, ok, nil
 }
 
 func (l Launcher) resolveHelper() (string, error) {

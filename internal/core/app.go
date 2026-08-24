@@ -218,5 +218,5 @@ func (a *App) StopRecording(ctx context.Context) (upload.UploadResult, error) {
 	if err != nil {
 		return upload.UploadResult{}, fmt.Errorf("stop recording: %w", err)
 	}
-	return a.processResult(ctx, res)
+	return a.processResult(ctx, res, edit.ActionDefault)
 }

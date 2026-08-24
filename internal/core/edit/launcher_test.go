@@ -13,12 +13,15 @@ import (
 
 func TestNoopEditorPassthrough(t *testing.T) {
 	in := capture.Result{Bytes: []byte("hello"), Mime: "image/png", Kind: capture.KindImage}
-	out, ok, err := NoopEditor{}.Edit(context.Background(), in)
+	out, action, ok, err := NoopEditor{}.Edit(context.Background(), in, Opts{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
 	if ok {
 		t.Errorf("ok = true, want false")
+	}
+	if action != ActionDefault {
+		t.Errorf("action = %v, want ActionDefault", action)
 	}
 	if !bytes.Equal(out.Bytes, in.Bytes) || out.Mime != in.Mime {
 		t.Errorf("out = %+v, want input unchanged", out)
@@ -54,12 +57,15 @@ exit 0
 `)
 	l := Launcher{HelperPath: helper}
 	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
-	out, ok, err := l.Edit(context.Background(), in)
+	out, action, ok, err := l.Edit(context.Background(), in, Opts{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
 	if !ok {
 		t.Fatalf("ok = false, want true")
+	}
+	if action != ActionDefault {
+		t.Errorf("action = %v, want ActionDefault", action)
 	}
 	if string(out.Bytes) != "EDITED" {
 		t.Errorf("out.Bytes = %q, want EDITED", out.Bytes)
@@ -78,7 +84,7 @@ exit 0
 	helper := writeStub(t, dir, "flags.sh", body)
 	l := Launcher{HelperPath: helper, Theme: "dark", ConfirmLabel: "Copy & Upload"}
 	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
-	if _, _, err := l.Edit(context.Background(), in); err != nil {
+	if _, _, _, err := l.Edit(context.Background(), in, Opts{}); err != nil {
 		t.Fatalf("err = %v", err)
 	}
 	got, err := os.ReadFile(argsFile)
@@ -103,7 +109,7 @@ exit 0
 	helper := writeStub(t, dir, "flags.sh", body)
 	l := Launcher{HelperPath: helper}
 	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
-	if _, _, err := l.Edit(context.Background(), in); err != nil {
+	if _, _, _, err := l.Edit(context.Background(), in, Opts{}); err != nil {
 		t.Fatalf("err = %v", err)
 	}
 	got, err := os.ReadFile(argsFile)
@@ -116,20 +122,85 @@ exit 0
 	}
 }
 
+// TestLauncherPassesActionsAndUploadEnabled asserts --actions is always
+// present and --upload-enabled reflects Opts.CanUpload.
+func TestLauncherPassesActionsAndUploadEnabled(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.txt")
+	body := "#!/bin/sh\necho \"$@\" > " + argsFile + "\n" + argParse + `printf 'EDITED' > "$out"
+exit 0
+`
+	helper := writeStub(t, dir, "flags.sh", body)
+	l := Launcher{HelperPath: helper}
+	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
+	if _, _, _, err := l.Edit(context.Background(), in, Opts{CanUpload: false}); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(got)
+	if !strings.Contains(args, "--actions") {
+		t.Errorf("args = %q, want --actions", args)
+	}
+	if !strings.Contains(args, "--upload-enabled=false") {
+		t.Errorf("args = %q, want --upload-enabled=false", args)
+	}
+}
+
 func TestLauncherCancel(t *testing.T) {
 	dir := t.TempDir()
 	helper := writeStub(t, dir, "cancel.sh", argParse+"exit 64\n")
 	l := Launcher{HelperPath: helper}
 	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
-	out, ok, err := l.Edit(context.Background(), in)
+	out, action, ok, err := l.Edit(context.Background(), in, Opts{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
 	if ok {
 		t.Errorf("ok = true, want false")
 	}
+	if action != ActionDefault {
+		t.Errorf("action = %v, want ActionDefault", action)
+	}
 	if string(out.Bytes) != "ORIGINAL" {
 		t.Errorf("out.Bytes = %q, want ORIGINAL", out.Bytes)
+	}
+}
+
+func TestLauncherActionButtons(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		want Action
+	}{
+		{"copy", "65", ActionCopy},
+		{"save", "66", ActionSave},
+		{"upload", "67", ActionUpload},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			helper := writeStub(t, dir, c.name+".sh", argParse+`printf 'EDITED' > "$out"
+exit `+c.code+`
+`)
+			l := Launcher{HelperPath: helper}
+			in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
+			out, action, ok, err := l.Edit(context.Background(), in, Opts{CanUpload: true})
+			if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			if !ok {
+				t.Fatalf("ok = false, want true")
+			}
+			if action != c.want {
+				t.Errorf("action = %v, want %v", action, c.want)
+			}
+			if string(out.Bytes) != "EDITED" {
+				t.Errorf("out.Bytes = %q, want EDITED", out.Bytes)
+			}
+		})
 	}
 }
 
@@ -138,12 +209,15 @@ func TestLauncherError(t *testing.T) {
 	helper := writeStub(t, dir, "err.sh", argParse+"exit 1\n")
 	l := Launcher{HelperPath: helper}
 	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
-	out, ok, err := l.Edit(context.Background(), in)
+	out, action, ok, err := l.Edit(context.Background(), in, Opts{})
 	if err == nil {
 		t.Fatalf("err = nil, want error")
 	}
 	if ok {
 		t.Errorf("ok = true, want false")
+	}
+	if action != ActionDefault {
+		t.Errorf("action = %v, want ActionDefault", action)
 	}
 	if string(out.Bytes) != "ORIGINAL" {
 		t.Errorf("out.Bytes = %q, want ORIGINAL", out.Bytes)
@@ -153,12 +227,15 @@ func TestLauncherError(t *testing.T) {
 func TestLauncherMissingHelper(t *testing.T) {
 	l := Launcher{HelperPath: filepath.Join(t.TempDir(), "does-not-exist")}
 	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
-	out, ok, err := l.Edit(context.Background(), in)
+	out, action, ok, err := l.Edit(context.Background(), in, Opts{})
 	if err == nil {
 		t.Fatalf("err = nil, want error for missing helper")
 	}
 	if ok {
 		t.Errorf("ok = true, want false")
+	}
+	if action != ActionDefault {
+		t.Errorf("action = %v, want ActionDefault", action)
 	}
 	if string(out.Bytes) != "ORIGINAL" {
 		t.Errorf("out.Bytes = %q, want ORIGINAL", out.Bytes)
@@ -169,12 +246,15 @@ func TestLauncherVideoUnchanged(t *testing.T) {
 	// HelperPath points nowhere; video must short-circuit before exec.
 	l := Launcher{HelperPath: filepath.Join(t.TempDir(), "nope")}
 	in := capture.Result{Bytes: []byte("VID"), Mime: "video/mp4", Kind: capture.KindVideo}
-	out, ok, err := l.Edit(context.Background(), in)
+	out, action, ok, err := l.Edit(context.Background(), in, Opts{})
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
 	if ok {
 		t.Errorf("ok = true, want false")
+	}
+	if action != ActionDefault {
+		t.Errorf("action = %v, want ActionDefault", action)
 	}
 	if string(out.Bytes) != "VID" {
 		t.Errorf("out.Bytes = %q, want VID", out.Bytes)
