@@ -18,6 +18,13 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   relaunches (new process starts before the old one exits) keep working.
 
 ### Added
+- Annotation editor: explicit Copy / Save / Upload action buttons alongside
+  Cancel and the default confirm button. Each confirms the annotation and
+  overrides the config-driven after-capture pipeline for that capture only
+  (Copy: clipboard image only; Save: local save only; Upload: upload only,
+  after-upload URL copy/notify still config-driven). The plain confirm
+  button is unchanged. Upload is greyed out and inert when uploads are
+  disabled.
 - PRIVACY.md: the app collects no user data; documents the only network
   endpoints (your configured upload destination, anonymous GitHub update
   checks) and where local files live. Linked from the README.

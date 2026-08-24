@@ -31,6 +31,20 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/editor/annotate"
 )
 
+// Action identifies which button the user confirmed out of the editor with.
+// ActionCancel means the user skipped/cancelled/Esc'd/closed the window;
+// ActionConfirm means the plain confirm button (run the default pipeline);
+// ActionCopy/ActionSave/ActionUpload are the explicit per-capture overrides.
+type Action int
+
+const (
+	ActionCancel Action = iota
+	ActionConfirm
+	ActionCopy
+	ActionSave
+	ActionUpload
+)
+
 // Tool identifies the active drawing tool.
 type Tool string
 
@@ -53,7 +67,9 @@ const (
 // toolbar (empty -> all P4a tools); Tool is the initially selected tool.
 // Theme is the resolved theme ("light" or "dark"; anything else, including
 // empty, falls back to dark) - callers resolve "system" before calling Run.
-// ConfirmLabel is rendered on the confirm button ("" -> "Done").
+// ConfirmLabel is rendered on the confirm button ("" -> "Done"). Actions, when
+// true, renders the explicit Copy/Save/Upload action row; CanUpload controls
+// whether the Upload button is enabled or shown greyed-out/inert.
 type Options struct {
 	Tool         Tool
 	Color        color.NRGBA
@@ -61,6 +77,8 @@ type Options struct {
 	Tools        []Tool
 	Theme        string
 	ConfirmLabel string
+	Actions      bool
+	CanUpload    bool
 }
 
 // shapeKind mirrors Tool for committed shapes.
@@ -94,11 +112,11 @@ type shape struct {
 }
 
 // Run shows the editor for img and returns the (possibly annotated) result.
-// confirmed is true only when the user explicitly confirms; on cancel, Esc, or
-// window close it is false and result is nil. err is non-nil only on a genuine
-// Gio failure. Run blocks until the window closes and must be called on a
-// goroutine other than the one running app.Main.
-func Run(img image.Image, opts Options) (result image.Image, confirmed bool, err error) {
+// action reports which button the user confirmed with; on cancel, Esc, or
+// window close it is ActionCancel and result is nil. err is non-nil only on a
+// genuine Gio failure. Run blocks until the window closes and must be called
+// on a goroutine other than the one running app.Main.
+func Run(img image.Image, opts Options) (result image.Image, action Action, err error) {
 	e := newEditor(img, opts)
 	w := new(app.Window)
 	w.Option(
@@ -107,8 +125,7 @@ func Run(img image.Image, opts Options) (result image.Image, confirmed bool, err
 		// Keep the action row usable even when the user shrinks the window.
 		app.MinSize(unit.Dp(640), unit.Dp(400)),
 	)
-	res, ok, rerr := e.loop(w)
-	return res, ok, rerr
+	return e.loop(w)
 }
 
 type editor struct {
@@ -141,12 +158,17 @@ type editor struct {
 	th           *material.Theme
 	theme        themePalette // resolved theme colors, applied to th.Palette and painted directly
 	confirmLabel string       // rendered on the confirm button
+	actions      bool         // render the explicit Copy/Save/Upload action row
+	canUpload    bool         // Upload button enabled vs greyed-out/inert
 	toolBtns     map[Tool]*widget.Clickable
 	swatchBtn    []*widget.Clickable
 	strokeInc    widget.Clickable
 	strokeDec    widget.Clickable
 	undoBtn      widget.Clickable
 	redoBtn      widget.Clickable
+	copyB        widget.Clickable
+	saveB        widget.Clickable
+	uploadB      widget.Clickable
 	confirm      widget.Clickable
 	cancelB      widget.Clickable
 	textIn       widget.Editor
@@ -155,9 +177,9 @@ type editor struct {
 	imgOp paint.ImageOp
 
 	// outcome
-	result    image.Image
-	confirmed bool
-	done      bool
+	result image.Image
+	action Action
+	done   bool
 }
 
 const canvasTag = "goshareit.canvas"
@@ -224,6 +246,8 @@ func newEditor(img image.Image, opts Options) *editor {
 		th:           th,
 		theme:        theme,
 		confirmLabel: confirmLabel,
+		actions:      opts.Actions,
+		canUpload:    opts.CanUpload,
 		palette:      defaultPalette(),
 		imgOp:        paint.NewImageOp(norm),
 	}
@@ -283,28 +307,28 @@ func defaultPalette() []color.NRGBA {
 	}
 }
 
-func (e *editor) loop(w *app.Window) (image.Image, bool, error) {
+func (e *editor) loop(w *app.Window) (image.Image, Action, error) {
 	var ops op.Ops
 	for {
 		switch ev := w.Event().(type) {
 		case app.DestroyEvent:
 			if ev.Err != nil {
-				return nil, false, ev.Err
+				return nil, ActionCancel, ev.Err
 			}
 			// Window closed without confirm -> cancel.
-			if e.confirmed {
-				return e.result, true, nil
+			if e.action != ActionCancel {
+				return e.result, e.action, nil
 			}
-			return nil, false, nil
+			return nil, ActionCancel, nil
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
 			e.handleInput(gtx)
 			if e.done {
 				ev.Frame(gtx.Ops)
-				if e.confirmed {
-					return e.result, true, nil
+				if e.action != ActionCancel {
+					return e.result, e.action, nil
 				}
-				return nil, false, nil
+				return nil, ActionCancel, nil
 			}
 			e.layout(gtx)
 			ev.Frame(gtx.Ops)
@@ -322,7 +346,7 @@ func (e *editor) handleInput(gtx layout.Context) {
 			break
 		}
 		if ke, ok := ev.(key.Event); ok && ke.State == key.Press {
-			e.confirmed = false
+			e.action = ActionCancel
 			e.done = true
 			return
 		}
@@ -522,13 +546,15 @@ func (e *editor) toImage(p f32.Point) image.Point {
 	return image.Pt(int(x), int(y))
 }
 
-func (e *editor) confirmNow() error {
+// confirmNow renders the annotations and marks the editor done with the given
+// action. Reused by the plain confirm button and each explicit action button.
+func (e *editor) confirmNow(action Action) error {
 	img, err := annotate.Render(e.base, e.crop, e.buildShapes())
 	if err != nil {
 		return err
 	}
 	e.result = img
-	e.confirmed = true
+	e.action = action
 	e.done = true
 	return nil
 }

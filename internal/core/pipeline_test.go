@@ -12,23 +12,25 @@ import (
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
+	"github.com/Rake-Pro/GoShareIt/internal/core/edit"
 	"github.com/Rake-Pro/GoShareIt/internal/core/fake"
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
 )
 
 // fakeEditor records calls and returns canned edited bytes on confirm.
 type fakeEditor struct {
-	out   capture.Result
-	ok    bool
-	calls int
+	out    capture.Result
+	ok     bool
+	action edit.Action
+	calls  int
 }
 
-func (e *fakeEditor) Edit(_ context.Context, in capture.Result) (capture.Result, bool, error) {
+func (e *fakeEditor) Edit(_ context.Context, in capture.Result, _ edit.Opts) (capture.Result, edit.Action, bool, error) {
 	e.calls++
 	if !e.ok {
-		return in, false, nil
+		return in, edit.ActionDefault, false, nil
 	}
-	return e.out, true, nil
+	return e.out, e.action, true, nil
 }
 
 func testApp(t *testing.T, cfg *config.Config) (*App, *fake.Clipboard, *fake.Uploader, *fake.Notifier) {
@@ -257,6 +259,142 @@ func TestPipelineEditStepReplacesBytes(t *testing.T) {
 	}
 	if len(up.Bodies) != 1 || string(up.Bodies[0]) != "EDITEDPNG" {
 		t.Errorf("uploaded body = %q, want EDITEDPNG", up.Bodies[0])
+	}
+}
+
+// TestPipelineEditActionCopy: the editor's Copy button copies the image to
+// clipboard and skips upload/local-save entirely, even when config says both.
+func TestPipelineEditActionCopy(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Editor.Enabled = true
+	cfg.Editor.OnModes = []string{"fullscreen"}
+	cfg.AfterCapture.SaveLocal = true
+	cfg.AfterCapture.SaveDir = t.TempDir()
+
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed := &fakeEditor{
+		out:    capture.Result{Bytes: []byte("EDITEDPNG"), Mime: "image/png", Kind: capture.KindImage},
+		ok:     true,
+		action: edit.ActionCopy,
+	}
+	up := fake.NewUploader()
+	cb := &fake.Clipboard{}
+	p := Providers{
+		Capturer:  fake.NewCapturer(),
+		Uploader:  up,
+		Clipboard: cb,
+		Editor:    ed,
+	}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if len(up.Names) != 0 {
+		t.Errorf("uploader calls = %d, want 0", len(up.Names))
+	}
+	if img, ok := cb.ReadImage(); !ok || string(img) != "EDITEDPNG" {
+		t.Errorf("clipboard image = %q ok=%v, want EDITEDPNG", img, ok)
+	}
+	files, err := os.ReadDir(cfg.AfterCapture.SaveDir)
+	if err != nil || len(files) != 0 {
+		t.Errorf("local save dir: files=%d err=%v, want 0", len(files), err)
+	}
+}
+
+// TestPipelineEditActionSave: the editor's Save button saves locally and
+// skips upload/clipboard-image entirely, even when config says both.
+func TestPipelineEditActionSave(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Editor.Enabled = true
+	cfg.Editor.OnModes = []string{"fullscreen"}
+	cfg.AfterCapture.CopyImageToClipboard = true
+	cfg.AfterCapture.SaveDir = t.TempDir()
+
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed := &fakeEditor{
+		out:    capture.Result{Bytes: []byte("EDITEDPNG"), Mime: "image/png", Kind: capture.KindImage},
+		ok:     true,
+		action: edit.ActionSave,
+	}
+	up := fake.NewUploader()
+	cb := &fake.Clipboard{}
+	p := Providers{
+		Capturer:  fake.NewCapturer(),
+		Uploader:  up,
+		Clipboard: cb,
+		Editor:    ed,
+	}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if len(up.Names) != 0 {
+		t.Errorf("uploader calls = %d, want 0", len(up.Names))
+	}
+	if _, ok := cb.ReadImage(); ok {
+		t.Error("clipboard image copy must not happen on ActionSave")
+	}
+	files, err := os.ReadDir(cfg.AfterCapture.SaveDir)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("local save dir: files=%d err=%v, want 1", len(files), err)
+	}
+}
+
+// TestPipelineEditActionUpload: the editor's Upload button uploads and skips
+// local save/clipboard-image, even when config says both.
+func TestPipelineEditActionUpload(t *testing.T) {
+	cfg := baseCfg()
+	cfg.Editor.Enabled = true
+	cfg.Editor.OnModes = []string{"fullscreen"}
+	cfg.AfterCapture.SaveLocal = true
+	cfg.AfterCapture.SaveDir = t.TempDir()
+	cfg.AfterCapture.CopyImageToClipboard = true
+
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed := &fakeEditor{
+		out:    capture.Result{Bytes: []byte("EDITEDPNG"), Mime: "image/png", Kind: capture.KindImage},
+		ok:     true,
+		action: edit.ActionUpload,
+	}
+	up := fake.NewUploader()
+	cb := &fake.Clipboard{}
+	p := Providers{
+		Capturer:  fake.NewCapturer(),
+		Uploader:  up,
+		Clipboard: cb,
+		Editor:    ed,
+	}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.RunCapture(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if len(up.Names) != 1 || string(up.Bodies[0]) != "EDITEDPNG" {
+		t.Fatalf("uploader calls = %d bodies = %v, want 1 call with EDITEDPNG", len(up.Names), up.Bodies)
+	}
+	if _, ok := cb.ReadImage(); ok {
+		t.Error("clipboard image copy must not happen on ActionUpload")
+	}
+	files, err := os.ReadDir(cfg.AfterCapture.SaveDir)
+	if err != nil || len(files) != 0 {
+		t.Errorf("local save dir: files=%d err=%v, want 0", len(files), err)
 	}
 }
 
