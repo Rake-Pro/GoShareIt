@@ -62,13 +62,24 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 		e.redoOne()
 	}
 	if e.cancelB.Clicked(gtx) {
-		e.confirmed = false
+		e.action = ActionCancel
 		e.done = true
 	}
 	if e.confirm.Clicked(gtx) {
 		// Render error is surfaced by leaving done set with no result; the
 		// helper treats a nil confirmed result as a failure path.
-		_ = e.confirmNow()
+		_ = e.confirmNow(ActionConfirm)
+	}
+	if e.actions {
+		if e.copyB.Clicked(gtx) {
+			_ = e.confirmNow(ActionCopy)
+		}
+		if e.saveB.Clicked(gtx) {
+			_ = e.confirmNow(ActionSave)
+		}
+		if e.canUpload && e.uploadB.Clicked(gtx) {
+			_ = e.confirmNow(ActionUpload)
+		}
 	}
 }
 
@@ -112,14 +123,48 @@ func (e *editor) layoutToolbarContent(gtx layout.Context) layout.Dimensions {
 			})
 		}
 
-		// Row 2: stroke controls | text input | undo/redo | cancel/confirm,
-		// visually grouped with spacers.
+		// Row 2: stroke controls | text input | undo/redo | [copy/save/upload]
+		// | cancel/confirm, visually grouped with spacers.
 		dec := e.subtleButton(&e.strokeDec, "-")
 		inc := e.subtleButton(&e.strokeInc, "+")
 		undo := e.subtleButton(&e.undoBtn, "Undo")
 		redo := e.subtleButton(&e.redoBtn, "Redo")
 		cancel := e.subtleButton(&e.cancelB, "Cancel")
 		ok := e.accentButton(&e.confirm, e.confirmLabel)
+
+		row2Children := []layout.FlexChild{
+			rigidBtn(dec),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Body1(th, itoa(e.stroke)+" px")
+				lbl.Color = e.theme.fg
+				return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
+			}),
+			rigidBtn(inc),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return e.layoutTextField(gtx)
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+			rigidBtn(undo),
+			rigidBtn(redo),
+		}
+		if e.actions {
+			copyBtn := e.subtleButton(&e.copyB, "Copy")
+			saveBtn := e.subtleButton(&e.saveB, "Save")
+			row2Children = append(row2Children,
+				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+				rigidBtn(copyBtn),
+				rigidBtn(saveBtn),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return e.layoutUploadButton(gtx)
+				}),
+			)
+		}
+		row2Children = append(row2Children,
+			layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+			rigidBtn(cancel),
+			rigidBtn(ok),
+		)
 
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -128,28 +173,24 @@ func (e *editor) layoutToolbarContent(gtx layout.Context) layout.Dimensions {
 				})
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					rigidBtn(dec),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Body1(th, itoa(e.stroke)+" px")
-						lbl.Color = e.theme.fg
-						return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
-					}),
-					rigidBtn(inc),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return e.layoutTextField(gtx)
-					}),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-					rigidBtn(undo),
-					rigidBtn(redo),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-					rigidBtn(cancel),
-					rigidBtn(ok),
-				)
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, row2Children...)
 			}),
 		)
 	})
+}
+
+// layoutUploadButton renders the Upload action button. When the editor was
+// launched with uploads unavailable (CanUpload=false), it is disabled and
+// visibly dimmed rather than left clickable-then-erroring: per house rule,
+// grey out unavailable options instead of accept-then-error.
+func (e *editor) layoutUploadButton(gtx layout.Context) layout.Dimensions {
+	if !e.canUpload {
+		gtx = gtx.Disabled()
+		btn := e.styledButton(&e.uploadB, "Upload", mutedColor(e.theme.surfaceBg), mutedColor(e.theme.fg))
+		return layout.UniformInset(unit.Dp(4)).Layout(gtx, btn.Layout)
+	}
+	btn := e.subtleButton(&e.uploadB, "Upload")
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, btn.Layout)
 }
 
 // styledButton applies uniform geometry (corner radius, text size) plus the

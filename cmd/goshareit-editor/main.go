@@ -6,13 +6,21 @@
 //
 //	0   confirmed: --out written with the edited PNG.
 //	64  cancelled/skipped/Esc/window-closed: --out NOT written.
+//	65  Copy action: --out written with the edited PNG.
+//	66  Save action: --out written with the edited PNG.
+//	67  Upload action: --out written with the edited PNG.
 //	1   error (bad args, decode failure, render/encode failure).
+//
+// 65/66/67 are only reachable when --actions is set; they confirm the
+// annotation the same as exit 0 but tell the caller to override its default
+// after-capture pipeline for this capture (copy-only, save-only, upload-only).
 //
 // Invocation:
 //
 //	goshareit-editor --in <input.png> --out <output.png> \
 //	    [--tool <name>] [--color <#rrggbb>] [--stroke <int>] [--tools <csv>] \
-//	    [--theme light|dark|system] [--confirm-label <text>]
+//	    [--theme light|dark|system] [--confirm-label <text>] \
+//	    [--actions] [--upload-enabled=true|false]
 //
 // It is build-tagged for darwin and windows because Gio needs cgo on macOS and
 // a GPU backend on both; the Linux/CGO-disabled host build excludes it.
@@ -45,6 +53,8 @@ func main() {
 	toolsCSV := flag.String("tools", "", "comma-separated tool whitelist")
 	theme := flag.String("theme", "", "theme: light|dark|system (system resolves via OS detection)")
 	confirmLabel := flag.String("confirm-label", "", "label rendered on the confirm button (\"\" -> Done)")
+	actions := flag.Bool("actions", false, "show the explicit Copy/Save/Upload action buttons")
+	uploadEnabled := flag.Bool("upload-enabled", true, "whether uploads are currently enabled (greys out Upload when false)")
 	flag.Parse()
 
 	if *regionMode {
@@ -68,6 +78,8 @@ func main() {
 		Stroke:       *stroke,
 		Theme:        resolveTheme(*theme),
 		ConfirmLabel: *confirmLabel,
+		Actions:      *actions,
+		CanUpload:    *uploadEnabled,
 	}
 	if c, ok := parseHexColor(*colorHex); ok {
 		opts.Color = c
@@ -84,19 +96,28 @@ func main() {
 	// Gio's app.Main must own the main goroutine; the editor event loop runs on
 	// a separate goroutine and terminates the process with the IPC exit code.
 	go func() {
-		result, confirmed, rerr := ui.Run(img, opts)
+		result, action, rerr := ui.Run(img, opts)
 		if rerr != nil {
 			log.Error().Err(rerr).Msg("editor")
 			os.Exit(1)
 		}
-		if !confirmed || result == nil {
+		if action == ui.ActionCancel || result == nil {
 			os.Exit(64)
 		}
 		if err := encodePNG(*out, result); err != nil {
 			log.Error().Err(err).Str("out", *out).Msg("encode output")
 			os.Exit(1)
 		}
-		os.Exit(0)
+		switch action {
+		case ui.ActionCopy:
+			os.Exit(65)
+		case ui.ActionSave:
+			os.Exit(66)
+		case ui.ActionUpload:
+			os.Exit(67)
+		default:
+			os.Exit(0)
+		}
 	}()
 	app.Main()
 }

@@ -6,6 +6,8 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
+- Go toolchain 1.27rc2 -> 1.27.0
+
 ### Fixed
 - Only one GoShareIt host can run per user session. Launching a second copy
   (Start Menu shortcut, startup entry plus manual launch, `open -n`) used to
@@ -22,6 +24,13 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   CI). Fixes Smart App Control's "Part of this app has been blocked" and the
   SmartScreen first-run warning once the project is approved. See
   docs/RELEASE.md.
+- Annotation editor: explicit Copy / Save / Upload action buttons alongside
+  Cancel and the default confirm button. Each confirms the annotation and
+  overrides the config-driven after-capture pipeline for that capture only
+  (Copy: clipboard image only; Save: local save only; Upload: upload only,
+  after-upload URL copy/notify still config-driven). The plain confirm
+  button is unchanged. Upload is greyed out and inert when uploads are
+  disabled.
 - PRIVACY.md: the app collects no user data; documents the only network
   endpoints (your configured upload destination, anonymous GitHub update
   checks) and where local files live. Linked from the README.
@@ -38,6 +47,9 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   only honor it after the next sign-in. Off by default.
 
 ### Changed
+- New installs default `upload.share_expire_days` to 30 (was 0 = never), so
+  public Nextcloud share links stop working a month after upload unless you
+  set it back to 0 in Settings > Upload. Existing configs are not touched.
 - Windows: interactive region capture now uses GoShareIt's own overlay
   (`goshareit-editor --region`) and grabs the selected rectangle directly,
   instead of launching the Windows snip UI (`ms-screenclip:`) and polling the

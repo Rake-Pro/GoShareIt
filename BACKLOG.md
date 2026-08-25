@@ -34,7 +34,6 @@ updater check (with a PAT, correctly reports up-to-date).
 
 - Editor: live raster previews for blur/pixelate (render through the
   annotate ops instead of the approximate grey-box preview).
-- In-editor copy / save / upload buttons (finish the annotation workflow).
 - LastRegion capture: reuse the last selected rectangle without re-picking
   (store the overlay's rect, feed `screencapture -R` / `CaptureRect`).
 - Multi-monitor support for region selection and recording (v1 is
