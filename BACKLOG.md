@@ -94,11 +94,10 @@ Structural changes when we do it (all in `cmd/goshareit-settings/`):
   done - AppIcon.icns ships as of v0.0.6.) The master logo exists at
   build/icons/goshareit_icon.png - embed it into the Windows binaries (e.g.
   a `.syso` resource) and wire it into goshareit.iss.
-- Windows Authenticode signing (SmartScreen). Deliberately deferred - not a
-  priority for now (owner call, 2026-07-30). Seen in the field 2026-08-21:
-  Smart App Control raises "Part of this app has been blocked" on a Windows
-  11 machine because none of the shipped exes are signed; SAC cannot be
-  bypassed by the app, only by signing or by the user turning SAC off
-  (one-way until a reinstall). Azure Trusted Signing (~USD 10/mo) is the
-  cheap route for a cert.
+- Windows Authenticode signing: CI side wired (SignPath Foundation, gated on
+  `SIGNPATH_API_TOKEN`). OPEN: owner applies at signpath.org/apply.html, then
+  creates the project/artifact configurations/policy per docs/RELEASE.md and
+  sets the secret + variables. Until then Smart App Control on Windows 11
+  blocks the unsigned exes ("Part of this app has been blocked"; seen
+  2026-08-21) and cannot be bypassed per-app.
 - 1.0.0 criteria: all on-device validation above green.

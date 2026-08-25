@@ -18,6 +18,12 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   relaunches (new process starts before the old one exits) keep working.
 
 ### Added
+- Windows release binaries and the installer are Authenticode-signed via
+  SignPath Foundation when `SIGNPATH_API_TOKEN` is configured (two signing
+  requests per release, manual approval in SignPath, signatures verified in
+  CI). Fixes Smart App Control's "Part of this app has been blocked" and the
+  SmartScreen first-run warning once the project is approved. See
+  docs/RELEASE.md.
 - Annotation editor: explicit Copy / Save / Upload action buttons alongside
   Cancel and the default confirm button. Each confirms the annotation and
   overrides the config-driven after-capture pipeline for that capture only
