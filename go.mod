@@ -10,7 +10,7 @@ require (
 	github.com/pkg/sftp v1.13.11
 	github.com/rs/zerolog v1.35.1
 	github.com/wailsapp/wails/v2 v2.15.0
-	golang.design/x/clipboard v0.8.0
+	golang.design/x/clipboard v0.9.0
 	golang.design/x/hotkey v0.6.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/image v0.45.0
