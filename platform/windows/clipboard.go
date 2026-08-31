@@ -3,6 +3,7 @@
 package windows
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -38,8 +39,8 @@ func readImage() ([]byte, bool) {
 	if err := clipboardInit(); err != nil {
 		return nil, false
 	}
-	b := clipboard.Read(clipboard.FmtImage)
-	if len(b) == 0 {
+	b, err := clipboard.Read(context.Background(), clipboard.FmtImage)
+	if err != nil || len(b) == 0 {
 		return nil, false
 	}
 	return b, true
@@ -50,7 +51,9 @@ func (c *Clipboard) WriteText(s string) error {
 	if err := clipboardInit(); err != nil {
 		return fmt.Errorf("windows clipboard: init: %w", err)
 	}
-	clipboard.Write(clipboard.FmtText, []byte(s))
+	if _, err := clipboard.Write(context.Background(), clipboard.FmtText, []byte(s)); err != nil {
+		return fmt.Errorf("windows clipboard: write text: %w", err)
+	}
 	return nil
 }
 
@@ -59,7 +62,9 @@ func (c *Clipboard) WriteImage(png []byte) error {
 	if err := clipboardInit(); err != nil {
 		return fmt.Errorf("windows clipboard: init: %w", err)
 	}
-	clipboard.Write(clipboard.FmtImage, png)
+	if _, err := clipboard.Write(context.Background(), clipboard.FmtImage, png); err != nil {
+		return fmt.Errorf("windows clipboard: write image: %w", err)
+	}
 	return nil
 }
 
@@ -71,8 +76,8 @@ func (c *Clipboard) ReadText() (string, bool) {
 	if err := clipboardInit(); err != nil {
 		return "", false
 	}
-	b := clipboard.Read(clipboard.FmtText)
-	if len(b) == 0 {
+	b, err := clipboard.Read(context.Background(), clipboard.FmtText)
+	if err != nil || len(b) == 0 {
 		return "", false
 	}
 	return string(b), true
