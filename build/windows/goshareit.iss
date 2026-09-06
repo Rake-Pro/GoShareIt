@@ -70,8 +70,7 @@ begin
     '  1. Turn Smart App Control off: Windows Security > App & browser control > ' +
     'Smart App Control settings > Off, then continue this setup.' + #13#10 +
     '  2. Cancel this setup and install GoShareIt from the Microsoft Store instead. ' +
-    'The Store build is signed by Microsoft and runs with Smart App Control on.' +
-    #13#10#13#10 +
+    'The Store build is signed by Microsoft and runs with Smart App Control on.' + #13#10#13#10 +
     'Yes = open Windows Security and continue setup' + #13#10 +
     'No = open the Microsoft Store and cancel setup' + #13#10 +
     'Cancel = continue setup anyway';
