@@ -131,6 +131,7 @@ func main() {
 			os.Exit(0)
 		}
 	}()
+	bringToFront()
 	app.Main()
 }
 
@@ -154,6 +155,7 @@ func runChangelog(jobPath string) {
 		}
 		os.Exit(0)
 	}()
+	bringToFront()
 	app.Main()
 }
 
@@ -176,6 +178,7 @@ func runUpdate(jobPath string) {
 		os.Remove(jobPath)
 		os.Exit(0)
 	}()
+	bringToFront()
 	app.Main()
 }
 
@@ -215,6 +218,7 @@ func runRegion(inPath, outPath string) {
 		}
 		os.Exit(0)
 	}()
+	bringToFront()
 	app.Main()
 }
 
