@@ -169,7 +169,7 @@ above).
 
 ## Releases and self-update
 
-Releases are cut by CI (merge to `prod` mints the next semver tag and builds
+Releases are cut by CI (merge to `main` mints the next semver tag and builds
 all three platforms in one run - see [docs/RELEASE.md](docs/RELEASE.md) for
 the full flow): a macOS universal `.dmg`/`.zip`, a Windows Inno Setup
 installer + `.zip`, and an experimental Linux `.tar.gz`, plus a

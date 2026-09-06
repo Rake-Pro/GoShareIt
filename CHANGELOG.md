@@ -147,6 +147,7 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   only honor it after the next sign-in. Off by default.
 
 ### Changed
+- CI: release flow renamed from `main -> prod` to `dev -> main`. `dev` is the default working branch, `main` the protected release branch; the bot PR is now "Merge dev to main". Mechanics unchanged.
 - New installs default `upload.share_expire_days` to 30 (was 0 = never), so
   public Nextcloud share links stop working a month after upload unless you
   set it back to 0 in Settings > Upload. Existing configs are not touched.
