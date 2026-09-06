@@ -419,6 +419,7 @@ const SCHEMA = [
     fields: [
     { p: "Update.Enabled", l: "Check for updates", t: "bool" },
     { p: "Update.AutoInstall", l: "Install updates automatically", t: "bool", hint: "on launch and at each check; off = notify only" },
+    { p: "Update.ShowChangelog", l: "Show what's new before minor updates", t: "bool", hint: "release notes for every version in between, with Update now / Later; patch updates skip it" },
     { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number" },
   ]},
   { title: "Logging", tint: "#636366",

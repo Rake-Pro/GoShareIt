@@ -81,6 +81,7 @@ editor:
 update:
   enabled: true           # self-update from GitHub Releases
   auto_install: true      # install found updates on launch/interval without asking
+  show_changelog: true    # what's-new window with Update now / Later before minor or major updates
   repo: Rake-Pro/GoShareIt
   interval_hours: 24
 

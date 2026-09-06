@@ -31,10 +31,10 @@ func NewNotifier() *Notifier { return &Notifier{} }
 // Notify shows a non-blocking toast banner.
 func (n *Notifier) Notify(notification notify.Notification) error {
 	script := buildToastScript(notification.Title, notification.Body)
-	cmd := exec.Command("powershell.exe",
+	cmd := noConsole(exec.Command("powershell.exe",
 		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
 		"-Command", script,
-	)
+	))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("windows notify: powershell failed: %v: %s", err, out)
 	}

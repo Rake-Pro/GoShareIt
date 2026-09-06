@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -48,6 +49,7 @@ func main() {
 		log.Fatal().Err(err).Msg("single-instance lock")
 	}
 	defer releaseInstance()
+	update.CleanupOld() // leftovers (*.old, stage dirs) from a previous update
 
 	cfgFile, didSetup, secretPath, err := acquireConfig(*cfgPath)
 	if err != nil {
@@ -130,6 +132,18 @@ func main() {
 			logger.Warn().Err(err).Msg("updater disabled")
 		} else {
 			updates = newUpdateController(upd, app, time.Duration(cfg.Update.IntervalHours)*time.Hour, cfg.UpdateAutoInstall(), cancel)
+			if runtime.GOOS != "linux" {
+				if relaunch, err := update.SelfLaunchPath(); err == nil {
+					updates.enableHandoff(cfg.Editor.HelperPath, update.Job{
+						Repo:     cfg.Update.Repo,
+						Current:  version.Version,
+						Relaunch: relaunch,
+						Args:     os.Args[1:],
+						Theme:    cfg.Theme,
+					})
+					updates.changelog = cfg.UpdateShowChangelog()
+				}
+			}
 		}
 	}
 

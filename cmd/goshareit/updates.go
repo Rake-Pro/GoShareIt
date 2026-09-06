@@ -2,6 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -21,6 +26,13 @@ type updateController struct {
 	interval    time.Duration
 	autoInstall bool
 	quit        func()
+	// handoff, when non-nil, runs the download/install/relaunch in a separate
+	// process with its own progress window (goshareit-editor --update) after
+	// this host quits. nil = in-process install (linux, or no helper found).
+	handoff *update.Job
+	helper  string
+	// changelog gates a what's-new window before minor/major updates.
+	changelog bool
 
 	mu      sync.Mutex
 	pending *update.Release
@@ -31,6 +43,30 @@ const updateItemID = "update"
 
 func newUpdateController(upd *update.Updater, app *core.App, interval time.Duration, autoInstall bool, quit func()) *updateController {
 	return &updateController{upd: upd, app: app, interval: interval, autoInstall: autoInstall, quit: quit}
+}
+
+// enableHandoff makes install() delegate to the out-of-process updater
+// (helper = goshareit-editor path; "" resolves the sibling binary). job
+// carries what the updater needs besides the release (repo, relaunch path,
+// args, theme); HostPID and Version are filled at install time.
+func (c *updateController) enableHandoff(helper string, job update.Job) {
+	if helper == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		name := "goshareit-editor"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		helper = filepath.Join(filepath.Dir(exe), name)
+	}
+	if _, err := os.Stat(helper); err != nil {
+		log.Debug().Str("helper", helper).Msg("update: no editor helper, installs stay in-process")
+		return
+	}
+	c.helper = helper
+	c.handoff = &job
 }
 
 func (c *updateController) menuItem(ctx context.Context) tray.MenuItem {
@@ -145,7 +181,9 @@ func (c *updateController) doCheck(ctx context.Context, manual bool) *update.Rel
 		if c.app.Recording() {
 			log.Info().Str("version", rel.Version).Msg("update: recording active, deferring auto-install")
 		} else {
-			c.notify("Updating GoShareIt", "Installing v"+rel.Version+" and restarting.")
+			if c.handoff == nil {
+				c.notify("Updating GoShareIt", "Installing v"+rel.Version+" and restarting.")
+			}
 			return rel
 		}
 	}
@@ -192,6 +230,48 @@ func (c *updateController) install(ctx context.Context, rel *update.Release) {
 		c.mu.Unlock()
 		c.setEnabled(true)
 	}()
+
+	if c.handoff != nil {
+		job := *c.handoff
+		job.Version = rel.Version
+		job.HostPID = os.Getpid()
+		path, err := update.WriteJob(job)
+		if err != nil {
+			log.Error().Err(err).Msg("update handoff failed")
+			c.notify("Update failed", err.Error())
+			c.setTitle("Install Update v" + rel.Version)
+			return
+		}
+		if c.changelog && update.MinorBump(job.Current, rel.Version) {
+			// What's-new window first; the host keeps running while it is up.
+			// Exit 64 = Later: keep the pending install on the tray item.
+			var exitErr *exec.ExitError
+			err := exec.Command(c.helper, "--changelog", path).Run()
+			switch {
+			case err == nil:
+			case errors.As(err, &exitErr) && exitErr.ExitCode() == 64:
+				os.Remove(path)
+				log.Info().Str("version", rel.Version).Msg("update deferred by user")
+				c.setTitle("Install Update v" + rel.Version)
+				return
+			default:
+				// Informational only: a broken window must not block the update.
+				log.Warn().Err(err).Msg("changelog window failed; continuing with the update")
+			}
+		}
+		cmd := exec.Command(c.helper, "--update", path)
+		if err := cmd.Start(); err != nil {
+			os.Remove(path)
+			log.Error().Err(err).Msg("update handoff: start updater")
+			c.notify("Update failed", err.Error())
+			c.setTitle("Install Update v" + rel.Version)
+			return
+		}
+		_ = cmd.Process.Release()
+		log.Info().Str("version", rel.Version).Msg("update handed off to updater; quitting")
+		c.quit()
+		return
+	}
 
 	archive, err := c.upd.Download(ctx, rel)
 	if err != nil {

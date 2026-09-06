@@ -267,6 +267,7 @@ type EditorConfig struct {
 type UpdateConfig struct {
 	Enabled       *bool  `yaml:"enabled"`
 	AutoInstall   *bool  `yaml:"auto_install"`
+	ShowChangelog *bool  `yaml:"show_changelog"`
 	Repo          string `yaml:"repo"`
 	IntervalHours int    `yaml:"interval_hours"`
 }
@@ -274,6 +275,14 @@ type UpdateConfig struct {
 // UpdateEnabled reports the effective enabled state (default true).
 func (c *Config) UpdateEnabled() bool {
 	return c.Update.Enabled == nil || *c.Update.Enabled
+}
+
+// UpdateShowChangelog reports whether a what's-new window (release notes for
+// every version being skipped over, with Update now / Later) is shown before
+// installing an update that changes the major or minor version (default
+// true). Patch releases never show it.
+func (c *Config) UpdateShowChangelog() bool {
+	return c.Update.ShowChangelog == nil || *c.Update.ShowChangelog
 }
 
 // UpdateAutoInstall reports whether background checks (the one shortly after
