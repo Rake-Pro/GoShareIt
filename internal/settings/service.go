@@ -51,13 +51,19 @@ type LoadResult struct {
 	ConfigPath  string         `json:"configPath"`
 	HasPassword bool           `json:"hasPassword"`
 	// Destination secrets, one flag per non-Nextcloud secret below.
-	HasS3SecretKey    bool   `json:"hasS3SecretKey"`
-	HasSFTPPassword   bool   `json:"hasSFTPPassword"`
-	HasSFTPPassphrase bool   `json:"hasSFTPPassphrase"`
-	HasWebDAVPassword bool   `json:"hasWebDAVPassword"`
-	HasCustomSecret   bool   `json:"hasCustomSecret"`
-	Version           string `json:"version"`
-	OS                string `json:"os"`
+	HasS3SecretKey    bool `json:"hasS3SecretKey"`
+	HasSFTPPassword   bool `json:"hasSFTPPassword"`
+	HasSFTPPassphrase bool `json:"hasSFTPPassphrase"`
+	HasWebDAVPassword bool `json:"hasWebDAVPassword"`
+	HasCustomSecret   bool `json:"hasCustomSecret"`
+	// Public host presets: one key per host, so the flag is scoped to the
+	// destination it was computed for (HostSecretFor). HostSecrets lists
+	// every host that already has a key on disk / in env.
+	HasHostSecret bool            `json:"hasHostSecret"`
+	HostSecretFor string          `json:"hostSecretFor"`
+	HostSecrets   map[string]bool `json:"hostSecrets"`
+	Version       string          `json:"version"`
+	OS            string          `json:"os"`
 }
 
 // SaveRequest carries the edited config plus optional new secret values
@@ -71,6 +77,9 @@ type SaveRequest struct {
 	NewSFTPPassphrase string `json:"newSFTPPassphrase"`
 	NewWebDAVPassword string `json:"newWebDAVPassword"`
 	NewCustomSecret   string `json:"newCustomSecret"`
+	// NewHostSecret is written for Config.Upload.Destination when that is a
+	// public host preset id.
+	NewHostSecret string `json:"newHostSecret"`
 }
 
 // Load reads the config for editing. A missing file yields the starter
@@ -90,6 +99,10 @@ func (s *Service) Load() (*LoadResult, error) {
 // loadResult builds a LoadResult for cfg: the secret presence flags, never
 // the secrets themselves.
 func (s *Service) loadResult(cfg *config.Config) *LoadResult {
+	hostSecrets := map[string]bool{}
+	for id := range upload.CustomPresets() {
+		hostSecrets[id] = secretPresent(cfg.HostSecretSource(id))
+	}
 	return &LoadResult{
 		Config:            cfg,
 		ConfigPath:        s.ConfigPath,
@@ -99,6 +112,9 @@ func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 		HasSFTPPassphrase: secretPresent(cfg.SFTP.PassphraseFile, cfg.SFTP.PassphraseEnv),
 		HasWebDAVPassword: secretPresent(cfg.WebDAV.PasswordFile, cfg.WebDAV.PasswordEnv),
 		HasCustomSecret:   secretPresent(cfg.Custom.SecretFile, cfg.Custom.SecretEnv),
+		HasHostSecret:     hostSecrets[cfg.Upload.Destination],
+		HostSecretFor:     cfg.Upload.Destination,
+		HostSecrets:       hostSecrets,
 		Version:           s.Version,
 		OS:                runtime.GOOS,
 	}
@@ -136,6 +152,12 @@ func (s *Service) Save(req *SaveRequest) error {
 	}
 	if err := saveSecretField(req.NewCustomSecret, "custom secret", cfg.Custom.SecretFile, cfg.Custom.SecretEnv); err != nil {
 		return err
+	}
+	if config.IsHostDestination(cfg.Upload.Destination) {
+		file, env := cfg.HostSecretSource(cfg.Upload.Destination)
+		if err := saveSecretField(req.NewHostSecret, cfg.Upload.Destination+" key", file, env); err != nil {
+			return err
+		}
 	}
 
 	out, err := yaml.Marshal(cfg)

@@ -119,12 +119,14 @@ after-capture settings.
 
 ### Public image, GIF and file hosts
 
-No server of your own? Pick "Custom HTTP" as the destination and choose a
-host preset in the settings UI. The preset fills in the request; you add the
-host's API key as the Secret where one is needed, then Save. Anything not
-listed works too if it takes an HTTP upload: the Custom HTTP panel is a
-generic uploader (method, URL, headers, multipart or raw body, and JSON
-path, regex or template extraction of the resulting link).
+No server of your own? Pick a host straight from the Destination list in
+the settings UI (grouped under "Public hosts"), paste its API key where one
+is needed, Save. In YAML that is `upload.destination: imgur` and the key in
+`~/.goshareit/host-imgur.secret` (see `config.example.yaml`). Anything not
+listed works too if it takes an HTTP upload: the "Custom HTTP" destination
+is a generic uploader (method, URL, headers, multipart or raw body, JSON
+path, regex or template extraction of the link) and can start from any of
+the same presets.
 
 | Preset | Accepts | Key | Notes |
 |---|---|---|---|

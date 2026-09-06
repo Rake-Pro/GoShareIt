@@ -247,3 +247,22 @@ func TestInsecureS3Endpoint(t *testing.T) {
 		}
 	}
 }
+
+// TestHostDestinations covers the public-host preset ids as upload
+// destinations: validation accepts them, rejects junk, and the per-host
+// secret source defaults to host-<id>.secret under the app root.
+func TestHostDestinations(t *testing.T) {
+	if !IsHostDestination("imgur") || IsHostDestination("custom") || IsHostDestination("nope") {
+		t.Fatal("IsHostDestination misclassifies")
+	}
+	cfg := &Config{}
+	cfg.Upload.Destination = "giphy"
+	file, env := cfg.HostSecretSource("giphy")
+	if env != "" || !strings.HasSuffix(file, "/host-giphy.secret") {
+		t.Errorf("default secret source = %q/%q", file, env)
+	}
+	cfg.Hosts = map[string]HostConfig{"giphy": {SecretEnv: "GIPHY_KEY"}}
+	if file, env = cfg.HostSecretSource("giphy"); file != "" || env != "GIPHY_KEY" {
+		t.Errorf("configured secret source = %q/%q", file, env)
+	}
+}

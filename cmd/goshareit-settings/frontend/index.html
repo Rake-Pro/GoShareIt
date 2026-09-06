@@ -287,12 +287,14 @@ const SCHEMA = [
     { p: "Upload.Enabled", l: "Upload captures", t: "bool",
       hint: "off = local-only: no data leaves this machine, server settings optional" },
     { p: "Upload.Destination", l: "Destination", t: "select",
+      // Public host presets are appended at init() from the backend catalog.
       opts: [
+        { group: "Your server" },
         { v: "nextcloud", l: "Nextcloud" },
         { v: "s3", l: "S3-compatible (AWS / B2 / MinIO / R2)" },
         { v: "sftp", l: "SFTP" },
         { v: "webdav", l: "WebDAV" },
-        { v: "custom", l: "Custom HTTP" },
+        { v: "custom", l: "Custom HTTP (any endpoint)" },
       ],
       hint: "fields for the selected destination appear below" },
     { p: "Upload.AllowInsecureHTTP", l: "Allow insecure http:// server URL", t: "bool",
@@ -342,8 +344,13 @@ const SCHEMA = [
         { p: "WebDAV.RemoteDir",   l: "Remote folder", t: "text" },
         { p: "WebDAV.URLTemplate", l: "Public URL template", t: "text", hint: "{name} {path}; blank = the PUT URL" },
       ]},
+      // "host" serves every public host preset id (see syncDestPanel()).
+      { key: "host", label: "Public host", fields: [
+        { p: "@host_info",   l: "About this host", t: "info" },
+        { p: "@host_secret", l: "API key / token", t: "secret", hint: "stored in <app root>/host-<id>.secret, one per host" },
+      ]},
       { key: "custom", label: "Custom HTTP settings", fields: [
-        { p: "@custom_preset", l: "Public host preset", t: "preset", hint: "prefills the fields below client-side; still requires Save" },
+        { p: "@custom_preset", l: "Start from a host preset", t: "preset", hint: "copies a public host's request into the editable fields below (pick the host directly in Destination if you do not need to change anything); still requires Save" },
         { p: "Custom.Method", l: "Method", t: "select", opts: ["POST", "PUT"] },
         { p: "Custom.URL",    l: "URL", t: "text", hint: "supports {name} {mime} {secret}" },
         { p: "Custom.Headers", l: "Headers", t: "kv", hint: "one key=value per line; values support {name} {mime} {secret} {secret:base64} {secret:basic}" },
@@ -431,6 +438,7 @@ const SECRET_FIELDS = {
   "@sftp_passphrase": { has: "hasSFTPPassphrase",  saveKey: "newSFTPPassphrase" },
   "@webdav_password": { has: "hasWebDAVPassword",  saveKey: "newWebDAVPassword" },
   "@custom_secret":   { has: "hasCustomSecret",    saveKey: "newCustomSecret" },
+  "@host_secret":     { has: "hasHostSecret",      saveKey: "newHostSecret" },
 };
 
 // secretEnvVar returns the *_env value that sources a "@..." secret field
@@ -443,6 +451,10 @@ function secretEnvVar(p) {
     case "@sftp_passphrase": return model.config.SFTP.PassphraseEnv || "";
     case "@webdav_password": return model.config.WebDAV.PasswordEnv || "";
     case "@custom_secret":   return model.config.Custom.SecretEnv || "";
+    case "@host_secret": {
+      const dest = model.config.Upload.Destination;
+      return ((model.config.Hosts || {})[dest] || {}).SecretEnv || "";
+    }
     default:                 return "";
   }
 }
@@ -527,11 +539,18 @@ function renderFieldRow(f) {
   } else if (f.t === "select") {
     // opts entries are either a plain string (value === label) or
     // { v, l } when the displayed label needs to differ from the enum value.
+    // { group } entries open an <optgroup> for the entries that follow.
+    let openGroup = false;
     control = `<span class="popup"><select id="${id}">` + f.opts.map(o => {
+      if (typeof o === "object" && o.group) {
+        const s = (openGroup ? "</optgroup>" : "") + `<optgroup label="${esc(o.group)}">`;
+        openGroup = true;
+        return s;
+      }
       const v = (typeof o === "object") ? o.v : o;
       const l = (typeof o === "object") ? o.l : o;
       return `<option value="${esc(v)}" ${v === val ? "selected" : ""}>${esc(l)}</option>`;
-    }).join("") + `</select>${CHEVRON}</span>`;
+    }).join("") + (openGroup ? "</optgroup>" : "") + `</select>${CHEVRON}</span>`;
   } else if (f.t === "checks") {
     stacked = true;
     const cur = new Set(val || []);
@@ -540,6 +559,9 @@ function renderFieldRow(f) {
   } else if (f.t === "kv") {
     stacked = true;
     control = `<textarea class="input" id="${id}" rows="3">${esc(kvToText(val))}</textarea>`;
+  } else if (f.t === "info") {
+    stacked = true;
+    control = `<div class="row-hint" id="${id}"></div>`;
   } else if (f.t === "preset") {
     const keys = Object.keys(presets).sort((a, b) => (presets[a].Label || a).localeCompare(presets[b].Label || b));
     control = `<span class="popup"><select id="${id}"><option value="">(choose a host)</option>` +
@@ -661,9 +683,33 @@ function syncDestPanel() {
   if (!upload) return;
   const destSel = $(fieldId("Upload.Destination"));
   const dest = destSel ? destSel.value : "";
+  const isHost = !!presets[dest];
   for (const panel of upload.destPanels) {
     const el = $("destpanel_" + panel.key);
-    if (el) el.classList.toggle("hidden", panel.key !== dest);
+    if (el) el.classList.toggle("hidden", panel.key === "host" ? !isHost : panel.key !== dest);
+  }
+  if (isHost) syncHostPanel(dest);
+}
+
+// syncHostPanel fills the public-host panel for dest: the host's notes and
+// whether a key is already stored for it (keys are per host, so the
+// placeholder follows the selection, not just the loaded destination).
+function syncHostPanel(dest) {
+  const p = presets[dest];
+  const info = $(fieldId("@host_info"));
+  if (info && p) {
+    const parts = [];
+    if (p.Kinds) parts.push("Accepts: " + p.Kinds + ".");
+    if (p.Secret) parts.push("Key: " + p.Secret + (p.SecretOptional ? " (optional)." : " (required)."));
+    else parts.push("No account or key needed.");
+    if (p.Help) parts.push(p.Help);
+    info.textContent = parts.join(" ");
+  }
+  const key = $(fieldId("@host_secret"));
+  if (key && !key.dataset.locked) {
+    const has = !!((model.hostSecrets || {})[dest]);
+    key.placeholder = has ? "(unchanged)" : (p && !p.Secret ? "not needed for this host" : "not set - enter to configure");
+    key.disabled = !!(p && !p.Secret);
   }
 }
 
@@ -696,6 +742,7 @@ function syncEnabledState() {
     .forEach((el) => el.classList.toggle("dim", !uploadsOn));
   const navItem = document.querySelector(`.nav-item[data-pane="${paneId("After upload")}"]`);
   if (navItem) navItem.classList.toggle("dim", !uploadsOn);
+  if (uploadsOn) syncDestPanel(); // re-applies per-host input state
 }
 
 function collect() {
@@ -705,7 +752,7 @@ function collect() {
   for (const sec of SCHEMA) {
     for (const f of allFields(sec)) {
       const id = fieldId(f.p);
-      if (f.t === "preset") continue; // UI-only, not part of the config
+      if (f.t === "preset" || f.t === "info") continue; // UI-only, not part of the config
       if (f.t === "secret") {
         const v = $(id).value;
         if (f.p === "@password") {
@@ -798,6 +845,15 @@ async function init() {
   if (!svc()) { status("Wails runtime not available (browser preview?)", "err"); return; }
   try {
     presets = await svc().Presets();
+    // Public hosts become first-class destinations, grouped after the
+    // self-hosted options; the Custom HTTP panel keeps its own preset picker.
+    const destField = SCHEMA.find((sec) => sec.destPanels).fields.find((f) => f.p === "Upload.Destination");
+    if (destField && !destField.opts.some((o) => o.group === "Public hosts")) {
+      destField.opts.push({ group: "Public hosts" });
+      Object.keys(presets)
+        .sort((a, b) => (presets[a].Label || a).localeCompare(presets[b].Label || b))
+        .forEach((k) => destField.opts.push({ v: k, l: (presets[k].Label || k) + (presets[k].Kinds ? " - " + presets[k].Kinds : "") }));
+    }
     model = await svc().Load();
     render();
     applyTheme(model.config.Theme);
