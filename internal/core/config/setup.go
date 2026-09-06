@@ -80,6 +80,7 @@ editor:
 
 update:
   enabled: true           # self-update from GitHub Releases
+  auto_install: true      # install found updates on launch/interval without asking
   repo: Rake-Pro/GoShareIt
   interval_hours: 24
 

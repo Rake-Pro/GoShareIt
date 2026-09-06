@@ -222,10 +222,11 @@ type EditorConfig struct {
 	Tools          []string `yaml:"tools"`
 }
 
-// UpdateConfig controls self-update from GitHub Releases. Enabled defaults to
-// true.
+// UpdateConfig controls self-update from GitHub Releases. Enabled and
+// AutoInstall both default to true.
 type UpdateConfig struct {
 	Enabled       *bool  `yaml:"enabled"`
+	AutoInstall   *bool  `yaml:"auto_install"`
 	Repo          string `yaml:"repo"`
 	IntervalHours int    `yaml:"interval_hours"`
 }
@@ -233,6 +234,13 @@ type UpdateConfig struct {
 // UpdateEnabled reports the effective enabled state (default true).
 func (c *Config) UpdateEnabled() bool {
 	return c.Update.Enabled == nil || *c.Update.Enabled
+}
+
+// UpdateAutoInstall reports whether background checks (the one shortly after
+// launch and the periodic ones) install a found update without asking
+// (default true). When false they only notify and retitle the tray item.
+func (c *Config) UpdateAutoInstall() bool {
+	return c.Update.AutoInstall == nil || *c.Update.AutoInstall
 }
 
 // LoggingConfig controls logging.

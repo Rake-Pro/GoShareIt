@@ -406,6 +406,7 @@ const SCHEMA = [
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0113.7-5.6L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 01-13.7 5.6L4 16"/><path d="M4 20v-4h4"/></svg>`,
     fields: [
     { p: "Update.Enabled", l: "Check for updates", t: "bool" },
+    { p: "Update.AutoInstall", l: "Install updates automatically", t: "bool", hint: "on launch and at each check; off = notify only" },
     { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number" },
   ]},
   { title: "Logging", tint: "#636366",

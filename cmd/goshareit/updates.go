@@ -16,10 +16,11 @@ import (
 // updateController owns the "Check for Updates" tray item: periodic background
 // checks, and click-to-check / click-to-install depending on state.
 type updateController struct {
-	upd      *update.Updater
-	app      *core.App
-	interval time.Duration
-	quit     func()
+	upd         *update.Updater
+	app         *core.App
+	interval    time.Duration
+	autoInstall bool
+	quit        func()
 
 	mu      sync.Mutex
 	pending *update.Release
@@ -28,8 +29,8 @@ type updateController struct {
 
 const updateItemID = "update"
 
-func newUpdateController(upd *update.Updater, app *core.App, interval time.Duration, quit func()) *updateController {
-	return &updateController{upd: upd, app: app, interval: interval, quit: quit}
+func newUpdateController(upd *update.Updater, app *core.App, interval time.Duration, autoInstall bool, quit func()) *updateController {
+	return &updateController{upd: upd, app: app, interval: interval, autoInstall: autoInstall, quit: quit}
 }
 
 func (c *updateController) menuItem(ctx context.Context) tray.MenuItem {
@@ -40,8 +41,9 @@ func (c *updateController) menuItem(ctx context.Context) tray.MenuItem {
 	}
 }
 
-// start runs the periodic background check. Dev builds never auto-check (a
-// 0.0.0-dev binary would otherwise immediately "upgrade" to the last release).
+// start runs the launch check (~30s in, so the tray and network are up) and
+// the periodic background check. Dev builds never auto-check (a 0.0.0-dev
+// binary would otherwise immediately "upgrade" to the last release).
 func (c *updateController) start(ctx context.Context) {
 	if c.upd.IsDev() {
 		log.Debug().Msg("update: dev build, background checks disabled")
@@ -131,10 +133,22 @@ func (c *updateController) doCheck(ctx context.Context, manual bool) *update.Rel
 	c.setTitle("Install Update v" + rel.Version)
 	log.Info().Str("version", rel.Version).Msg("update available")
 
-	// Manual clicks get a native confirm dialog instead of the quiet
-	// notify+retitle fallback; background checks always stay quiet. The
-	// pending state and tray title above are set first regardless, so the
-	// tray-menu install path still works if the dialog errors.
+	// Background checks (launch + periodic) install straight away when
+	// auto-install is on, unless a recording is in progress (the relaunch
+	// would kill it); the recording case falls through to the quiet path and
+	// the next tick or a tray click picks it up. Manual clicks get a native
+	// confirm dialog instead of the quiet notify+retitle fallback; background
+	// checks with auto-install off always stay quiet. The pending state and
+	// tray title above are set first regardless, so the tray-menu install path
+	// still works if the dialog errors.
+	if !manual && c.autoInstall {
+		if c.app.Recording() {
+			log.Info().Str("version", rel.Version).Msg("update: recording active, deferring auto-install")
+		} else {
+			c.notify("Updating GoShareIt", "Installing v"+rel.Version+" and restarting.")
+			return rel
+		}
+	}
 	//
 	// check() always runs off the tray's main loop: menuItem's OnClick wraps
 	// onClick in `go`, and the periodic path in start() runs inside its own

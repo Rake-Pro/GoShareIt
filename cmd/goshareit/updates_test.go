@@ -62,7 +62,7 @@ func newTestController(t *testing.T, app *core.App, srv *httptest.Server) *updat
 	if err != nil {
 		t.Fatalf("update.New: %v", err)
 	}
-	return newUpdateController(upd, app, time.Hour, func() {})
+	return newUpdateController(upd, app, time.Hour, false, func() {})
 }
 
 // TestUpdateCheckManualWithConfirmerAccept verifies a manual check that finds
@@ -163,6 +163,42 @@ func TestUpdateCheckBackgroundNeverConfirms(t *testing.T) {
 	if confirmer.Count() != 0 {
 		t.Fatalf("Confirm calls = %d, want 0 (background must never confirm)", confirmer.Count())
 	}
+	if notifier.Count() != 1 || notifier.Notifications[0].Title != "Update available" {
+		t.Fatalf("notifications = %+v, want one \"Update available\"", notifier.Notifications)
+	}
+}
+
+// TestUpdateCheckBackgroundAutoInstall verifies a background check with
+// auto-install on goes straight to install() (no dialog), announcing it first.
+func TestUpdateCheckBackgroundAutoInstall(t *testing.T) {
+	srv := releaseServer(t, "v9.9.9")
+	confirmer := &fake.Confirmer{Result: false}
+	app, notifier := newTestApp(t, confirmer)
+	c := newTestController(t, app, srv)
+	c.autoInstall = true
+
+	c.check(context.Background(), false)
+
+	if confirmer.Count() != 0 {
+		t.Fatalf("Confirm calls = %d, want 0", confirmer.Count())
+	}
+	// "Updating GoShareIt" announces the install; "Update failed" proves
+	// install() ran (Download fails fast on the asset-less fake release).
+	if notifier.Count() != 2 || notifier.Notifications[0].Title != "Updating GoShareIt" || notifier.Notifications[1].Title != "Update failed" {
+		t.Fatalf("notifications = %+v, want [Updating GoShareIt, Update failed]", notifier.Notifications)
+	}
+}
+
+// TestUpdateCheckBackgroundAutoInstallOff verifies the quiet notify+retitle
+// behavior is unchanged when auto-install is disabled.
+func TestUpdateCheckBackgroundAutoInstallOff(t *testing.T) {
+	srv := releaseServer(t, "v9.9.9")
+	app, notifier := newTestApp(t, nil)
+	c := newTestController(t, app, srv)
+	c.autoInstall = false
+
+	c.check(context.Background(), false)
+
 	if notifier.Count() != 1 || notifier.Notifications[0].Title != "Update available" {
 		t.Fatalf("notifications = %+v, want one \"Update available\"", notifier.Notifications)
 	}
