@@ -26,6 +26,9 @@ func buildProviders(cfg *config.Config) (core.Providers, error) {
 	}
 	// One Capturer instance, shared by still capture and the frame-sampling GIF
 	// recorder. The composite routes GIF -> gifrec, video -> the ffmpeg recorder.
+	confirmer := windows.NewConfirmer()
+	warnSmartAppControl(confirmer)
+
 	capturer := windows.NewCapturer()
 	capturer.Region = region.Launcher{HelperPath: cfg.Editor.HelperPath}
 	recorder := capture.NewCompositeRecorder(windows.NewRecorder(), gifrec.New(capturer, 0, 0))
@@ -34,7 +37,7 @@ func buildProviders(cfg *config.Config) (core.Providers, error) {
 		Capturer:  capturer,
 		Clipboard: windows.NewClipboard(),
 		Notifier:  windows.NewNotifier(),
-		Confirmer: windows.NewConfirmer(),
+		Confirmer: confirmer,
 		Tray:      windows.NewTray(),
 		Hotkeys:   windows.NewHotkeyManager(),
 		Recorder:  recorder,

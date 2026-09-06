@@ -26,6 +26,31 @@ first run is: install, launch, fill in (or skip) Nextcloud details in the
 settings window, save. Nothing is required to get started - local-only mode
 (below) works with zero configuration.
 
+### Windows says "Part of this app has been blocked"
+
+That is Smart App Control (Windows 11, clean installs only). The GitHub
+download of GoShareIt is not code-signed: signing certificates cost money
+the project does not pay, and the free open-source signing programs did not
+accept a project this size. Smart App Control has no per-app exception, so
+you have two options:
+
+- Turn Smart App Control off: Windows Security > App & browser control >
+  Smart App Control settings > Off. The installer and the app offer to open
+  that page. Windows lets you turn it back on later without a reinstall on
+  current builds.
+- Install the Microsoft Store build instead (uninstall the GitHub copy
+  first). The Store signs it with Microsoft's certificate, so it runs with
+  Smart App Control on, and the Store delivers its updates.
+
+| Smart App Control state | GitHub download | Microsoft Store build |
+|---|---|---|
+| Off, or not present (Windows 10, upgraded Windows 11) | Runs. SmartScreen may warn once: "More info", then "Run anyway". | Runs. |
+| Evaluation | Runs. Installer and first launch warn once and offer both options. | Runs. |
+| On | Installer and exes are blocked before they start. | Runs. |
+
+Both builds share the same config root and behave the same; the Store build
+only turns off the built-in updater. The macOS build is signed and notarized.
+
 ## Architecture: pure-Go core + thin OS shells
 
 The core (`internal/core/...`) is **pure Go**. It builds and tests on any

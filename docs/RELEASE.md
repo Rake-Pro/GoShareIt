@@ -73,12 +73,43 @@ identity shadows the new one); see [PERMISSIONS.md](PERMISSIONS.md).
 resolved by hash); it is still used by `scripts/sign.sh` for local builds
 (see below), where it must be the exact identity string.
 
+### Microsoft Store package (Windows)
+
+- Every release builds `GoShareIt_<ver>_windows_amd64_msstore_upload.msix`
+  from the same three exes and uploads it as the `windows-msstore-upload`
+  workflow artifact (90 days). It is not a release asset.
+- Unsigned on purpose: Partner Center re-signs with Microsoft's certificate
+  when the submission passes certification. That signature is what lets the
+  Store build run with Smart App Control on. The package cannot be
+  sideloaded.
+- Manifest: `build/windows/msix/AppxManifest.xml` (full-trust Win32 app,
+  `goshareit.exe` entry point, startup task present but off). Icons under
+  `build/windows/msix/Assets/` are generated from `build/icons/goshareit_icon.png`.
+- Identity must match Partner Center exactly:
+
+| Repo variable | Value | Default until set |
+|---|---|---|
+| `MSSTORE_IDENTITY_NAME` | Partner Center > Product identity > Package/Identity/Name | `RakePro.GoShareIt` |
+| `MSSTORE_PUBLISHER` | Partner Center > Product identity > Package/Identity/Publisher (`CN=<GUID>`) | `CN=Rake-Pro` |
+
+- Version in the package is `<semver>.0`.
+- Submission (manual for now): download the artifact from the release run,
+  Partner Center > the app > Submissions > Packages > upload, fill the
+  listing, submit. The host detects the packaged install and disables the
+  GitHub self-updater, so Store users get updates only through the Store.
+- After the first publication, replace `windows.MSStoreURL` (search URL)
+  with the listing URL `ms-windows-store://pdp/?ProductId=<id>`.
+
 ### CI signing (Windows, SignPath Foundation)
 
-Windows binaries are Authenticode-signed through [SignPath Foundation](https://signpath.org)'s
-free open-source program. Without it Smart App Control on Windows 11 blocks
-the unsigned exes ("Part of this app has been blocked") and SmartScreen
-warns on first run.
+Windows binaries CAN be Authenticode-signed through [SignPath Foundation](https://signpath.org)'s
+free open-source program; the job is wired but dormant (the project was not
+accepted as of 2026-09-06, and paid certificates are out). Unsigned exes are
+blocked by Smart App Control on Windows 11 ("Part of this app has been
+blocked", no per-app exception) and SmartScreen warns on first run; the
+installer, first launch, README and release notes explain the turn-off path
+(see BACKLOG for the Microsoft Store alternative). Everything below applies
+only if signing is ever enabled.
 
 | Setting | Kind | Purpose |
 |---|---|---|

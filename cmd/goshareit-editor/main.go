@@ -58,7 +58,7 @@ func main() {
 	flag.Parse()
 
 	if *regionMode {
-		runRegion(*out)
+		runRegion(*in, *out)
 		return
 	}
 
@@ -122,16 +122,28 @@ func main() {
 	app.Main()
 }
 
-// runRegion runs the interactive region selector. On confirm it writes a single
-// "x,y,w,h" line to outPath and exits 0; on cancel it exits 64 without writing;
-// on error it logs and exits 1. Mirrors the editor's IPC exit-code contract.
-func runRegion(outPath string) {
+// runRegion runs the interactive region selector. inPath, when given, is a
+// frozen screen capture drawn as the overlay's backdrop; the rect is then in
+// that image's pixels. On confirm it writes a single "x,y,w,h" line to outPath
+// and exits 0; on cancel it exits 64 without writing; on error it logs and
+// exits 1. Mirrors the editor's IPC exit-code contract.
+func runRegion(inPath, outPath string) {
 	if outPath == "" {
 		log.Error().Msg("--out is required with --region")
 		os.Exit(1)
 	}
+	var screen image.Image
+	if inPath != "" {
+		img, err := decodePNG(inPath)
+		if err != nil {
+			// Degrade to the bare overlay rather than failing the capture.
+			log.Warn().Err(err).Str("in", inPath).Msg("region: backdrop unreadable, showing plain overlay")
+		} else {
+			screen = img
+		}
+	}
 	go func() {
-		rect, ok, rerr := region.Run()
+		rect, ok, rerr := region.Run(screen)
 		if rerr != nil {
 			log.Error().Err(rerr).Msg("region selector")
 			os.Exit(1)

@@ -119,7 +119,9 @@ func main() {
 	defer cancel()
 
 	var updates *updateController
-	if cfg.UpdateEnabled() {
+	if distributedByStore() {
+		logger.Info().Msg("updater disabled: Microsoft Store build, the Store delivers updates")
+	} else if cfg.UpdateEnabled() {
 		upd, err := update.New(update.Config{
 			Repo:    cfg.Update.Repo,
 			Current: version.Version,
@@ -237,7 +239,7 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		// The overlay blocks on its own process, so run it off the tray callback
 		// goroutine; recording only starts after the user confirms a rectangle.
 		go func() {
-			rect, ok, err := regionSel.Select(ctx)
+			rect, ok, err := regionSel.Select(ctx, nil)
 			if err != nil {
 				log.Error().Err(err).Msg("region select failed")
 				return

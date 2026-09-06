@@ -25,6 +25,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out) out="$2"; shift 2;;
     --region) shift;;
+    --in) shift 2;;
     *) shift;;
   esac
 done
@@ -36,7 +37,7 @@ func TestLauncherConfirm(t *testing.T) {
 exit 0
 `)
 	l := Launcher{HelperPath: helper}
-	rect, ok, err := l.Select(context.Background())
+	rect, ok, err := l.Select(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -55,7 +56,7 @@ func TestLauncherConfirmTrailingNewline(t *testing.T) {
 exit 0
 `)
 	l := Launcher{HelperPath: helper}
-	rect, ok, err := l.Select(context.Background())
+	rect, ok, err := l.Select(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -71,7 +72,7 @@ func TestLauncherCancel(t *testing.T) {
 	dir := t.TempDir()
 	helper := writeStub(t, dir, "cancel.sh", argParse+"exit 64\n")
 	l := Launcher{HelperPath: helper}
-	rect, ok, err := l.Select(context.Background())
+	rect, ok, err := l.Select(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -87,7 +88,7 @@ func TestLauncherError(t *testing.T) {
 	dir := t.TempDir()
 	helper := writeStub(t, dir, "err.sh", argParse+"exit 1\n")
 	l := Launcher{HelperPath: helper}
-	_, ok, err := l.Select(context.Background())
+	_, ok, err := l.Select(context.Background(), nil)
 	if err == nil {
 		t.Fatalf("err = nil, want error")
 	}
@@ -102,7 +103,7 @@ func TestLauncherBadOutput(t *testing.T) {
 exit 0
 `)
 	l := Launcher{HelperPath: helper}
-	_, ok, err := l.Select(context.Background())
+	_, ok, err := l.Select(context.Background(), nil)
 	if err == nil {
 		t.Fatalf("err = nil, want parse error")
 	}
@@ -113,7 +114,7 @@ exit 0
 
 func TestLauncherMissingHelper(t *testing.T) {
 	l := Launcher{HelperPath: filepath.Join(t.TempDir(), "does-not-exist")}
-	_, ok, err := l.Select(context.Background())
+	_, ok, err := l.Select(context.Background(), nil)
 	if err == nil {
 		t.Fatalf("err = nil, want error for missing helper")
 	}

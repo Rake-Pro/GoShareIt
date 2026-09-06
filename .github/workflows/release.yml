@@ -9,6 +9,8 @@
 #            GoShareIt_<ver>_darwin_universal.zip  (updater feed, whole .app)
 #   Windows  GoShareIt_<ver>_windows_amd64_setup.exe (Inno Setup, per-user)
 #            GoShareIt_<ver>_windows_amd64.zip       (updater feed, loose exes)
+#            GoShareIt_<ver>_windows_amd64_msstore_upload.msix (workflow artifact
+#            only - Partner Center upload package, unsigned, not sideloadable)
 #   Linux    GoShareIt_<ver>_linux_amd64.tar.gz      (EXPERIMENTAL: no capture
 #            backend on linux yet - wire_linux.go runs in-memory fakes)
 #   checksums.txt (sha256; the updater fails closed without it)
@@ -308,6 +310,41 @@ jobs:
           iscc "/DAppVersion=$env:VERSION" "/DBinDir=$PWD\dist\windows" /Oout build\windows\goshareit.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Microsoft Store upload package. Unsigned by design (Partner Center
+      # re-signs with Microsoft's certificate), so it is NOT sideloadable and
+      # ships as a workflow artifact, not a release asset. Identity values
+      # default to placeholders until the app name is reserved in Partner
+      # Center; set repo variables MSSTORE_IDENTITY_NAME + MSSTORE_PUBLISHER
+      # to the values it shows. makeappx comes from the Windows SDK on the
+      # runner image. See docs/RELEASE.md "Microsoft Store package".
+      - name: Build MSIX (Store upload package)
+        shell: pwsh
+        env:
+          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME || 'RakePro.GoShareIt' }}
+          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER || 'CN=Rake-Pro' }}
+        run: |
+          $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\makeappx.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          if (-not $makeappx) { throw "makeappx.exe not found in the Windows SDK" }
+          $stage = "msix-stage"
+          New-Item -ItemType Directory -Force $stage, "$stage\Assets", "out-msix" | Out-Null
+          Copy-Item dist\windows\*.exe $stage\
+          Copy-Item build\windows\msix\Assets\*.png "$stage\Assets\"
+          (Get-Content build\windows\msix\AppxManifest.xml -Raw) `
+            -replace '__IDENTITY_NAME__', $env:MSSTORE_IDENTITY_NAME `
+            -replace '__PUBLISHER__', $env:MSSTORE_PUBLISHER `
+            -replace '__VERSION__', "$env:VERSION.0" |
+            Set-Content "$stage\AppxManifest.xml" -Encoding utf8
+          & $makeappx.FullName pack /d $stage /p "out-msix\GoShareIt_${env:VERSION}_windows_amd64_msstore_upload.msix" /o
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-msstore-upload
+          path: out-msix/*.msix
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Upload unsigned installer
         if: steps.secrets.outputs.sign == 'true'
         id: unsigned-setup
@@ -409,7 +446,9 @@ jobs:
       - name: Create or update release
         run: |
           set -euo pipefail
-          notes="Linux artifact is EXPERIMENTAL: no capture backend is wired on linux yet."
+          notes="Windows: the binaries are not code-signed. If Windows 11 Smart App Control says \"Part of this app has been blocked\", turn it off (Windows Security > App & browser control > Smart App Control settings > Off) - there is no per-app exception. Details: README, \"Windows says Part of this app has been blocked\". A SmartScreen warning is different: More info > Run anyway.
+
+          Linux artifact is EXPERIMENTAL: no capture backend is wired on linux yet."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else

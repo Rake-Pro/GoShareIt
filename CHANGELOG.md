@@ -9,6 +9,27 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 - Go toolchain 1.27rc2 -> 1.27.0
 
 ### Added
+- Windows: Smart App Control guidance. The installer (Inno `InitializeSetup`)
+  and the host's first launch each show, once, why Smart App Control blocks
+  the unsigned GitHub build, that there is no per-app exception, and the two
+  ways out: turn it off (Yes opens Windows Security > App & browser control
+  via `windowsdefender://appbrowser`) or uninstall and install the Microsoft
+  Store build (No opens the Store; in the installer it also cancels setup).
+  Shown only when the SAC registry state is Evaluation or On
+  (`HKLM\...\CI\Policy\VerifiedAndReputablePolicyState`); the app remembers
+  it via `<app root>\smart-app-control-warned`. README gains a "Part of this
+  app has been blocked" section; release notes carry the same pointer.
+- Windows: Microsoft Store package. release.yml now also builds an MSIX
+  (`GoShareIt_<ver>_windows_amd64_msstore_upload.msix`, workflow artifact,
+  90-day retention) from the same exes: manifest at
+  `build/windows/msix/AppxManifest.xml` (full-trust Win32, optional startup
+  task off by default), Store icon set generated from the master logo.
+  Unsigned by design - Partner Center re-signs on submission - so it is not
+  a release asset and not sideloadable. Identity comes from repo variables
+  `MSSTORE_IDENTITY_NAME` / `MSSTORE_PUBLISHER` (placeholders until the app
+  name is reserved). The host detects it runs packaged
+  (`GetCurrentPackageFullName`) and disables the self-updater and the SAC
+  warning; the Store owns updates on that channel.
 - Updates install automatically. The check ~30 s after launch and the
   periodic checks now download, apply and relaunch as soon as a newer release
   is found, announced by an "Updating GoShareIt" notification. A check that
@@ -18,6 +39,16 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   Updates" item still confirms before installing.
 
 ### Fixed
+- Windows: region capture no longer shows a solid grey screen, and the
+  captured image is no longer grey. Gio windows are opaque on Windows, so the
+  overlay's translucent dim had nothing behind it; the host then re-grabbed
+  the screen 150 ms after the overlay closed and often caught the overlay
+  itself. The host now freezes the primary display first, the overlay
+  (`goshareit-editor --region --in screen.png`) paints that frame under the
+  dim with the selection at full brightness, and the region is cropped from
+  the same frozen frame (rect returned in backdrop pixels, DPI-safe). The
+  `region.Selector` interface gains the screen argument; the tray
+  region-recording path passes nil and keeps the plain overlay.
 - Only one GoShareIt host can run per user session. Launching a second copy
   (Start Menu shortcut, startup entry plus manual launch, `open -n`) used to
   yield duplicate tray icons and double hotkey registrations; it now exits
