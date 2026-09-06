@@ -88,6 +88,17 @@ upload:
 # Generic HTTP uploader for arbitrary endpoints. Used when upload.destination is "custom".
 # See internal/core/upload/presets.go (or the settings UI's preset picker) for
 # ready-made imgur/catbox/0x0 starting points.
+# Public host presets are destinations too: set upload.destination to one of
+# imgur, imgbb, imgchest, lensdump, chevereto, catbox, litterbox, uguu, 0x0,
+# pixeldrain, gofile, giphy. The request template is built in; only the key
+# is yours. Keys live in one file per host, default ~/.goshareit/host-<id>.secret
+# (or %USERPROFILE%\goshareit\host-<id>.secret on Windows); override per host:
+# hosts:
+#   imgur:
+#     secret_file: ~/.goshareit/host-imgur.secret
+#   giphy:
+#     secret_env: GOSHAREIT_GIPHY_KEY
+
 # custom:
 #   method: POST
 #   url: https://example.com/upload

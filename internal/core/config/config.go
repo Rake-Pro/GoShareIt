@@ -8,9 +8,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
 
 // EnvConfigPath overrides the config file path when set.
@@ -23,18 +26,19 @@ type Config struct {
 	// settings window.
 	Theme string `yaml:"theme"`
 
-	Nextcloud    NextcloudConfig    `yaml:"nextcloud"`
-	Upload       UploadConfig       `yaml:"upload"`
-	S3           S3Config           `yaml:"s3"`
-	SFTP         SFTPConfig         `yaml:"sftp"`
-	WebDAV       WebDAVConfig       `yaml:"webdav"`
-	Custom       CustomConfig       `yaml:"custom"`
-	AfterCapture AfterCaptureConfig `yaml:"after_capture"`
-	AfterUpload  AfterUploadConfig  `yaml:"after_upload"`
-	Hotkeys      HotkeysConfig      `yaml:"hotkeys"`
-	Editor       EditorConfig       `yaml:"editor"`
-	Update       UpdateConfig       `yaml:"update"`
-	Logging      LoggingConfig      `yaml:"logging"`
+	Nextcloud    NextcloudConfig       `yaml:"nextcloud"`
+	Upload       UploadConfig          `yaml:"upload"`
+	S3           S3Config              `yaml:"s3"`
+	SFTP         SFTPConfig            `yaml:"sftp"`
+	WebDAV       WebDAVConfig          `yaml:"webdav"`
+	Custom       CustomConfig          `yaml:"custom"`
+	Hosts        map[string]HostConfig `yaml:"hosts,omitempty"` // per public-host-preset credentials, keyed by preset id
+	AfterCapture AfterCaptureConfig    `yaml:"after_capture"`
+	AfterUpload  AfterUploadConfig     `yaml:"after_upload"`
+	Hotkeys      HotkeysConfig         `yaml:"hotkeys"`
+	Editor       EditorConfig          `yaml:"editor"`
+	Update       UpdateConfig          `yaml:"update"`
+	Logging      LoggingConfig         `yaml:"logging"`
 
 	// password and the destination secrets below are resolved at load time,
 	// never serialized.
@@ -45,11 +49,40 @@ type Config struct {
 	sftpPassphrase    string `yaml:"-"`
 	webdavPassword    string `yaml:"-"`
 	customSecret      string `yaml:"-"`
+	hostSecret        string `yaml:"-"`
 }
 
-// validUploadDestinations enumerates upload.destination values.
+// validUploadDestinations enumerates the upload.destination values backed by
+// their own config section. Public host preset ids (upload.CustomPresets) are
+// valid too; see IsHostDestination.
 var validUploadDestinations = map[string]bool{
 	"nextcloud": true, "s3": true, "sftp": true, "webdav": true, "custom": true,
+}
+
+// hostDestinationIDs lists the preset ids, sorted, for error messages.
+func hostDestinationIDs() []string {
+	ids := make([]string, 0)
+	for id := range upload.CustomPresets() {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// IsHostDestination reports whether dest names a built-in public host preset
+// (imgur, giphy, ...), which runs on the Custom HTTP uploader with the
+// preset's request template and the host's secret from HostSecret.
+func IsHostDestination(dest string) bool {
+	_, ok := upload.CustomPresets()[dest]
+	return ok
+}
+
+// HostConfig holds the credential for one public host preset. Exactly one
+// of SecretFile/SecretEnv may be set; both empty means the default file
+// <app root>/host-<id>.secret.
+type HostConfig struct {
+	SecretFile string `yaml:"secret_file,omitempty"`
+	SecretEnv  string `yaml:"secret_env,omitempty"`
 }
 
 // S3Config configures the S3-compatible upload destination (upload.destination:
@@ -276,6 +309,20 @@ func (c *Config) WebDAVPassword() string { return c.webdavPassword }
 // CustomSecret returns the resolved custom-destination secret.
 func (c *Config) CustomSecret() string { return c.customSecret }
 
+// HostSecret returns the resolved credential for the active public host
+// destination ("" when the destination is not a host or nothing is set).
+func (c *Config) HostSecret() string { return c.hostSecret }
+
+// HostSecretSource returns the effective secret_file/secret_env for host id,
+// applying the default file when neither is configured.
+func (c *Config) HostSecretSource(id string) (file, env string) {
+	h := c.Hosts[id]
+	if h.SecretFile == "" && h.SecretEnv == "" {
+		return "~/" + dirName() + "/host-" + id + ".secret", ""
+	}
+	return h.SecretFile, h.SecretEnv
+}
+
 // expandHome expands a leading ~ or ~/ to the user's home directory. Go does
 // not do this automatically, so config paths like ~/.config/... need it.
 func expandHome(p string) string {
@@ -500,6 +547,17 @@ func (c *Config) resolveDestinationSecrets() error {
 		return err
 	}
 	c.customSecret = customSecret
+
+	if IsHostDestination(c.Upload.Destination) {
+		// Best-effort: a missing key is reported at upload time with a
+		// pointer to Settings, not as a startup failure.
+		file, env := c.HostSecretSource(c.Upload.Destination)
+		hostSecret, err := resolveSecretPair("hosts."+c.Upload.Destination+".secret", file, env, false)
+		if err != nil {
+			return err
+		}
+		c.hostSecret = hostSecret
+	}
 	return nil
 }
 
@@ -590,8 +648,8 @@ func (c *Config) validate() error {
 	if c.Upload.ShareExpireDays < 0 {
 		return fmt.Errorf("config: upload.share_expire_days must be >= 0")
 	}
-	if !validUploadDestinations[c.Upload.Destination] {
-		return fmt.Errorf("config: upload.destination must be one of nextcloud, s3, sftp, webdav, custom")
+	if !validUploadDestinations[c.Upload.Destination] && !IsHostDestination(c.Upload.Destination) {
+		return fmt.Errorf("config: upload.destination must be one of nextcloud, s3, sftp, webdav, custom, or a public host preset id (%s)", strings.Join(hostDestinationIDs(), ", "))
 	}
 	if !c.UploadEnabled() {
 		// Local-only mode: every destination section is entirely optional.

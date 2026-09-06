@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -78,8 +80,29 @@ func buildUploader(cfg *config.Config) (upload.Uploader, error) {
 			SharePassword:   cfg.Upload.SharePassword,
 		}, nil), nil
 	default:
-		return nil, fmt.Errorf("unknown upload.destination %q", cfg.Upload.Destination)
+		preset, ok := upload.CustomPresets()[cfg.Upload.Destination]
+		if !ok {
+			return nil, fmt.Errorf("unknown upload.destination %q", cfg.Upload.Destination)
+		}
+		secret := cfg.HostSecret()
+		if secret == "" && preset.Secret != "" && !preset.SecretOptional {
+			// Missing key: fail per upload with a pointer to Settings rather
+			// than refusing to start the app.
+			return missingSecretUploader{host: preset.Label, secret: preset.Secret}, nil
+		}
+		pc := preset.CustomConfig
+		pc.URL = substituteSecretValue(pc.URL, secret)
+		pc.Headers = substituteSecret(pc.Headers, secret)
+		pc.ExtraFields = substituteSecret(pc.ExtraFields, secret)
+		return upload.NewCustom(pc, nil), nil
 	}
+}
+
+// missingSecretUploader stands in for a public host whose key is not set.
+type missingSecretUploader struct{ host, secret string }
+
+func (m missingSecretUploader) Upload(context.Context, string, io.Reader, int64, string) (upload.UploadResult, error) {
+	return upload.UploadResult{}, fmt.Errorf("%s needs your %s: open Settings > Upload and enter it", m.host, m.secret)
 }
 
 // substituteSecret replaces the secret placeholders in each map value, so

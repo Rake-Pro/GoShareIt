@@ -9,13 +9,17 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 - Go toolchain 1.27rc2 -> 1.27.0
 
 ### Added
-- Public image, GIF and file host presets for the Custom HTTP destination:
-  Imgur, ImgBB, Imgchest, Lensdump, Chevereto (generic), Catbox, Litterbox,
-  Uguu, 0x0.st, Pixeldrain, Gofile and GIPHY. Each preset carries notes
-  (what it accepts, what the secret is and where to get it) shown under the
-  picker in Settings; keys are never baked in, `{secret}` is filled from the
-  Secret field. No new dependencies: everything runs on the existing
-  net/http uploader.
+- Public image, GIF and file hosts as first-class destinations: Imgur,
+  ImgBB, Imgchest, Lensdump, Chevereto (generic), Catbox, Litterbox, Uguu,
+  0x0.st, Pixeldrain, Gofile and GIPHY appear in the Destination list under
+  "Public hosts"; the panel shows the host's notes (what it accepts, what
+  the key is and where to get it) and a single key field, greyed out for
+  hosts that need none. In YAML: `upload.destination: <id>`, key in
+  `<app root>/host-<id>.secret` or `hosts.<id>.secret_file/secret_env`, one
+  per host so switching hosts keeps every key. A missing required key fails
+  the upload with a pointer to Settings rather than blocking startup. The
+  same presets remain available as starting points inside Custom HTTP. No
+  new dependencies: everything runs on the existing net/http uploader.
 - Custom HTTP engine: response URL templates (`response_url_template`,
   `response_direct_url_template`, `response_delete_url_template`) that build
   a link from `{json:path}`, `{regex}` / `{regex:N}`, `{header:Name}`,

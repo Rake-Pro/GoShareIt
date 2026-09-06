@@ -211,3 +211,54 @@ func TestSubstituteSecretValueForms(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestBuildUploaderHostDestination verifies a public host preset id as the
+// destination yields the preset's request with the per-host key substituted,
+// and that a missing required key produces a Settings-pointing error at
+// upload time instead of a build failure.
+func TestBuildUploaderHostDestination(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "host-imgur.secret")
+	if err := os.WriteFile(keyPath, []byte("cid-42"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfgYAML := "upload:\n  destination: imgur\n" +
+		"hosts:\n  imgur:\n    secret_file: \"" + keyPath + "\"\n"
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.LoadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if loaded.HostSecret() != "cid-42" {
+		t.Fatalf("HostSecret = %q", loaded.HostSecret())
+	}
+	up, err := buildUploader(loaded)
+	if err != nil {
+		t.Fatalf("buildUploader: %v", err)
+	}
+	if _, ok := up.(*upload.Custom); !ok {
+		t.Fatalf("uploader type = %T, want *upload.Custom", up)
+	}
+
+	// Same destination, no key on disk.
+	cfgYAML = "upload:\n  destination: giphy\n" +
+		"hosts:\n  giphy:\n    secret_file: \"" + filepath.Join(dir, "missing.secret") + "\"\n"
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = config.LoadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadFile (missing key): %v", err)
+	}
+	up, err = buildUploader(loaded)
+	if err != nil {
+		t.Fatalf("buildUploader (missing key): %v", err)
+	}
+	_, err = up.Upload(context.Background(), "a.gif", strings.NewReader("x"), 1, "image/gif")
+	if err == nil || !strings.Contains(err.Error(), "Settings") || !strings.Contains(err.Error(), "GIPHY") {
+		t.Fatalf("missing-key upload error = %v, want a GIPHY/Settings pointer", err)
+	}
+}
