@@ -76,6 +76,11 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   Updates" item still confirms before installing.
 
 ### Fixed
+- Windows: the editor (and the region, update and what's-new windows) now
+  come to the foreground on their own instead of opening behind the current
+  app. Windows refuses foreground to a process started by the background
+  tray host; the helper now attaches to the foreground thread's input queue
+  and raises its window once it exists.
 - Windows: region capture crashed the host when the screen could not be
   grabbed for the freeze-frame overlay (locked or secure desktop, RDP): a
   typed-nil frame slipped past the nil check and the PNG encoder
