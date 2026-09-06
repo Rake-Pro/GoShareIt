@@ -10,12 +10,12 @@ require (
 	github.com/pkg/sftp v1.13.11
 	github.com/rs/zerolog v1.35.1
 	github.com/wailsapp/wails/v2 v2.15.0
+	go.yaml.in/yaml/v3 v3.0.5
 	golang.design/x/clipboard v0.9.0
 	golang.design/x/hotkey v0.6.1
 	golang.org/x/crypto v0.56.0
 	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.47.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -61,7 +61,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.design/x/x11 v0.2.0 // indirect
 	golang.org/x/exp/shiny v0.0.0-20260709172345-9ea1abe57597 // indirect
 	golang.org/x/mobile v0.0.0-20260709172247-6129f5bee9d5 // indirect
