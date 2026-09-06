@@ -94,10 +94,25 @@ Structural changes when we do it (all in `cmd/goshareit-settings/`):
   done - AppIcon.icns ships as of v0.0.6.) The master logo exists at
   build/icons/goshareit_icon.png - embed it into the Windows binaries (e.g.
   a `.syso` resource) and wire it into goshareit.iss.
-- Windows Authenticode signing: CI side wired (SignPath Foundation, gated on
-  `SIGNPATH_API_TOKEN`). OPEN: owner applies at signpath.org/apply.html, then
-  creates the project/artifact configurations/policy per docs/RELEASE.md and
-  sets the secret + variables. Until then Smart App Control on Windows 11
-  blocks the unsigned exes ("Part of this app has been blocked"; seen
-  2026-08-21) and cannot be bypassed per-app.
+- Windows Authenticode signing: AT AN IMPASSE (2026-09-06). SignPath
+  Foundation did not accept the project (size), and paid certificates are
+  out by owner decision. CI wiring stays in release.yml, dormant, gated on
+  `SIGNPATH_API_TOKEN` in case that changes. Mitigation shipped instead: the
+  installer and first launch explain Smart App Control and offer the
+  turn-off page (see CHANGELOG); README documents it.
+- Microsoft Store distribution (second install path, alongside the GitHub
+  release): CI SIDE DONE 2026-09-06 - release.yml builds the MSIX upload
+  package as a workflow artifact, the host disables its updater when
+  packaged, the SAC dialogs point users at the Store. OPEN, owner-side:
+  (1) Partner Center individual developer account - carries a one-time
+  registration fee (USD 19 at last check), owner decides; (2) reserve the
+  app name, copy the Package/Identity/Name and Publisher values into repo
+  variables `MSSTORE_IDENTITY_NAME` and `MSSTORE_PUBLISHER`; (3) upload the
+  artifact from the next release and fill in the listing (screenshots,
+  privacy policy URL = PRIVACY.md, age rating); (4) after the first
+  publication swap `windows.MSStoreURL` from the search URL to
+  `ms-windows-store://pdp/?ProductId=<id>`. Later: automate the upload via
+  the Partner Center submission API. Untested until then: toast
+  notifications and the PrintScreen registry tweak from inside the package
+  (MSIX virtualizes HKCU writes), startup-task wiring.
 - 1.0.0 criteria: all on-device validation above green.

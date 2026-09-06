@@ -6,6 +6,14 @@
 // non-empty box or with Enter. Esc, an empty selection on Enter, or closing the
 // window cancels.
 //
+// Backdrop: Gio windows are opaque on Windows, so a translucent dim over
+// "nothing" renders as a solid grey screen. Run therefore takes a frozen
+// capture of the display and paints it under the dim; the selection band shows
+// it at full brightness. The rect is returned in the backdrop's pixel space so
+// the host crops from the same frozen frame instead of re-grabbing the screen
+// after the overlay closes (which raced the window teardown and captured the
+// overlay itself). With a nil backdrop the old plain overlay is drawn.
+//
 // It is build-tagged for darwin and windows only because Gio requires cgo on
 // macOS and a platform GPU backend on both; the Linux/CGO-disabled host build
 // excludes this package entirely.
@@ -28,6 +36,7 @@ package region
 import (
 	"image"
 	"image/color"
+	"math"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -43,13 +52,18 @@ import (
 	"gioui.org/widget/material"
 )
 
-// Run shows the region overlay and returns the selected screen-pixel rectangle.
-// ok is true only when the user confirms a non-empty selection; on Esc, an empty
-// selection, or window close it is false and rect is the zero rectangle. err is
-// non-nil only on a genuine Gio failure. Run blocks until the window closes and
-// must be called on a goroutine other than the one running app.Main.
-func Run() (rect image.Rectangle, ok bool, err error) {
+// Run shows the region overlay and returns the selected rectangle in screen
+// pixels, or in screen's pixel space when a backdrop is given. ok is true only
+// when the user confirms a non-empty selection; on Esc, an empty selection, or
+// window close it is false and rect is the zero rectangle. err is non-nil only
+// on a genuine Gio failure. Run blocks until the window closes and must be
+// called on a goroutine other than the one running app.Main.
+func Run(screen image.Image) (rect image.Rectangle, ok bool, err error) {
 	s := &selector{th: material.NewTheme()}
+	if screen != nil {
+		s.bg = paint.NewImageOp(screen)
+		s.bgSize = screen.Bounds().Size()
+	}
 	w := new(app.Window)
 	w.Option(
 		app.Title("GoShareIt - Select Region"),
@@ -63,6 +77,9 @@ const overlayTag = "goshareit.region.overlay"
 
 type selector struct {
 	th *material.Theme
+
+	bg     paint.ImageOp // frozen screen backdrop; zero value = none
+	bgSize image.Point
 
 	dragging bool
 	from     image.Point
@@ -181,10 +198,29 @@ func (s *selector) confirm() bool {
 	if r.Empty() {
 		return false
 	}
-	s.result = r
+	s.result = toBackdrop(r, s.winSize, s.bgSize)
 	s.confirmed = true
 	s.done = true
 	return true
+}
+
+// toBackdrop maps a window-pixel rectangle into backdrop pixels. Fullscreen on
+// the same display the two normally match; the scale covers a DPI or size
+// mismatch so the host still crops the right area. No backdrop: identity.
+func toBackdrop(r image.Rectangle, win, bg image.Point) image.Rectangle {
+	if bg.X <= 0 || bg.Y <= 0 || win.X <= 0 || win.Y <= 0 || win == bg {
+		return r
+	}
+	sx := float64(bg.X) / float64(win.X)
+	sy := float64(bg.Y) / float64(win.Y)
+	out := image.Rect(
+		int(math.Floor(float64(r.Min.X)*sx)), int(math.Floor(float64(r.Min.Y)*sy)),
+		int(math.Ceil(float64(r.Max.X)*sx)), int(math.Ceil(float64(r.Max.Y)*sy)),
+	).Intersect(image.Rectangle{Max: bg})
+	if out.Dx() < 1 || out.Dy() < 1 {
+		return image.Rectangle{}
+	}
+	return out
 }
 
 func (s *selector) cancel() {
@@ -205,6 +241,17 @@ func (s *selector) selection() image.Rectangle {
 
 func (s *selector) layout(gtx layout.Context) layout.Dimensions {
 	size := gtx.Constraints.Max
+
+	if s.bgSize.X > 0 && s.bgSize.Y > 0 {
+		// Paint the frozen screen under everything, stretched to the window
+		// (normally 1:1).
+		sx := float32(size.X) / float32(s.bgSize.X)
+		sy := float32(size.Y) / float32(s.bgSize.Y)
+		st := op.Affine(f32.Affine2D{}.Scale(f32.Point{}, f32.Pt(sx, sy))).Push(gtx.Ops)
+		s.bg.Add(gtx.Ops)
+		paint.PaintOp{}.Add(gtx.Ops)
+		st.Pop()
+	}
 
 	sel := s.activeRect()
 	dim := color.NRGBA{0x00, 0x00, 0x00, 0xa0}

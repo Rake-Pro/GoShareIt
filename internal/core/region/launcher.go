@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,11 +25,14 @@ import (
 // selection (Esc, empty selection, or window close); no --out is written.
 const cancelledExitCode = 64
 
-// Selector resolves an interactive screen region. ok is false when the user
-// cancels; err is non-nil only on a genuine failure (helper missing, bad
-// output, timeout).
+// Selector resolves an interactive screen region. screen, when non-nil, is a
+// frozen capture of the display the overlay covers: the overlay draws it as its
+// backdrop (the overlay window is opaque on Windows, so without it the user
+// sees a blank grey screen) and the returned rect is in that image's pixel
+// coordinates. ok is false when the user cancels; err is non-nil only on a
+// genuine failure (helper missing, bad output, timeout).
 type Selector interface {
-	Select(ctx context.Context) (rect image.Rectangle, ok bool, err error)
+	Select(ctx context.Context, screen image.Image) (rect image.Rectangle, ok bool, err error)
 }
 
 // Launcher is the host-side Selector. It execs the region overlay helper and
@@ -39,7 +43,7 @@ type Launcher struct {
 }
 
 // Select implements Selector by invoking the out-of-process region overlay.
-func (l Launcher) Select(ctx context.Context) (image.Rectangle, bool, error) {
+func (l Launcher) Select(ctx context.Context, screen image.Image) (image.Rectangle, bool, error) {
 	helper, err := l.resolveHelper()
 	if err != nil {
 		return image.Rectangle{}, false, err
@@ -52,6 +56,25 @@ func (l Launcher) Select(ctx context.Context) (image.Rectangle, bool, error) {
 	defer os.RemoveAll(dir)
 
 	outPath := filepath.Join(dir, "rect.txt")
+	args := []string{"--region", "--out", outPath}
+	if screen != nil {
+		// Uncompressed PNG: this is a hand-off to a local process that must
+		// appear instantly, and a 4K frame compresses in hundreds of ms.
+		inPath := filepath.Join(dir, "screen.png")
+		f, err := os.Create(inPath)
+		if err != nil {
+			return image.Rectangle{}, false, fmt.Errorf("region: write screen: %w", err)
+		}
+		enc := png.Encoder{CompressionLevel: png.NoCompression}
+		if err := enc.Encode(f, screen); err != nil {
+			f.Close()
+			return image.Rectangle{}, false, fmt.Errorf("region: encode screen: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return image.Rectangle{}, false, fmt.Errorf("region: write screen: %w", err)
+		}
+		args = append(args, "--in", inPath)
+	}
 
 	if l.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -59,7 +82,7 @@ func (l Launcher) Select(ctx context.Context) (image.Rectangle, bool, error) {
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(ctx, helper, "--region", "--out", outPath)
+	cmd := exec.CommandContext(ctx, helper, args...)
 	runErr := cmd.Run()
 	if runErr == nil {
 		raw, err := os.ReadFile(outPath)

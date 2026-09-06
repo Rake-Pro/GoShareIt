@@ -147,6 +147,29 @@ func (c *Capturer) grab(ctx context.Context, mode capture.Mode) ([]byte, error) 
 	}
 }
 
+// capturePrimaryDisplay grabs the display whose origin is (0,0) - the primary,
+// which is where the fullscreen overlay opens - and returns its virtual-screen
+// bounds with the frame. Falls back to display 0 if no display sits at the
+// origin.
+func capturePrimaryDisplay() (image.Rectangle, *image.RGBA, error) {
+	n := screenshot.NumActiveDisplays()
+	if n <= 0 {
+		return image.Rectangle{}, nil, fmt.Errorf("windows capture: no active displays")
+	}
+	bounds := screenshot.GetDisplayBounds(0)
+	for i := 1; i < n; i++ {
+		if b := screenshot.GetDisplayBounds(i); b.Min == (image.Point{}) {
+			bounds = b
+			break
+		}
+	}
+	img, err := screenshot.CaptureRect(bounds)
+	if err != nil {
+		return image.Rectangle{}, nil, fmt.Errorf("windows capture: primary display BitBlt: %w", err)
+	}
+	return bounds, img, nil
+}
+
 // captureVirtualScreen grabs the union of all active displays (the full virtual
 // desktop) via GDI BitBlt.
 func (c *Capturer) captureVirtualScreen() ([]byte, error) {
@@ -194,14 +217,30 @@ func (c *Capturer) captureForegroundWindow() ([]byte, error) {
 // image appears or snipTimeout elapses (treated as user cancellation).
 func (c *Capturer) captureInteractive(ctx context.Context) ([]byte, error) {
 	if c.Region != nil {
-		rect, ok, err := c.Region.Select(ctx)
+		// Freeze the primary display first: the overlay paints it as its
+		// backdrop and the selection is cropped from this same frame, so the
+		// overlay window can never end up in the capture.
+		bounds, frame, ferr := capturePrimaryDisplay()
+		if ferr != nil {
+			log.Warn().Err(ferr).Msg("region: could not freeze the screen; overlay will be plain")
+		}
+		rect, ok, err := c.Region.Select(ctx, frame)
 		switch {
 		case err != nil:
 			log.Warn().Err(err).Msg("region overlay failed; falling back to Windows snip UI")
 		case !ok:
 			return nil, ErrCaptureCancelled
+		case frame != nil:
+			crop := rect.Intersect(frame.Bounds())
+			if crop.Empty() {
+				return nil, fmt.Errorf("windows capture: region %v outside the frozen frame %v", rect, frame.Bounds())
+			}
+			c.mu.Lock()
+			c.lastRegion = crop.Add(bounds.Min)
+			c.mu.Unlock()
+			return encodePNG(frame.SubImage(crop))
 		default:
-			// Let the overlay window disappear before grabbing the pixels.
+			// No frozen frame: let the overlay window disappear, then grab.
 			time.Sleep(150 * time.Millisecond)
 			img, err := screenshot.CaptureRect(rect)
 			if err != nil {
