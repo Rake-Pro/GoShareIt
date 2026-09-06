@@ -145,6 +145,7 @@ editor:
 
 update:
   enabled: true           # self-update from GitHub Releases
+  auto_install: true      # install found updates on launch/interval without asking (false = notify only)
   repo: Rake-Pro/GoShareIt
   interval_hours: 24      # background check cadence (plus one check ~30s after launch)
 

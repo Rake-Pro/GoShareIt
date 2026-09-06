@@ -123,8 +123,10 @@ certificate and notarized in CI (menubar-only, `LSUIElement`); see
 docs/RELEASE.md for the signing flow.
 
 The app self-updates: `goshareit` polls the GitHub Releases API anonymously
-on an interval, and the tray "Check for Updates" item lets you check and
-install on demand. No credentials or configuration are needed for updates.
+shortly after launch and then on an interval, and installs a newer release
+as soon as it finds one (set `update.auto_install: false` to be notified
+instead). The tray "Check for Updates" item lets you check and install on
+demand. No credentials or configuration are needed for updates.
 
 - [docs/RELEASE.md](docs/RELEASE.md) - the CI release path, signing secrets,
   and the local `make release` runbook.

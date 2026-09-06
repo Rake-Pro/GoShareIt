@@ -279,6 +279,10 @@ func applyEditingDefaults(cfg *config.Config) {
 		t := true
 		cfg.Update.Enabled = &t
 	}
+	if cfg.Update.AutoInstall == nil {
+		t := true
+		cfg.Update.AutoInstall = &t
+	}
 	if cfg.Upload.Enabled == nil {
 		t := true
 		cfg.Upload.Enabled = &t

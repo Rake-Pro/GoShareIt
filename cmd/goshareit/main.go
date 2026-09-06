@@ -127,7 +127,7 @@ func main() {
 		if err != nil {
 			logger.Warn().Err(err).Msg("updater disabled")
 		} else {
-			updates = newUpdateController(upd, app, time.Duration(cfg.Update.IntervalHours)*time.Hour, cancel)
+			updates = newUpdateController(upd, app, time.Duration(cfg.Update.IntervalHours)*time.Hour, cfg.UpdateAutoInstall(), cancel)
 		}
 	}
 

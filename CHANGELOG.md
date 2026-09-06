@@ -8,6 +8,15 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 - Go toolchain 1.27rc2 -> 1.27.0
 
+### Added
+- Updates install automatically. The check ~30 s after launch and the
+  periodic checks now download, apply and relaunch as soon as a newer release
+  is found, announced by an "Updating GoShareIt" notification. A check that
+  lands mid-recording defers to the next tick. New `update.auto_install`
+  setting (default true; "Install updates automatically" in Settings) turns
+  this off to get the previous notify-only behavior; the tray "Check for
+  Updates" item still confirms before installing.
+
 ### Fixed
 - Only one GoShareIt host can run per user session. Launching a second copy
   (Start Menu shortcut, startup entry plus manual launch, `open -n`) used to
