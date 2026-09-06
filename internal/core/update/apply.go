@@ -26,6 +26,14 @@ func Apply(archivePath string) (relaunchPath string, err error) {
 	if err != nil {
 		return "", fmt.Errorf("update: locate executable: %w", err)
 	}
+	return ApplyFor(archivePath, exe)
+}
+
+// ApplyFor is Apply relative to a given installed executable instead of the
+// running one: the out-of-process updater runs from goshareit-editor, which
+// may live elsewhere (editor.helper_path), while the files to replace sit
+// next to the host binary.
+func ApplyFor(archivePath, exe string) (relaunchPath string, err error) {
 	exe, err = filepath.EvalSymlinks(exe)
 	if err != nil {
 		return "", fmt.Errorf("update: resolve executable: %w", err)

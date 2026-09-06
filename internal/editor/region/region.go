@@ -198,7 +198,11 @@ func (s *selector) confirm() bool {
 	if r.Empty() {
 		return false
 	}
-	s.result = toBackdrop(r, s.winSize, s.bgSize)
+	mapped := toBackdrop(r, s.winSize, s.bgSize)
+	if mapped.Empty() {
+		return false
+	}
+	s.result = mapped
 	s.confirmed = true
 	s.done = true
 	return true
