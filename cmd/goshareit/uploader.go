@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -52,15 +53,19 @@ func buildUploader(cfg *config.Config) (upload.Uploader, error) {
 	case "custom":
 		secret := cfg.CustomSecret()
 		return upload.NewCustom(upload.CustomConfig{
-			Method:                cfg.Custom.Method,
-			URL:                   cfg.Custom.URL,
-			Headers:               substituteSecret(cfg.Custom.Headers, secret),
-			Body:                  cfg.Custom.Body,
-			FileField:             cfg.Custom.FileField,
-			ExtraFields:           substituteSecret(cfg.Custom.ExtraFields, secret),
-			ResponseURLPath:       cfg.Custom.ResponseURLPath,
-			ResponseDirectURLPath: cfg.Custom.ResponseDirectURLPath,
-			ResponseURLRegex:      cfg.Custom.ResponseURLRegex,
+			Method:                    cfg.Custom.Method,
+			URL:                       substituteSecretValue(cfg.Custom.URL, secret),
+			Headers:                   substituteSecret(cfg.Custom.Headers, secret),
+			Body:                      cfg.Custom.Body,
+			FileField:                 cfg.Custom.FileField,
+			ExtraFields:               substituteSecret(cfg.Custom.ExtraFields, secret),
+			ResponseURLPath:           cfg.Custom.ResponseURLPath,
+			ResponseDirectURLPath:     cfg.Custom.ResponseDirectURLPath,
+			ResponseDeleteURLPath:     cfg.Custom.ResponseDeleteURLPath,
+			ResponseURLRegex:          cfg.Custom.ResponseURLRegex,
+			ResponseURLTemplate:       cfg.Custom.ResponseURLTemplate,
+			ResponseDirectURLTemplate: cfg.Custom.ResponseDirectURLTemplate,
+			ResponseDeleteURLTemplate: cfg.Custom.ResponseDeleteURLTemplate,
 		}, nil), nil
 	case "nextcloud", "":
 		return upload.NewNextcloud(upload.NextcloudConfig{
@@ -77,16 +82,25 @@ func buildUploader(cfg *config.Config) (upload.Uploader, error) {
 	}
 }
 
-// substituteSecret replaces a literal "{secret}" placeholder in each map
-// value with secret, so custom-uploader tokens never live in the YAML. A nil
-// map stays nil.
+// substituteSecret replaces the secret placeholders in each map value, so
+// custom-uploader tokens never live in the YAML. A nil map stays nil.
 func substituteSecret(m map[string]string, secret string) map[string]string {
 	if m == nil {
 		return nil
 	}
 	out := make(map[string]string, len(m))
 	for k, v := range m {
-		out[k] = strings.ReplaceAll(v, "{secret}", secret)
+		out[k] = substituteSecretValue(v, secret)
 	}
 	return out
+}
+
+// substituteSecretValue fills {secret} (verbatim), {secret:base64} (the
+// secret base64-encoded) and {secret:basic} (HTTP Basic credentials with an
+// empty username, i.e. base64(":" + secret), the convention API-key hosts such
+// as pixeldrain use).
+func substituteSecretValue(v, secret string) string {
+	v = strings.ReplaceAll(v, "{secret:base64}", base64.StdEncoding.EncodeToString([]byte(secret)))
+	v = strings.ReplaceAll(v, "{secret:basic}", base64.StdEncoding.EncodeToString([]byte(":"+secret)))
+	return strings.ReplaceAll(v, "{secret}", secret)
 }

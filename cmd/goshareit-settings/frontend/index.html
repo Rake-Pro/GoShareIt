@@ -343,18 +343,23 @@ const SCHEMA = [
         { p: "WebDAV.URLTemplate", l: "Public URL template", t: "text", hint: "{name} {path}; blank = the PUT URL" },
       ]},
       { key: "custom", label: "Custom HTTP settings", fields: [
-        { p: "@custom_preset", l: "Preset", t: "preset", hint: "prefills the fields below client-side; still requires Save" },
+        { p: "@custom_preset", l: "Public host preset", t: "preset", hint: "prefills the fields below client-side; still requires Save" },
         { p: "Custom.Method", l: "Method", t: "select", opts: ["POST", "PUT"] },
-        { p: "Custom.URL",    l: "URL", t: "text", hint: "supports {name} {mime}" },
-        { p: "Custom.Headers", l: "Headers", t: "kv", hint: "one key=value per line; values support {name} {mime} {secret}" },
+        { p: "Custom.URL",    l: "URL", t: "text", hint: "supports {name} {mime} {secret}" },
+        { p: "Custom.Headers", l: "Headers", t: "kv", hint: "one key=value per line; values support {name} {mime} {secret} {secret:base64} {secret:basic}" },
         { p: "Custom.Body",      l: "Body", t: "select", opts: ["multipart", "raw"] },
         { p: "Custom.FileField", l: "File field", t: "text", hint: "multipart field name for the file; default \"file\"" },
         { p: "Custom.ExtraFields", l: "Extra fields", t: "kv",
           hint: "multipart only; one key=value per line; values support {name} {mime} {secret}" },
-        { p: "@custom_secret", l: "Secret", t: "secret", hint: "substitutes {secret} in headers/extra fields above" },
+        { p: "@custom_secret", l: "Secret", t: "secret", hint: "API key or token; substitutes {secret} in the URL, headers and extra fields above" },
         { p: "Custom.ResponseURLPath",       l: "Response URL path",        t: "text", hint: "dot path into a JSON response, e.g. data.link" },
-        { p: "Custom.ResponseDirectURLPath", l: "Response direct URL path", t: "text", hint: "blank = same as response URL path" },
-        { p: "Custom.ResponseURLRegex",      l: "Response URL regex",       t: "text", hint: "used instead of response URL path; first capture group is the URL" },
+        { p: "Custom.ResponseDirectURLPath", l: "Response direct URL path", t: "text", hint: "blank = same as response URL" },
+        { p: "Custom.ResponseDeleteURLPath", l: "Response delete URL path", t: "text", hint: "optional; the deletion link is kept in history" },
+        { p: "Custom.ResponseURLRegex",      l: "Response URL regex",       t: "text", hint: "used instead of response URL path; first capture group is the URL; also feeds {regex} in templates" },
+        { p: "Custom.ResponseURLTemplate",       l: "Response URL template",        t: "text",
+          hint: "for hosts that return an id: {json:path} {regex} {regex:N} {header:Name} {response} {name}; overrides the path/regex" },
+        { p: "Custom.ResponseDirectURLTemplate", l: "Response direct URL template", t: "text", hint: "same placeholders" },
+        { p: "Custom.ResponseDeleteURLTemplate", l: "Response delete URL template", t: "text", hint: "same placeholders; optional" },
       ]},
     ],
     tailFields: [
@@ -536,9 +541,11 @@ function renderFieldRow(f) {
     stacked = true;
     control = `<textarea class="input" id="${id}" rows="3">${esc(kvToText(val))}</textarea>`;
   } else if (f.t === "preset") {
-    control = `<span class="popup"><select id="${id}"><option value="">(choose a preset)</option>` +
-      Object.keys(presets).sort().map(k => `<option value="${k}">${esc(k)}</option>`).join("") + `</select>${CHEVRON}</span>` +
-      `<button type="button" class="btn btn-plain btn-sm" id="btn_apply_preset">Apply preset</button>`;
+    const keys = Object.keys(presets).sort((a, b) => (presets[a].Label || a).localeCompare(presets[b].Label || b));
+    control = `<span class="popup"><select id="${id}"><option value="">(choose a host)</option>` +
+      keys.map(k => `<option value="${k}">${esc(presets[k].Label || k)}</option>`).join("") + `</select>${CHEVRON}</span>` +
+      `<button type="button" class="btn btn-plain btn-sm" id="btn_apply_preset">Apply preset</button>` +
+      `<div class="row-hint" id="preset_help"></div>`;
   } else if (f.t === "secret") {
     const envVar = secretEnvVar(f.p);
     if (envVar) {
@@ -750,11 +757,34 @@ function applyPreset(key) {
   $(fieldId("Custom.ExtraFields")).value = kvToText(p.ExtraFields);
   $(fieldId("Custom.ResponseURLPath")).value = p.ResponseURLPath || "";
   $(fieldId("Custom.ResponseDirectURLPath")).value = p.ResponseDirectURLPath || "";
+  $(fieldId("Custom.ResponseDeleteURLPath")).value = p.ResponseDeleteURLPath || "";
   $(fieldId("Custom.ResponseURLRegex")).value = p.ResponseURLRegex || "";
-  let msg = `Preset "${key}" applied to the Custom panel - review then Save.`;
-  if (key === "imgur") msg += " Register your own client ID at api.imgur.com/oauth2/addclient and replace YOUR_CLIENT_ID in the Authorization header.";
+  $(fieldId("Custom.ResponseURLTemplate")).value = p.ResponseURLTemplate || "";
+  $(fieldId("Custom.ResponseDirectURLTemplate")).value = p.ResponseDirectURLTemplate || "";
+  $(fieldId("Custom.ResponseDeleteURLTemplate")).value = p.ResponseDeleteURLTemplate || "";
+  let msg = `${p.Label || key} applied to the Custom HTTP panel - review, then Save.`;
+  if (p.Secret && !p.SecretOptional) msg += ` Paste your ${p.Secret} into the Secret field.`;
   status(msg, "ok");
 }
+
+// presetHelp shows the chosen host's notes (what it takes, what the secret
+// is, where to get it) under the picker before anything is applied.
+function presetHelp(key) {
+  const el = $("preset_help");
+  if (!el) return;
+  const p = presets[key];
+  if (!p) { el.textContent = ""; return; }
+  const parts = [];
+  if (p.Kinds) parts.push("Accepts: " + p.Kinds + ".");
+  if (p.Secret) parts.push("Secret: " + p.Secret + (p.SecretOptional ? " (optional)." : " (required)."));
+  else parts.push("No account or key needed.");
+  if (p.Help) parts.push(p.Help);
+  el.textContent = parts.join(" ");
+}
+
+document.addEventListener("change", (e) => {
+  if (e.target.id === fieldId("@custom_preset")) presetHelp(e.target.value);
+});
 
 function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
 

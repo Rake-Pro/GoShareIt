@@ -207,10 +207,10 @@ func (s *Service) ResetDefaults() (*LoadResult, error) {
 	return s.loadResult(cfg), nil
 }
 
-// Presets returns the built-in custom-uploader starting points (imgur,
-// catbox, 0x0) for the settings UI's preset picker, so the data lives in one
-// place instead of being duplicated in JS.
-func (s *Service) Presets() map[string]upload.CustomConfig {
+// Presets returns the built-in public-host presets (request template plus
+// notes) for the settings UI's preset picker, so the data lives in one place
+// instead of being duplicated in JS.
+func (s *Service) Presets() map[string]upload.Preset {
 	return upload.CustomPresets()
 }
 

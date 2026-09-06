@@ -9,6 +9,20 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 - Go toolchain 1.27rc2 -> 1.27.0
 
 ### Added
+- Public image, GIF and file host presets for the Custom HTTP destination:
+  Imgur, ImgBB, Imgchest, Lensdump, Chevereto (generic), Catbox, Litterbox,
+  Uguu, 0x0.st, Pixeldrain, Gofile and GIPHY. Each preset carries notes
+  (what it accepts, what the secret is and where to get it) shown under the
+  picker in Settings; keys are never baked in, `{secret}` is filled from the
+  Secret field. No new dependencies: everything runs on the existing
+  net/http uploader.
+- Custom HTTP engine: response URL templates (`response_url_template`,
+  `response_direct_url_template`, `response_delete_url_template`) that build
+  a link from `{json:path}`, `{regex}` / `{regex:N}`, `{header:Name}`,
+  `{response}` and `{name}` for hosts that return an id instead of a URL;
+  `response_delete_url_path`; `{secret}` also substitutes in the URL, and
+  `{secret:base64}` / `{secret:basic}` cover Basic-auth API keys. Deletion
+  links land in history (`delete_url`) and the log.
 - Windows: Smart App Control guidance. The installer (Inno `InitializeSetup`)
   and the host's first launch each show, once, why Smart App Control blocks
   the unsigned GitHub build, that there is no per-app exception, and the two
