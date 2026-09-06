@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // StarterConfig is written on first run so the app never fails merely because it
