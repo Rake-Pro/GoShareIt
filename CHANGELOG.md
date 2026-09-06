@@ -76,6 +76,20 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   Updates" item still confirms before installing.
 
 ### Fixed
+- Windows: region capture crashed the host when the screen could not be
+  grabbed for the freeze-frame overlay (locked or secure desktop, RDP): a
+  typed-nil frame slipped past the nil check and the PNG encoder
+  dereferenced it. The overlay now falls back to the plain dim as intended.
+- Windows: "Record Region" now gets the same frozen-screen backdrop as
+  screenshots instead of the opaque grey overlay.
+- Region overlay: a selection that collapses to nothing after DPI mapping is
+  treated as "no selection" rather than confirmed as an empty rectangle.
+- Settings: switching the public host before saving no longer writes the key
+  typed for the previous host into the new host's secret file.
+- Updater (new in this release): any failure after the host has quit brings
+  the old host back before reporting; closing the progress window does not
+  interrupt a swap in progress; the install targets the host's directory
+  even when `editor.helper_path` points elsewhere.
 - Windows: no more console window flashing on every notification, dialog
   and recording. The host is a windowsgui binary, so each powershell.exe
   (toasts, confirm dialogs) and ffmpeg.exe child opened its own console for a

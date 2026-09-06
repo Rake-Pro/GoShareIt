@@ -708,6 +708,9 @@ function syncHostPanel(dest) {
   }
   const key = $(fieldId("@host_secret"));
   if (key && !key.dataset.locked) {
+    // The key is per host: a value typed for the previous host must not be
+    // saved under this one.
+    if (key.dataset.host !== dest) { key.value = ""; key.dataset.host = dest; }
     const has = !!((model.hostSecrets || {})[dest]);
     key.placeholder = has ? "(unchanged)" : (p && !p.Secret ? "not needed for this host" : "not set - enter to configure");
     key.disabled = !!(p && !p.Secret);

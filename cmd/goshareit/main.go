@@ -133,11 +133,13 @@ func main() {
 		} else {
 			updates = newUpdateController(upd, app, time.Duration(cfg.Update.IntervalHours)*time.Hour, cfg.UpdateAutoInstall(), cancel)
 			if runtime.GOOS != "linux" {
-				if relaunch, err := update.SelfLaunchPath(); err == nil {
+				hostExe, _ := os.Executable()
+				if relaunch, err := update.SelfLaunchPath(); err == nil && hostExe != "" {
 					updates.enableHandoff(cfg.Editor.HelperPath, update.Job{
 						Repo:     cfg.Update.Repo,
 						Current:  version.Version,
 						Relaunch: relaunch,
+						HostExe:  hostExe,
 						Args:     os.Args[1:],
 						Theme:    cfg.Theme,
 					})
@@ -253,7 +255,17 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		// The overlay blocks on its own process, so run it off the tray callback
 		// goroutine; recording only starts after the user confirms a rectangle.
 		go func() {
-			rect, ok, err := regionSel.Select(ctx, nil)
+			// Same frozen backdrop as screenshots where the platform provides
+			// one (the overlay window is opaque on Windows); nil = plain overlay.
+			var screen image.Image
+			if regionFreeze != nil {
+				if img, err := regionFreeze(); err == nil {
+					screen = img
+				} else {
+					log.Warn().Err(err).Msg("region: could not freeze the screen; overlay will be plain")
+				}
+			}
+			rect, ok, err := regionSel.Select(ctx, screen)
 			if err != nil {
 				log.Error().Err(err).Msg("region select failed")
 				return

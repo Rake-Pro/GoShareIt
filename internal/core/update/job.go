@@ -19,6 +19,7 @@ type Job struct {
 	Current    string   `json:"current"`  // host version, for the newer-than check
 	HostPID    int      `json:"host_pid"` // process to wait for before touching files
 	Relaunch   string   `json:"relaunch"` // SelfLaunchPath of the host (exe, or .app on darwin)
+	HostExe    string   `json:"host_exe"` // the host binary; the install happens next to it
 	Args       []string `json:"args"`     // host args to forward on relaunch (e.g. --config)
 	Theme      string   `json:"theme"`    // "light" | "dark" | "" (system) for the updater window
 }

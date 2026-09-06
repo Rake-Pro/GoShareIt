@@ -54,6 +54,7 @@ func (s *state) set(phase, detail string, progress float32) {
 // user closes it in that case).
 func Run(job update.Job, dark bool) error {
 	st := &state{progress: -1}
+	workerDone := make(chan struct{})
 	w := new(app.Window)
 	w.Option(
 		app.Title("GoShareIt Update"),
@@ -63,6 +64,7 @@ func Run(job update.Job, dark bool) error {
 	)
 
 	go func() {
+		defer close(workerDone)
 		err := perform(job, st, w)
 		st.mu.Lock()
 		st.err = err
@@ -76,11 +78,22 @@ func Run(job update.Job, dark bool) error {
 		}
 	}()
 
-	return loop(w, st, dark)
+	err := loop(w, st, dark)
+	// The window can be closed at any time; the install itself must not be
+	// interrupted half-way through a file swap, so wait for the worker.
+	<-workerDone
+	st.mu.Lock()
+	if err == nil {
+		err = st.err
+	}
+	st.mu.Unlock()
+	return err
 }
 
-// perform is the update itself; UI state flows through st.
-func perform(job update.Job, st *state, w *app.Window) error {
+// perform is the update itself; UI state flows through st. The host has
+// already quit by the time this runs, so any failure before the swap brings
+// the old host back before reporting.
+func perform(job update.Job, st *state, w *app.Window) (err error) {
 	ctx := context.Background()
 
 	st.set("Waiting for GoShareIt to close", "", -1)
@@ -88,6 +101,17 @@ func perform(job update.Job, st *state, w *app.Window) error {
 	if !update.WaitExit(job.HostPID, hostExitWait) {
 		log.Warn().Int("pid", job.HostPID).Msg("host still running after wait; continuing")
 	}
+	installed := false
+	defer func() {
+		if err == nil || installed {
+			return
+		}
+		if rerr := update.Relaunch(job.Relaunch, job.Args...); rerr != nil {
+			err = fmt.Errorf("%w (and GoShareIt could not be restarted: %v; start it manually)", err, rerr)
+		} else {
+			err = fmt.Errorf("%w (GoShareIt has been restarted unchanged)", err)
+		}
+	}()
 
 	upd, err := update.New(update.Config{Repo: job.Repo, Current: job.Current, APIBaseURL: job.APIBaseURL})
 	if err != nil {
@@ -103,6 +127,7 @@ func perform(job update.Job, st *state, w *app.Window) error {
 		// Already current (raced with another install); just bring the host back.
 		st.set("Already up to date", "Starting GoShareIt", -1)
 		w.Invalidate()
+		installed = true
 		return update.Relaunch(job.Relaunch, job.Args...)
 	}
 
@@ -125,17 +150,18 @@ func perform(job update.Job, st *state, w *app.Window) error {
 
 	st.set("Installing v"+rel.Version, "", -1)
 	w.Invalidate()
-	relaunch, err := update.Apply(archive)
-	if err != nil {
+	target := job.HostExe
+	if target == "" {
+		target = job.Relaunch
+	}
+	if _, err := update.ApplyFor(archive, target); err != nil {
 		return err
 	}
-	if job.Relaunch != "" {
-		relaunch = job.Relaunch
-	}
+	installed = true
 
 	st.set("Starting GoShareIt", "v"+rel.Version+" installed", 1)
 	w.Invalidate()
-	if err := update.Relaunch(relaunch, job.Args...); err != nil {
+	if err := update.Relaunch(job.Relaunch, job.Args...); err != nil {
 		return fmt.Errorf("installed v%s but could not start it: %w (start GoShareIt manually)", rel.Version, err)
 	}
 	return nil

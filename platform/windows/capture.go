@@ -147,6 +147,16 @@ func (c *Capturer) grab(ctx context.Context, mode capture.Mode) ([]byte, error) 
 	}
 }
 
+// FreezePrimaryDisplay returns a frame of the primary display for the region
+// overlay's backdrop (record-region path in the host).
+func FreezePrimaryDisplay() (image.Image, error) {
+	_, frame, err := capturePrimaryDisplay()
+	if err != nil {
+		return nil, err
+	}
+	return frame, nil
+}
+
 // capturePrimaryDisplay grabs the display whose origin is (0,0) - the primary,
 // which is where the fullscreen overlay opens - and returns its virtual-screen
 // bounds with the frame. Falls back to display 0 if no display sits at the
@@ -221,10 +231,14 @@ func (c *Capturer) captureInteractive(ctx context.Context) ([]byte, error) {
 		// backdrop and the selection is cropped from this same frame, so the
 		// overlay window can never end up in the capture.
 		bounds, frame, ferr := capturePrimaryDisplay()
+		var screen image.Image // stays a true nil interface when the grab failed
 		if ferr != nil {
 			log.Warn().Err(ferr).Msg("region: could not freeze the screen; overlay will be plain")
+			frame = nil
+		} else {
+			screen = frame
 		}
-		rect, ok, err := c.Region.Select(ctx, frame)
+		rect, ok, err := c.Region.Select(ctx, screen)
 		switch {
 		case err != nil:
 			log.Warn().Err(err).Msg("region overlay failed; falling back to Windows snip UI")
