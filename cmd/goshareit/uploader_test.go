@@ -202,3 +202,12 @@ func typeName(v upload.Uploader) string {
 		return "unknown"
 	}
 }
+
+// TestSubstituteSecretValueForms covers the three secret placeholder forms.
+func TestSubstituteSecretValueForms(t *testing.T) {
+	got := substituteSecretValue("k={secret} b={secret:base64} a={secret:basic}", "tok")
+	want := "k=tok b=dG9r a=OnRvaw=="
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

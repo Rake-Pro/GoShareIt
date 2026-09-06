@@ -117,6 +117,34 @@ mode**: nothing leaves the machine and the whole Nextcloud section becomes
 optional. Captures still save locally / copy to clipboard / notify per your
 after-capture settings.
 
+### Public image, GIF and file hosts
+
+No server of your own? Pick "Custom HTTP" as the destination and choose a
+host preset in the settings UI. The preset fills in the request; you add the
+host's API key as the Secret where one is needed, then Save. Anything not
+listed works too if it takes an HTTP upload: the Custom HTTP panel is a
+generic uploader (method, URL, headers, multipart or raw body, and JSON
+path, regex or template extraction of the resulting link).
+
+| Preset | Accepts | Key | Notes |
+|---|---|---|---|
+| Imgur | images, GIFs, video | Client ID (free app registration) | deletion link kept in history; set file field to `video` for MP4 |
+| ImgBB | images, GIFs (32 MB) | API key | deletion link kept in history |
+| Imgchest | images, GIFs | API key | uploads become posts on your account |
+| Lensdump | images, GIFs | API key | Chevereto host |
+| Chevereto (any host) | images, GIFs | API key | edit the host in the URL |
+| Catbox | any file (200 MB) | none (optional userhash) | permanent |
+| Litterbox | any file (1 GB) | none | temporary, 1 h to 72 h |
+| Uguu | any file (128 MB) | none | temporary, 3 h |
+| 0x0.st | any file (512 MB) | none | 30 to 365 days by size |
+| Pixeldrain | any file (20 GB) | API key | account retention rules apply |
+| Gofile | any file | none (optional token) | guest uploads expire when unused |
+| GIPHY | GIFs, short video (100 MB) | API key | lands in your GIPHY account |
+
+Not available: Tenor has no public upload API, and Gfycat shut down.
+Deletion links, when a host returns one, are written to `history.jsonl`
+(`delete_url`) and logged at upload time.
+
 ## Validated upload flow
 
 Applies when `upload.enabled: true` (the default; off = local-only mode, see

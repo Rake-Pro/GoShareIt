@@ -10,6 +10,7 @@ import (
 type UploadResult struct {
 	PublicURL  string // viewer page, stored in history
 	DirectURL  string // raw-bytes download link, copied to clipboard
+	DeleteURL  string // optional removal link some hosts return; stored in history
 	ShareToken string
 }
 

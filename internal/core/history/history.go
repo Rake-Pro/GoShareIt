@@ -20,6 +20,7 @@ type Entry struct {
 	Time       time.Time `json:"time"`
 	PublicURL  string    `json:"public_url"`
 	DirectURL  string    `json:"direct_url"`
+	DeleteURL  string    `json:"delete_url,omitempty"`
 	ShareToken string    `json:"share_token"`
 }
 

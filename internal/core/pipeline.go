@@ -154,9 +154,13 @@ func (a *App) upload(ctx context.Context, fname string, res capture.Result) (upl
 		Time:       time.Now(),
 		PublicURL:  up.PublicURL,
 		DirectURL:  up.DirectURL,
+		DeleteURL:  up.DeleteURL,
 		ShareToken: up.ShareToken,
 	}); err != nil {
 		a.log.Warn().Err(err).Msg("history append failed")
+	}
+	if up.DeleteURL != "" {
+		a.log.Info().Str("delete_url", up.DeleteURL).Str("file", fname).Msg("upload deletion link (also in history)")
 	}
 
 	if a.cfg.AfterUpload.Notify && a.notifier != nil {

@@ -113,7 +113,14 @@ type CustomConfig struct {
 	SecretEnv             string            `yaml:"secret_env"`
 	ResponseURLPath       string            `yaml:"response_url_path"`
 	ResponseDirectURLPath string            `yaml:"response_direct_url_path"`
+	ResponseDeleteURLPath string            `yaml:"response_delete_url_path"`
 	ResponseURLRegex      string            `yaml:"response_url_regex"`
+	// Templates assemble a URL from response pieces: {json:path}, {regex},
+	// {regex:N}, {header:Name}, {response}, {name}. A template wins over the
+	// matching *_path / regex when both are set.
+	ResponseURLTemplate       string `yaml:"response_url_template"`
+	ResponseDirectURLTemplate string `yaml:"response_direct_url_template"`
+	ResponseDeleteURLTemplate string `yaml:"response_delete_url_template"`
 }
 
 // NextcloudConfig holds connection settings. The password itself comes from

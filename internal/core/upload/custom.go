@@ -23,7 +23,18 @@ type CustomConfig struct {
 	ExtraFields           map[string]string // additional multipart form fields; values support {name} {mime}. Ignored for raw bodies.
 	ResponseURLPath       string            // dot path into a JSON response for the public URL, e.g. "data.link"; array indices are numeric segments
 	ResponseDirectURLPath string            // same, for the direct URL; falls back to the resolved public URL when empty
-	ResponseURLRegex      string            // used for the public URL when ResponseURLPath is empty; the first capture group is the URL
+	ResponseDeleteURLPath string            // same, for a deletion URL; optional
+	ResponseURLRegex      string            // used for the public URL when ResponseURLPath is empty; the first capture group is the URL; also feeds {regex} / {regex:N} in templates
+
+	// Templates build a URL from pieces of the response when the response does
+	// not contain a ready-made URL (most hosts return an id). Placeholders:
+	// {json:path} (dot path as above), {regex} / {regex:N} (capture group of
+	// ResponseURLRegex), {header:Name} (response header), {response} (whole
+	// trimmed body), {name} (uploaded filename). A template wins over the
+	// matching *Path / Regex field when both are set.
+	ResponseURLTemplate       string
+	ResponseDirectURLTemplate string
+	ResponseDeleteURLTemplate string
 }
 
 // Custom uploads via an arbitrary HTTP endpoint using a configurable request
@@ -119,18 +130,25 @@ func (c *Custom) Upload(ctx context.Context, name string, body io.Reader, size i
 		return UploadResult{}, fmt.Errorf("custom upload: unexpected status %d: %s", resp.StatusCode, snippet)
 	}
 
-	publicURL, err := c.resolvePublicURL(b)
+	publicURL, err := c.resolveURL(b, resp.Header, name, c.cfg.ResponseURLTemplate, c.cfg.ResponseURLPath, c.cfg.ResponseURLRegex)
 	if err != nil {
 		return UploadResult{}, err
 	}
 	directURL := publicURL
-	if c.cfg.ResponseDirectURLPath != "" {
-		directURL, err = jsonDotPath(b, c.cfg.ResponseDirectURLPath)
+	if c.cfg.ResponseDirectURLTemplate != "" || c.cfg.ResponseDirectURLPath != "" {
+		directURL, err = c.resolveURL(b, resp.Header, name, c.cfg.ResponseDirectURLTemplate, c.cfg.ResponseDirectURLPath, "")
 		if err != nil {
 			return UploadResult{}, err
 		}
 	}
-	return UploadResult{PublicURL: publicURL, DirectURL: directURL}, nil
+	var deleteURL string
+	if c.cfg.ResponseDeleteURLTemplate != "" || c.cfg.ResponseDeleteURLPath != "" {
+		// A missing deletion URL is not worth failing a successful upload.
+		if u, derr := c.resolveURL(b, resp.Header, name, c.cfg.ResponseDeleteURLTemplate, c.cfg.ResponseDeleteURLPath, ""); derr == nil {
+			deleteURL = u
+		}
+	}
+	return UploadResult{PublicURL: publicURL, DirectURL: directURL, DeleteURL: deleteURL}, nil
 }
 
 // writeMultipart streams ExtraFields then the file part into mw, closing it
@@ -152,15 +170,71 @@ func (c *Custom) writeMultipart(mw *multipart.Writer, name, mime string, body io
 	return mw.Close()
 }
 
-func (c *Custom) resolvePublicURL(body []byte) (string, error) {
+// resolveURL picks one URL out of the response: template first, then JSON
+// dot path, then regex capture group 1, else the whole trimmed body.
+func (c *Custom) resolveURL(body []byte, hdr http.Header, name, tmpl, path, regex string) (string, error) {
 	switch {
-	case c.cfg.ResponseURLPath != "":
-		return jsonDotPath(body, c.cfg.ResponseURLPath)
-	case c.cfg.ResponseURLRegex != "":
-		return regexCapture(body, c.cfg.ResponseURLRegex)
+	case tmpl != "":
+		return renderResponseTemplate(tmpl, body, hdr, name, c.cfg.ResponseURLRegex)
+	case path != "":
+		return jsonDotPath(body, path)
+	case regex != "":
+		return regexCapture(body, regex, 1)
 	default:
 		return strings.TrimSpace(string(body)), nil
 	}
+}
+
+// responsePlaceholder matches {json:...}, {regex}, {regex:N}, {header:...},
+// {response} and {name} in a response URL template.
+var responsePlaceholder = regexp.MustCompile(`\{(json|regex|header|response|name)(?::([^}]*))?\}`)
+
+func renderResponseTemplate(tmpl string, body []byte, hdr http.Header, name, regex string) (string, error) {
+	var firstErr error
+	out := responsePlaceholder.ReplaceAllStringFunc(tmpl, func(m string) string {
+		sm := responsePlaceholder.FindStringSubmatch(m)
+		kind, arg := sm[1], sm[2]
+		var v string
+		var err error
+		switch kind {
+		case "json":
+			v, err = jsonDotPath(body, arg)
+		case "regex":
+			group := 1
+			if arg != "" {
+				if group, err = strconv.Atoi(arg); err != nil {
+					err = fmt.Errorf("custom upload: template %q: bad regex group %q", tmpl, arg)
+				}
+			}
+			if err == nil {
+				if regex == "" {
+					err = fmt.Errorf("custom upload: template %q uses {regex} but no response URL regex is set", tmpl)
+				} else {
+					v, err = regexCapture(body, regex, group)
+				}
+			}
+		case "header":
+			v = hdr.Get(arg)
+			if v == "" {
+				err = fmt.Errorf("custom upload: template %q: response header %q missing", tmpl, arg)
+			}
+		case "response":
+			v = strings.TrimSpace(string(body))
+		case "name":
+			v = name
+		}
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return v
+	})
+	if firstErr != nil {
+		return "", firstErr
+	}
+	if strings.TrimSpace(out) == "" {
+		return "", fmt.Errorf("custom upload: template %q rendered empty", tmpl)
+	}
+	return out, nil
 }
 
 // jsonDotPath walks a JSON document following a dot-separated path (e.g.
@@ -197,16 +271,19 @@ func jsonDotPath(body []byte, path string) (string, error) {
 	return s, nil
 }
 
-func regexCapture(body []byte, pattern string) (string, error) {
+func regexCapture(body []byte, pattern string, group int) (string, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", fmt.Errorf("custom upload: compile response regex: %w", err)
 	}
 	m := re.FindSubmatch(body)
-	if len(m) < 2 {
-		return "", fmt.Errorf("custom upload: response regex %q did not match (with a capture group)", pattern)
+	if m == nil {
+		return "", fmt.Errorf("custom upload: response regex %q did not match", pattern)
 	}
-	return string(m[1]), nil
+	if group < 0 || group >= len(m) {
+		return "", fmt.Errorf("custom upload: response regex %q has no capture group %d", pattern, group)
+	}
+	return string(m[group]), nil
 }
 
 func createFormFile(mw *multipart.Writer, fieldname, filename, mime string) (io.Writer, error) {

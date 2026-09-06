@@ -101,7 +101,17 @@ upload:
 #   # secret_env: GOSHAREIT_CUSTOM_SECRET
 #   response_url_path: ""                      # dot path into a JSON response, e.g. "data.link"
 #   response_direct_url_path: ""               # same, for the direct URL; blank = same as public URL
+#   response_delete_url_path: ""               # optional; deletion link, kept in history
 #   response_url_regex: ""                     # used instead of response_url_path; first capture group is the URL
+#   # Templates build a URL for hosts that return an id instead of a link:
+#   # {json:path} {regex} {regex:N} {header:Name} {response} {name}. A template
+#   # wins over the matching *_path / regex. Example (Imgchest):
+#   # response_url_template: "https://imgchest.com/p/{json:data.id}"
+#   response_url_template: ""
+#   response_direct_url_template: ""
+#   response_delete_url_template: ""
+#   # {secret} also works in url; {secret:base64} and {secret:basic} (HTTP Basic
+#   # with an empty username) are available in headers and fields.
 
 after_capture:
   copy_image_to_clipboard: false
