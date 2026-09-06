@@ -135,7 +135,7 @@ func (r *Recorder) StartRegion(ctx context.Context, mode capture.Mode, rect imag
 	// ctx is NOT passed to CommandContext: cancellation must trigger a clean 'q'
 	// stop (handled below), not the hard SIGKILL that exec.CommandContext sends,
 	// which would corrupt the mp4. We watch ctx separately.
-	cmd := exec.Command(ffmpeg, args...)
+	cmd := noConsole(exec.Command(ffmpeg, args...))
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

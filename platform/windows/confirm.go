@@ -23,10 +23,10 @@ func NewConfirmer() *Confirmer { return &Confirmer{} }
 // Yes. It blocks until the user answers.
 func (c *Confirmer) Confirm(title, body, _, _ string) (bool, error) {
 	script := buildConfirmScript(title, body)
-	cmd := exec.Command("powershell.exe",
+	cmd := noConsole(exec.Command("powershell.exe",
 		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
 		"-Command", script,
-	)
+	))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("windows confirm: powershell failed: %v: %s", err, out)
@@ -39,10 +39,10 @@ func (c *Confirmer) Confirm(title, body, _, _ string) (bool, error) {
 // are fixed.
 func (c *Confirmer) Choose(title, body string) (string, error) {
 	script := buildChoiceScript(title, body)
-	cmd := exec.Command("powershell.exe",
+	cmd := noConsole(exec.Command("powershell.exe",
 		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
 		"-Command", script,
-	)
+	))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("windows choose: powershell failed: %v: %s", err, out)

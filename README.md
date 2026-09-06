@@ -181,7 +181,13 @@ The app self-updates: `goshareit` polls the GitHub Releases API anonymously
 shortly after launch and then on an interval, and installs a newer release
 as soon as it finds one (set `update.auto_install: false` to be notified
 instead). The tray "Check for Updates" item lets you check and install on
-demand. No credentials or configuration are needed for updates.
+demand. Installing hands off to a small progress window (`goshareit-editor
+--update`): the host quits, the release downloads and verifies, files are
+swapped, and the new host starts again. Minor and major updates first show
+a what's-new window with the release notes since your version (Update now
+/ Later; `update.show_changelog: false` turns it off); patch updates go
+straight through. No credentials or configuration are needed for updates. Microsoft Store installs are updated by the Store
+instead.
 
 - [docs/RELEASE.md](docs/RELEASE.md) - the CI release path, signing secrets,
   and the local `make release` runbook.

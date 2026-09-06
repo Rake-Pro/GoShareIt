@@ -305,6 +305,10 @@ func applyEditingDefaults(cfg *config.Config) {
 		t := true
 		cfg.Update.AutoInstall = &t
 	}
+	if cfg.Update.ShowChangelog == nil {
+		t := true
+		cfg.Update.ShowChangelog = &t
+	}
 	if cfg.Upload.Enabled == nil {
 		t := true
 		cfg.Upload.Enabled = &t

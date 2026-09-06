@@ -167,6 +167,7 @@ editor:
 update:
   enabled: true           # self-update from GitHub Releases
   auto_install: true      # install found updates on launch/interval without asking (false = notify only)
+  show_changelog: true    # before a minor/major update, show the release notes since your version with Update now / Later (patch updates skip it)
   repo: Rake-Pro/GoShareIt
   interval_hours: 24      # background check cadence (plus one check ~30s after launch)
 

@@ -39,14 +39,18 @@ import (
 	"gioui.org/app"
 	"github.com/rs/zerolog/log"
 
+	"github.com/Rake-Pro/GoShareIt/internal/core/update"
 	"github.com/Rake-Pro/GoShareIt/internal/editor/region"
 	"github.com/Rake-Pro/GoShareIt/internal/editor/ui"
+	"github.com/Rake-Pro/GoShareIt/internal/editor/updater"
 )
 
 func main() {
 	in := flag.String("in", "", "path to the input PNG to annotate")
 	out := flag.String("out", "", "path to write the edited PNG on confirm")
 	regionMode := flag.Bool("region", false, "run the interactive screen-region selector instead of the editor")
+	updateJob := flag.String("update", "", "run the update window for the given job file instead of the editor")
+	changelogJob := flag.String("changelog", "", "show the what's-new window for the given job file; exit 0 = update now, 64 = later")
 	tool := flag.String("tool", "", "initial tool (crop|arrow|rect|ellipse|text)")
 	colorHex := flag.String("color", "", "initial color as #rrggbb")
 	stroke := flag.Int("stroke", 0, "initial stroke width")
@@ -57,6 +61,14 @@ func main() {
 	uploadEnabled := flag.Bool("upload-enabled", true, "whether uploads are currently enabled (greys out Upload when false)")
 	flag.Parse()
 
+	if *updateJob != "" {
+		runUpdate(*updateJob)
+		return
+	}
+	if *changelogJob != "" {
+		runChangelog(*changelogJob)
+		return
+	}
 	if *regionMode {
 		runRegion(*in, *out)
 		return
@@ -118,6 +130,51 @@ func main() {
 		default:
 			os.Exit(0)
 		}
+	}()
+	app.Main()
+}
+
+// runChangelog shows the what's-new window for a job file and reports the
+// user's choice through the exit code: 0 = update now, 64 = later, 1 = error.
+// The host keeps running meanwhile and owns the job file.
+func runChangelog(jobPath string) {
+	job, err := update.ReadJob(jobPath)
+	if err != nil {
+		log.Error().Err(err).Msg("changelog job")
+		os.Exit(1)
+	}
+	go func() {
+		proceed, err := updater.RunChangelog(job, resolveTheme(job.Theme) == "dark")
+		if err != nil {
+			log.Error().Err(err).Msg("changelog")
+			os.Exit(1)
+		}
+		if !proceed {
+			os.Exit(64)
+		}
+		os.Exit(0)
+	}()
+	app.Main()
+}
+
+// runUpdate runs the out-of-process updater for the job file the host wrote:
+// progress window, install, relaunch. The job file is removed on exit. Exit
+// code 0 on success, 1 on failure (after the user closes the error window).
+func runUpdate(jobPath string) {
+	job, err := update.ReadJob(jobPath)
+	if err != nil {
+		log.Error().Err(err).Msg("update job")
+		os.Exit(1)
+	}
+	go func() {
+		defer os.Remove(jobPath)
+		if err := updater.Run(job, resolveTheme(job.Theme) == "dark"); err != nil {
+			log.Error().Err(err).Msg("update")
+			os.Remove(jobPath)
+			os.Exit(1)
+		}
+		os.Remove(jobPath)
+		os.Exit(0)
 	}()
 	app.Main()
 }

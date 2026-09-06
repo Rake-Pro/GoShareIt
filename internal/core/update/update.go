@@ -116,6 +116,12 @@ func (u *Updater) Check(ctx context.Context) (*Release, error) {
 // Download fetches this platform's asset for rel into a temp file and verifies
 // its sha256 against the release's checksums.txt. It returns the archive path.
 func (u *Updater) Download(ctx context.Context, rel *Release) (string, error) {
+	return u.DownloadProgress(ctx, rel, nil)
+}
+
+// DownloadProgress is Download with a progress callback, called as bytes
+// arrive with the running total and the asset size (0 when unknown).
+func (u *Updater) DownloadProgress(ctx context.Context, rel *Release, progress func(done, total int64)) (string, error) {
 	name := AssetName(rel.Version)
 	a, ok := findAsset(rel.assets, name)
 	if !ok {
@@ -149,7 +155,11 @@ func (u *Updater) Download(ctx context.Context, rel *Release) (string, error) {
 		return "", fmt.Errorf("update: temp file: %w", err)
 	}
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(tmp, h), body)
+	var src io.Reader = body
+	if progress != nil {
+		src = &progressReader{r: body, total: a.Size, fn: progress}
+	}
+	_, err = io.Copy(io.MultiWriter(tmp, h), src)
 	cerr := tmp.Close()
 	if err != nil || cerr != nil {
 		os.Remove(tmp.Name())
@@ -270,4 +280,21 @@ func archiveExt(name string) string {
 		return ".tar.gz"
 	}
 	return filepath.Ext(name)
+}
+
+// progressReader reports bytes read through fn.
+type progressReader struct {
+	r     io.Reader
+	done  int64
+	total int64
+	fn    func(done, total int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 {
+		p.done += int64(n)
+		p.fn(p.done, p.total)
+	}
+	return n, err
 }

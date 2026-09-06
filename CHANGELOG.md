@@ -9,6 +9,25 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 - Go toolchain 1.27rc2 -> 1.27.0
 
 ### Added
+- Out-of-process updater with a progress window (Windows and macOS GitHub
+  builds). Installing an update now hands off to `goshareit-editor --update
+  <job>`: the host quits, a small themed window shows "Waiting for GoShareIt
+  to close", the download with a real progress bar and byte counts,
+  "Installing", then "Starting GoShareIt", and the new host comes back with
+  the same arguments. Failures stay on screen with the reason and a Close
+  button, and nothing is swapped until the download verifies. The updater
+  survives its own binary being replaced (Windows renames running
+  executables aside; macOS keeps the old bundle's inode). Leftover `*.old`
+  files and stage directories are removed at the next host start. Linux,
+  or a missing editor helper, keeps the previous in-process install. Store
+  builds are unaffected (updater off).
+- What's-new window before minor and major updates. When the release changes
+  the major or minor version (0.1.x -> 0.2.0), the host first opens
+  `goshareit-editor --changelog <job>`: the GitHub release notes of every
+  published version between yours and the new one, oldest first, with
+  "Update now" and "Later" (Later keeps "Install Update vX" on the tray).
+  Patch releases install without it. New `update.show_changelog` setting
+  (default true; "Show what's new before minor updates" in Settings).
 - Public image, GIF and file hosts as first-class destinations: Imgur,
   ImgBB, Imgchest, Lensdump, Chevereto (generic), Catbox, Litterbox, Uguu,
   0x0.st, Pixeldrain, Gofile and GIPHY appear in the Destination list under
@@ -57,6 +76,10 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   Updates" item still confirms before installing.
 
 ### Fixed
+- Windows: no more console window flashing on every notification, dialog
+  and recording. The host is a windowsgui binary, so each powershell.exe
+  (toasts, confirm dialogs) and ffmpeg.exe child opened its own console for a
+  moment; children are now started with CREATE_NO_WINDOW.
 - Windows: region capture no longer shows a solid grey screen, and the
   captured image is no longer grey. Gio windows are opaque on Windows, so the
   overlay's translucent dim had nothing behind it; the host then re-grabbed
