@@ -9,7 +9,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
   workflow_dispatch:
 
@@ -148,7 +148,7 @@ jobs:
           ignore-unfixed: true
 
   # ---------------------------------------------------------------------------
-  # Aggregate gate. The prod branch protection requires a check literally named
+  # Aggregate gate. The main branch protection requires a check literally named
   # "build" (promotion-flow standard), so this fans in every real job.
   # ---------------------------------------------------------------------------
   build:

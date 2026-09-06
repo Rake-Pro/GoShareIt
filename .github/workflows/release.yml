@@ -1,4 +1,4 @@
-# Release: promotion-PR merge into prod mints the next semver tag, then three
+# Release: promotion-PR merge into main mints the next semver tag, then three
 # OS jobs build and package the app, and publish attaches everything to a
 # GitHub Release. That release feed is what the in-app updater
 # (internal/core/update) consumes - asset names must stay in sync with
@@ -21,11 +21,11 @@
 name: Release
 
 on:
-  # Normal path: a promotion PR merges into prod; this run mints the next
+  # Normal path: a promotion PR merges into main; this run mints the next
   # semver tag and builds from it, all in one workflow (a tag pushed with
   # GITHUB_TOKEN cannot trigger another workflow, so nothing is chained).
   push:
-    branches: [prod]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch: {}
 
@@ -73,8 +73,8 @@ jobs:
             exit 0
           fi
 
-          if [ "${GITHUB_REF}" != "refs/heads/prod" ]; then
-            echo "Not prod and HEAD untagged; nothing to release."
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "Not main and HEAD untagged; nothing to release."
             emit ""
             exit 0
           fi

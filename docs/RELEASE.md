@@ -5,10 +5,10 @@
 Releases are cut by merging the automated promotion PR, not by tagging or
 running anything by hand:
 
-1. `sync-prod.yml` opens a bot PR from `main` into `prod` whenever `main`
+1. `sync-main.yml` opens a bot PR from `dev` into `main` whenever `dev`
    moves.
-2. A maintainer merges that PR into `prod` with a **merge commit** (squash/
-   rebase merges do not trigger the release; `prod` is a protected branch
+2. A maintainer merges that PR into `main` with a **merge commit** (squash/
+   rebase merges do not trigger the release; `main` is a protected branch
    requiring the `ci.yml` aggregate `build` check).
 3. The merge triggers `.github/workflows/release.yml`, which:
    - mints the next semver tag from the highest existing `v*` tag (patch by
