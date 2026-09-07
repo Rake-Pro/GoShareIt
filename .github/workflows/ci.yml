@@ -148,12 +148,33 @@ jobs:
           ignore-unfixed: true
 
   # ---------------------------------------------------------------------------
+  # govulncheck: known-vulnerability scan of the module graph, gated on the
+  # same CGO-off build the core job already proves builds clean on linux.
+  # ---------------------------------------------------------------------------
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+
+      - name: govulncheck
+        env:
+          CGO_ENABLED: "0"
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  # ---------------------------------------------------------------------------
   # Aggregate gate. The main branch protection requires a check literally named
   # "build" (promotion-flow standard), so this fans in every real job.
   # ---------------------------------------------------------------------------
   build:
     name: build
-    needs: [core, macos-build, trivy]
+    needs: [core, macos-build, trivy, vuln]
     runs-on: ubuntu-latest
     steps:
       - run: echo "all builds green"
