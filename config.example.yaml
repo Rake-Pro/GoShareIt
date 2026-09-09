@@ -5,6 +5,11 @@
 theme: system   # light | dark | system (default); applies to the annotation
                 # editor and the settings window
 
+# Register the tray host as a login item so it starts with the session. The
+# host applies this at every start. Microsoft Store builds ignore it: the MSIX
+# manifest owns the startup task, which the user controls in Windows Settings.
+start_at_login: false
+
 nextcloud:
   base_url: https://cloud.example.com
   username: uploads@example.com

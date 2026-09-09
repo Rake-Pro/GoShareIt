@@ -21,8 +21,21 @@ updater check (with a PAT, correctly reports up-to-date).
 - Windows: annotation editor UI, recording (ffmpeg), toast notifications,
   region overlay coordinates (now also the path for still region capture),
   settings UI and editor beyond first-run, updater apply loop, PrintScreen
-  hotkey chords (with `hotkeys.disable_snipping_printscreen`: confirm whether
-  the registry flip takes effect live or only after sign-out).
+  hotkey chords on the direct RegisterHotKey path (with
+  `hotkeys.disable_snipping_printscreen`: confirm whether the registry flip
+  takes effect live or only after sign-out).
+- Both (Wails v3 migration, nothing below has run on real hardware): tray icon
+  and menu, greying/retitling of the recording items, global hotkeys firing
+  while unfocused, the update-confirm dialog, notifications and their
+  click-to-open-link, "Start at login" writing and surviving a reboot, and
+  quit from both the tray item and a hotkey.
+- macOS (Wails v3): that hotkeys now work with Accessibility and Input
+  Monitoring revoked, and that the signed bundle still notarizes with the new
+  Carbon / ServiceManagement links.
+- Windows (Wails v3): toasts from the in-process WinRT path (the app has no
+  icon resource, so the toast icon may be missing), the HKCU CLSID activator
+  the notification service registers, and whether a toast click reaches a
+  running single-instance host.
 - Both: browser sign-in (Nextcloud Login Flow v2) end-to-end.
 - v0.0.6 settings/editor UI (click-through on real hardware, not just
   container JS parse-checks): the consolidated Upload destination panel
@@ -38,53 +51,49 @@ updater check (with a PAT, correctly reports up-to-date).
   (store the overlay's rect, feed `screencapture -R` / `CaptureRect`).
 - Multi-monitor support for region selection and recording (v1 is
   primary-display only).
-- Start-at-login toggle in the settings UI (installer task exists on Windows;
-  macOS needs a LaunchAgent).
 - Upload history browser (history.jsonl exists; no UI over it).
-- Notifier improvements: click-to-open-link, thumbnail previews.
+- Notifier improvements: thumbnail previews (click-to-open-link shipped
+  with the Wails v3 migration).
 - Linux capture backend (tray/hotkey/capture are in-memory fakes today;
   artifacts ship marked experimental).
 - Custom-uploader imgur preset needs a user-registered imgur API client ID
   (not bundled) - document where to get one and where it goes in
   config.example.yaml / the settings UI preset picker.
 
-## Wails v3 migration (do at v3.0.0-rc.1, targeted 2026-09-12)
+## Wails v3 migration - DONE on branch wails-v3
 
-Migration is inevitable: v2 is bugfix-only with no maintenance commitment past
-v3 GA (milestones: beta.2 code freeze Sep 1, rc.1 Sep 12, GA Sep 15 - expect
-slippage; check the wailsapp/wails milestone board mid-September). The v3
-architecture (namespaced managers, services bindings) is settled - zero
-breaking changes across the beta series - and the no-node/no-CLI build path is
-officially supported (`v3/examples/plain`), so our zero-tooling shape survives.
-Assessed 2026-08-16; scope is roughly half a day plus an on-device pass.
+Migrated at v3.0.0-beta.18 (v2 was bugfix-only with no maintenance commitment
+past v3 GA). Do NOT adopt the wails3 CLI/Taskfile; plain `go build` remains our
+path, and both the host and the settings binary build with `-tags production`.
 
-Structural changes when we do it (all in `cmd/goshareit-settings/`):
+Moved to Wails v3:
 
-- `main.go`: `wails.Run(&options.App{...})` -> `application.New(application.Options{
-  Services: []application.Service{application.NewService(svc)}, Assets: ...})`,
-  then `app.Window.New()` (WebviewWindowOptions: title/size) + `app.Run()`.
-  The OnStartup context capture goes away - runtime calls hang off `app`
-  directly: `app.Dialog` (OpenDirectoryDialog), browser-open util, `app.Quit()`.
-- `frontend/index.html`: `window.go.settings.Service.<Method>` no longer
-  exists. Add `<script type="module" src="/wails/runtime.js"></script>` (served
-  from the binary, no npm) and a small shim mapping our methods over
-  `window.wails.Call.ByName("github.com/Rake-Pro/GoShareIt/internal/settings.Service.<Method>", ...)`.
-  ByName takes the full import-path FQN - keep it in ONE shim constant so a
-  package move can't silently break scattered call sites.
-- Makefile + scripts/dev-build.sh: build tag `desktop,production` -> just
-  `production` (no `desktop` tag in v3). Drop the
-  `CGO_LDFLAGS="-framework UniformTypeIdentifiers"` workaround (v3 declares it
-  properly) - verify, then delete.
-- macOS bundle: our own bundle/sign/notarize scripts carry over unchanged (we
-  never used the wails CLI), but v3 links new system frameworks (QuartzCore,
-  Carbon, ServiceManagement) - do one signed-build TCC pass on device.
-- Do NOT adopt the wails3 CLI/Taskfile (their build tooling is still unsettled
-  - "Wake" experiment); plain `go build` remains our path.
-- Watch wailsapp/wails#5868 (v2->v3 migration validation for RC1) and the GA
-  deprecation-removal gate for anything that lands between now and rc.1.
-- Later option (separate decision, not this migration): v3 has native systray,
-  global shortcuts, and login-item autostart - could eventually consolidate
-  the tray host / hotkey / start-at-login architecture.
+| Area | Was | Now |
+|------|-----|-----|
+| Settings UI | wails/v2 + `desktop,production` tags + a UTType CGO_LDFLAGS workaround | `application.New` + services bindings, `-tags production` |
+| Tray | `fyne.io/systray` | `app.SystemTray` (`platform/wailsapp`) |
+| Global hotkeys | `golang.design/x/hotkey` (CGEventTap on macOS) | `app.GlobalShortcut` (Carbon RegisterEventHotKey / Win32 RegisterHotKey), plus a PrintScreen-only direct path on Windows |
+| Notifications | UNUserNotificationCenter cgo + osascript / PowerShell toast | `pkg/services/notifications`, click-to-open-link wired |
+| Confirm dialogs | NSAlert cgo / PowerShell MessageBox | `app.Dialog.Question` |
+| Start at login | not implemented | `app.Autostart` + `start_at_login` setting |
+
+Stays as it is (no v3 equivalent needed): `platform/darwin` capture,
+`recorder.m`, `permissions.m` (Screen Recording only), `platform/windows`
+capture/recorder/clipboard/PrintScreen registry + PrintScreen hotkey path,
+`kbinani/screenshot`, the Gio editor, and one PowerShell dialog for the Smart
+App Control notice (the Wails dialog API cannot render Yes/No/Cancel on
+Windows).
+
+Open:
+
+- Drop `platform/windows/hotkey.go` (the PrintScreen-only `RegisterHotKey`
+  path, kept because the Wails accelerator grammar has no name for that key:
+  `parseKey` rejects it and `winKeyCodes` has no entry) once Wails gains a
+  "printscreen" key name, and route those chords through `app.GlobalShortcut`
+  like every other chord.
+- The `.app` bundle now links Carbon and ServiceManagement (global shortcuts,
+  SMAppService autostart). One signed-build pass on device is owed to confirm
+  the bundle still notarizes and that no new TCC prompt appears.
 
 ## Release / distribution
 

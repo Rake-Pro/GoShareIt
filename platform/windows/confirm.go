@@ -8,36 +8,22 @@ import (
 	"strings"
 )
 
-// Confirmer shows blocking native dialogs via PowerShell's WPF MessageBox,
-// the Windows analog of darwin's osascript `display dialog`.
-//
-// Limitation: System.Windows.MessageBox only offers fixed button sets (no
-// custom labels), so okLabel/cancelLabel are advisory here - the dialog
-// always shows the standard Yes/No buttons.
-type Confirmer struct{}
+// Chooser shows a blocking three-button dialog via PowerShell's WPF
+// MessageBox. The generic two-button Confirmer seam moved to platform/wailsapp
+// with the rest of the UI, but the Wails dialog API renders a question dialog
+// on Windows as a Win32 MessageBox with a fixed Yes/No button set and cannot
+// express Yes/No/Cancel - which the Smart App Control notice needs, because it
+// offers three answers. This is the only remaining PowerShell dialog and it is
+// shown at most once per install.
+type Chooser struct{}
 
-// NewConfirmer returns a Windows confirm-dialog provider.
-func NewConfirmer() *Confirmer { return &Confirmer{} }
-
-// Confirm shows a blocking Yes/No dialog and reports whether the user chose
-// Yes. It blocks until the user answers.
-func (c *Confirmer) Confirm(title, body, _, _ string) (bool, error) {
-	script := buildConfirmScript(title, body)
-	cmd := noConsole(exec.Command("powershell.exe",
-		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
-		"-Command", script,
-	))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("windows confirm: powershell failed: %v: %s", err, out)
-	}
-	return strings.TrimSpace(string(out)) == "Yes", nil
-}
+// NewChooser returns a Windows three-button dialog provider.
+func NewChooser() *Chooser { return &Chooser{} }
 
 // Choose shows a blocking Yes/No/Cancel dialog and returns "Yes", "No" or
 // "Cancel". Callers spell out in body what each button does, since the labels
 // are fixed.
-func (c *Confirmer) Choose(title, body string) (string, error) {
+func (c *Chooser) Choose(title, body string) (string, error) {
 	script := buildChoiceScript(title, body)
 	cmd := noConsole(exec.Command("powershell.exe",
 		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
@@ -58,12 +44,8 @@ func buildChoiceScript(title, body string) string {
 	}, "; ")
 }
 
-// buildConfirmScript returns a PowerShell snippet that shows a WPF MessageBox
-// with the given title and body and writes the result ("Yes"/"No") to stdout.
-func buildConfirmScript(title, body string) string {
-	return strings.Join([]string{
-		`Add-Type -AssemblyName PresentationFramework`,
-		`$result = [System.Windows.MessageBox]::Show('` + psEscape(body) + `', '` + psEscape(title) + `', 'YesNo', 'Question')`,
-		`Write-Output $result`,
-	}, "; ")
+// psEscape escapes a string for embedding inside a PowerShell single-quoted
+// literal (only the single quote needs doubling).
+func psEscape(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }

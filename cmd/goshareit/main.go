@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -151,7 +152,7 @@ func main() {
 
 	settingsL := &settingsLauncher{configPath: cfgFile, app: app, quit: cancel}
 
-	if err := run(ctx, app, updates, settingsL, cancel); err != nil {
+	if err := run(ctx, app, updates, settingsL, cancel, releaseInstance); err != nil {
 		logger.Fatal().Err(err).Msg("run")
 	}
 }
@@ -159,9 +160,37 @@ func main() {
 // run wires hotkeys and the tray, then blocks until ctx is cancelled. It is
 // portable: the tray runs on the main goroutine (required by some OSes) while
 // the hotkey manager runs alongside.
-func run(ctx context.Context, app *core.App, updates *updateController, settingsL *settingsLauncher, quit func()) error {
+func run(ctx context.Context, app *core.App, updates *updateController, settingsL *settingsLauncher, quit func(), releaseInstance func()) error {
 	cfg := app.Config()
 	tr := app.Tray()
+
+	// shutdown is the work that must happen before the process goes away,
+	// whatever asked it to: the tray item, the quit hotkey, a signal, or the
+	// updater and settings relaunch paths (both of which cancel ctx).
+	//
+	// On macOS the tray's Run never returns - Quit is [NSApp terminate:] - so
+	// this only ever runs from the tray's shutdown hook. On Windows it runs
+	// from the hook AND again after Run returns; the Once makes that harmless.
+	var shutdownOnce sync.Once
+	shutdown := func() {
+		shutdownOnce.Do(func() {
+			// Best-effort: finalize an in-flight recording so the child process
+			// is interrupted and the partial file is not orphaned.
+			if app.Recording() {
+				if _, err := app.StopRecording(context.Background()); err != nil {
+					log.Warn().Err(err).Msg("stop recording on shutdown failed")
+				}
+			}
+			if releaseInstance != nil {
+				releaseInstance()
+			}
+		})
+	}
+	// Trays that own the process lifetime (the Wails one) expose a shutdown
+	// hook; the linux fake does not, and there Run returns normally.
+	if hooked, ok := tr.(interface{ OnShutdown(func()) }); ok {
+		hooked.OnShutdown(shutdown)
+	}
 
 	runShot := func(mode capture.Mode) func() {
 		return func() {
@@ -434,15 +463,10 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		}},
 	)
 	spec := tray.MenuSpec{Tooltip: "GoShareIt", Icon: trayIcon(), Items: items}
-	if err := tr.Run(ctx, spec); err != nil && ctx.Err() == nil {
+	err := tr.Run(ctx, spec)
+	shutdown()
+	if err != nil && ctx.Err() == nil {
 		return err
-	}
-	// Best-effort: finalize an in-flight recording on shutdown so the child
-	// process is interrupted and the partial file is not orphaned.
-	if app.Recording() {
-		if _, err := app.StopRecording(context.Background()); err != nil {
-			log.Warn().Err(err).Msg("stop recording on shutdown failed")
-		}
 	}
 	return nil
 }

@@ -5,224 +5,314 @@ package windows
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/rs/zerolog/log"
-	"golang.design/x/hotkey"
+	"golang.org/x/sys/windows"
 )
 
-// HotkeyManager implements the global-hotkey seam via golang.design/x/hotkey.
+// PrintScreenHotkeys is the legacy global-hotkey path for chords built on the
+// PrintScreen key, and ONLY those. Everything else goes through the Wails
+// global-shortcut manager in platform/wailsapp; Wails' accelerator grammar has
+// no name for PrintScreen (its Windows key table has no VK_SNAPSHOT entry), so
+// those chords are bound here with Win32 RegisterHotKey directly. Register
+// rejects any other key on purpose, so this cannot quietly grow back into a
+// second general hotkey backend.
 //
-// On Windows the library is pure syscall and registers hotkeys with the Win32
-// RegisterHotKey API. Unlike macOS this needs no special permission and no app
-// bundle, and it does not require ownership of the process main run loop: the
-// library spins its own message-only window/thread per hotkey internally, so it
-// coexists with fyne.io/systray (see tray.go) without sharing a run loop.
-//
-// MODIFIER MAPPING: macOS configs use "Cmd" as the primary modifier (e.g.
-// "Cmd+Shift+1"). On Windows the equivalent primary modifier is Ctrl, and the
-// Windows logo key (Win) reserves most Win+<key> combos at the OS/shell level, so
-// Cmd/Command/Super/Meta map to hotkey.ModCtrl - this lets a shared macOS config
-// register on Windows as Ctrl+Shift+1 instead of the OS-reserved Win+Shift+1.
-// "Win" still maps to the logo key for users who explicitly want it. Ctrl/Shift/
-// Alt map to their Win32 equivalents directly.
-type HotkeyManager struct {
+// THREAD AFFINITY: RegisterHotKey with a null window posts WM_HOTKEY to the
+// message queue of the calling thread, and UnregisterHotKey must run on that
+// same thread. Run therefore pins itself to one OS thread, registers there, and
+// pumps that thread's queue; Unregister and shutdown reach it by posting a
+// message rather than calling across threads.
+type PrintScreenHotkeys struct {
 	mu       sync.Mutex
-	bindings map[string]*binding
+	bindings map[string]*psBinding
+	nextID   int32
+	threadID uint32 // non-zero once Run's message queue is up
 }
 
-type binding struct {
-	keys string
-	fn   func()
-	hk   *hotkey.Hotkey
+type psBinding struct {
+	keys       string
+	mods       uint32
+	fn         func()
+	id         int32
+	registered bool
 }
 
-// NewHotkeyManager returns an empty Windows hotkey manager.
-func NewHotkeyManager() *HotkeyManager {
-	return &HotkeyManager{bindings: map[string]*binding{}}
+// NewPrintScreenHotkeys returns an empty PrintScreen-only hotkey manager.
+func NewPrintScreenHotkeys() *PrintScreenHotkeys {
+	return &PrintScreenHotkeys{bindings: map[string]*psBinding{}}
 }
 
-// Register parses keys (e.g. "Ctrl+Shift+1") and stores the binding. The OS-level
-// registration happens later in Run.
-func (m *HotkeyManager) Register(id, keys string, fn func()) error {
-	mods, key, err := parseHotkey(keys)
+// Win32 constants: RegisterHotKey modifiers, the messages the loop handles, and
+// the virtual-key code for PrintScreen (VK_SNAPSHOT, which has no name in the
+// Wails accelerator grammar).
+const (
+	modAlt     = 0x0001
+	modControl = 0x0002
+	modShift   = 0x0004
+	modWin     = 0x0008
+
+	vkSnapshot = 0x2C
+
+	wmHotkey = 0x0312
+	// WM_APP-based private messages: one asks the loop to release a hotkey it
+	// owns, the other asks it to exit.
+	wmUnregisterOne = 0x8000 + 1 // WM_APP+1
+	wmStopLoop      = 0x8000 + 2 // WM_APP+2
+)
+
+var (
+	procRegisterHotKey     = user32.NewProc("RegisterHotKey")
+	procUnregisterHotKey   = user32.NewProc("UnregisterHotKey")
+	procGetMessageW        = user32.NewProc("GetMessageW")
+	procPeekMessageW       = user32.NewProc("PeekMessageW")
+	procPostThreadMessageW = user32.NewProc("PostThreadMessageW")
+)
+
+// win32Msg mirrors the Win32 MSG structure.
+type win32Msg struct {
+	hwnd    uintptr
+	message uint32
+	wParam  uintptr
+	lParam  uintptr
+	time    uint32
+	pt      struct{ x, y int32 }
+}
+
+// IsPrintScreenChord reports whether a chord's key is PrintScreen, i.e. whether
+// this manager is the one that can bind it.
+func IsPrintScreenChord(keys string) bool {
+	for _, raw := range strings.Split(keys, "+") {
+		if isPrintScreenKey(strings.ToLower(strings.TrimSpace(raw))) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPrintScreenKey(token string) bool {
+	switch token {
+	case "printscreen", "prtsc", "prtscn", "snapshot":
+		return true
+	}
+	return false
+}
+
+// Register parses keys (e.g. "Win+Ctrl+PrintScreen") and stores the binding.
+// The OS-level registration happens later in Run.
+func (m *PrintScreenHotkeys) Register(id, keys string, fn func()) error {
+	mods, err := parsePrintScreenChord(keys)
 	if err != nil {
-		return fmt.Errorf("windows hotkey: %q: %w", keys, err)
+		return fmt.Errorf("windows printscreen hotkey: %q: %w", keys, err)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.bindings[id]; ok {
-		return fmt.Errorf("windows hotkey: %q already registered", id)
+		return fmt.Errorf("windows printscreen hotkey: %q already registered", id)
 	}
-	m.bindings[id] = &binding{keys: keys, fn: fn, hk: hotkey.New(mods, key)}
+	m.nextID++
+	m.bindings[id] = &psBinding{keys: keys, mods: mods, fn: fn, id: m.nextID}
 	return nil
 }
 
-// Unregister removes a binding and releases it from the OS if Run is active.
-func (m *HotkeyManager) Unregister(id string) {
+// Unregister removes a binding and, when the loop is running, asks it to
+// release the OS registration on its own thread.
+func (m *PrintScreenHotkeys) Unregister(id string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if b, ok := m.bindings[id]; ok {
-		if b.hk != nil {
-			_ = b.hk.Unregister()
-		}
-		delete(m.bindings, id)
+	b, ok := m.bindings[id]
+	// Copy what is needed before unlocking: Run mutates b.registered under the
+	// same mutex, so reading it afterwards would race.
+	var hotkeyID int32
+	var registered bool
+	if ok {
+		hotkeyID, registered = b.id, b.registered
 	}
+	delete(m.bindings, id)
+	threadID := m.threadID
+	m.mu.Unlock()
+	if !ok || !registered || threadID == 0 {
+		return
+	}
+	postThreadMessage(threadID, wmUnregisterOne, uintptr(hotkeyID))
 }
 
-// Run registers every binding with the OS, spawns a goroutine per binding that
-// ranges over its Keydown channel, and blocks until ctx is cancelled. On exit it
-// unregisters all hotkeys.
-func (m *HotkeyManager) Run(ctx context.Context) error {
+// Run registers every binding with the OS and pumps the thread's message queue
+// until ctx is cancelled, dispatching WM_HOTKEY to the matching callback. On
+// exit it releases every registration it owns. With no bindings it just waits,
+// so no OS thread is pinned for nothing.
+func (m *PrintScreenHotkeys) Run(ctx context.Context) error {
 	m.mu.Lock()
-	active := make([]*binding, 0, len(m.bindings))
+	empty := len(m.bindings) == 0
+	m.mu.Unlock()
+	if empty {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// Force the thread message queue into existence before publishing the
+	// thread id, so a stop posted immediately after cannot be dropped.
+	var message win32Msg
+	procPeekMessageW.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0, 0)
+
+	m.mu.Lock()
+	m.threadID = windows.GetCurrentThreadId()
 	for _, b := range m.bindings {
-		// Best-effort: one failed chord (duplicate, OS-claimed like PrtScn by
-		// Snipping Tool) must not take down every other hotkey.
-		if err := b.hk.Register(); err != nil {
-			msg := "hotkey unavailable; skipping"
-			if strings.Contains(strings.ToLower(b.keys), "print") || strings.Contains(strings.ToLower(b.keys), "prtsc") {
-				msg += " (Snipping Tool owns PrintScreen: enable hotkeys.disable_snipping_printscreen, then sign out and back in)"
-			}
-			log.Warn().Err(err).Str("keys", b.keys).Msg(msg)
+		if err := registerHotKey(b.id, b.mods); err != nil {
+			// Best-effort: one failed chord (duplicate, or PrtScn claimed by
+			// Snipping Tool) must not take down every other hotkey.
+			log.Warn().Err(err).Str("keys", b.keys).
+				Msg("hotkey unavailable; skipping (Snipping Tool owns PrintScreen: enable hotkeys.disable_snipping_printscreen, then sign out and back in)")
 			continue
 		}
-		active = append(active, b)
+		b.registered = true
 	}
 	m.mu.Unlock()
 
-	for _, b := range active {
-		go func(b *binding) {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-b.hk.Keydown():
-					if b.fn != nil {
-						b.fn()
-					}
-				}
-			}
-		}(b)
+	stopped := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-stopped:
+			return
+		}
+		postThreadMessage(m.currentThreadID(), wmStopLoop, 0)
+	}()
+
+	var loopErr error
+loop:
+	for {
+		r, _, err := procGetMessageW.Call(uintptr(unsafe.Pointer(&message)), 0, 0, 0)
+		switch {
+		case int32(r) == -1:
+			loopErr = fmt.Errorf("windows printscreen hotkey: GetMessage: %w", err)
+			break loop
+		case r == 0: // WM_QUIT
+			break loop
+		}
+		switch message.message {
+		case wmHotkey:
+			m.dispatch(int32(message.wParam))
+		case wmUnregisterOne:
+			unregisterHotKey(int32(message.wParam))
+		case wmStopLoop:
+			break loop
+		}
 	}
+	close(stopped)
 
-	<-ctx.Done()
+	m.mu.Lock()
+	for _, b := range m.bindings {
+		if b.registered {
+			unregisterHotKey(b.id)
+			b.registered = false
+		}
+	}
+	m.threadID = 0
+	m.mu.Unlock()
 
-	for _, b := range active {
-		_ = b.hk.Unregister()
+	if loopErr != nil {
+		return loopErr
 	}
 	return ctx.Err()
 }
 
-// parseHotkey converts a "Mod+Mod+Key" string into hotkey modifiers and a key.
-func parseHotkey(s string) ([]hotkey.Modifier, hotkey.Key, error) {
-	parts := strings.Split(s, "+")
-	if len(parts) == 0 {
-		return nil, 0, fmt.Errorf("empty hotkey")
+func (m *PrintScreenHotkeys) currentThreadID() uint32 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.threadID
+}
+
+// dispatch runs the callback for a fired hotkey id on its own goroutine, so a
+// slow handler (a capture) never stalls the message loop.
+func (m *PrintScreenHotkeys) dispatch(id int32) {
+	m.mu.Lock()
+	var fn func()
+	for _, b := range m.bindings {
+		if b.id == id {
+			fn = b.fn
+			break
+		}
 	}
-	var mods []hotkey.Modifier
-	var key hotkey.Key
+	m.mu.Unlock()
+	if fn != nil {
+		go fn()
+	}
+}
+
+func registerHotKey(id int32, mods uint32) error {
+	// A null window handle posts WM_HOTKEY to this thread's queue, which Run
+	// is about to pump.
+	r, _, err := procRegisterHotKey.Call(0, uintptr(id), uintptr(mods), uintptr(vkSnapshot))
+	if r == 0 {
+		return fmt.Errorf("RegisterHotKey: %w", err)
+	}
+	return nil
+}
+
+func unregisterHotKey(id int32) {
+	procUnregisterHotKey.Call(0, uintptr(id))
+}
+
+func postThreadMessage(threadID uint32, msg uint32, wParam uintptr) {
+	if threadID == 0 {
+		return
+	}
+	procPostThreadMessageW.Call(uintptr(threadID), uintptr(msg), wParam, 0)
+}
+
+// parsePrintScreenChord converts "Mod+Mod+PrintScreen" into Win32 RegisterHotKey
+// modifier flags. Any key other than PrintScreen is rejected: this path exists
+// only for the one key Wails cannot name.
+//
+// MODIFIER MAPPING (unchanged): macOS configs use "Cmd" as the primary
+// modifier, and the Windows logo key reserves most Win+<key> combos at the
+// shell level, so cmd/command/super/meta map to Ctrl. "Win" still maps to the
+// logo key for users who explicitly want it.
+func parsePrintScreenChord(s string) (uint32, error) {
+	var mods uint32
 	haveKey := false
-	for _, raw := range parts {
-		p := strings.TrimSpace(raw)
-		if p == "" {
+	for _, raw := range strings.Split(s, "+") {
+		token := strings.ToLower(strings.TrimSpace(raw))
+		if token == "" {
 			continue
 		}
-		if mod, ok := modifierFor(p); ok {
-			mods = append(mods, mod)
+		if mod, ok := modifierFor(token); ok {
+			mods |= mod
 			continue
 		}
-		k, ok := keyFor(p)
-		if !ok {
-			return nil, 0, fmt.Errorf("unknown token %q", p)
+		if !isPrintScreenKey(token) {
+			return 0, fmt.Errorf("key %q is not PrintScreen; this backend binds PrintScreen chords only", token)
 		}
 		if haveKey {
-			return nil, 0, fmt.Errorf("multiple non-modifier keys")
+			return 0, fmt.Errorf("multiple non-modifier keys")
 		}
-		key = k
 		haveKey = true
 	}
 	if !haveKey {
-		return nil, 0, fmt.Errorf("no key specified")
+		return 0, fmt.Errorf("no PrintScreen key in chord")
 	}
-	return mods, key, nil
+	return mods, nil
 }
 
-func modifierFor(s string) (hotkey.Modifier, bool) {
-	switch strings.ToLower(s) {
+func modifierFor(s string) (uint32, bool) {
+	switch s {
 	case "cmd", "command", "super", "meta":
-		// macOS primary modifier -> Ctrl on Windows (Win+<key> is OS-reserved).
-		return hotkey.ModCtrl, true
+		return modControl, true
 	case "win":
-		return hotkey.ModWin, true
+		return modWin, true
 	case "shift":
-		return hotkey.ModShift, true
+		return modShift, true
 	case "ctrl", "control":
-		return hotkey.ModCtrl, true
+		return modControl, true
 	case "option", "opt", "alt":
-		return hotkey.ModAlt, true
-	default:
-		return 0, false
-	}
-}
-
-// keyDigits, keyLetters and keyFns map names to the cross-platform hotkey.Key
-// constants (identical set to the darwin backend).
-var (
-	keyDigits = map[string]hotkey.Key{
-		"0": hotkey.Key0, "1": hotkey.Key1, "2": hotkey.Key2, "3": hotkey.Key3,
-		"4": hotkey.Key4, "5": hotkey.Key5, "6": hotkey.Key6, "7": hotkey.Key7,
-		"8": hotkey.Key8, "9": hotkey.Key9,
-	}
-	keyLetters = map[string]hotkey.Key{
-		"a": hotkey.KeyA, "b": hotkey.KeyB, "c": hotkey.KeyC, "d": hotkey.KeyD,
-		"e": hotkey.KeyE, "f": hotkey.KeyF, "g": hotkey.KeyG, "h": hotkey.KeyH,
-		"i": hotkey.KeyI, "j": hotkey.KeyJ, "k": hotkey.KeyK, "l": hotkey.KeyL,
-		"m": hotkey.KeyM, "n": hotkey.KeyN, "o": hotkey.KeyO, "p": hotkey.KeyP,
-		"q": hotkey.KeyQ, "r": hotkey.KeyR, "s": hotkey.KeyS, "t": hotkey.KeyT,
-		"u": hotkey.KeyU, "v": hotkey.KeyV, "w": hotkey.KeyW, "x": hotkey.KeyX,
-		"y": hotkey.KeyY, "z": hotkey.KeyZ,
-	}
-	keyFns = map[string]hotkey.Key{
-		"f1": hotkey.KeyF1, "f2": hotkey.KeyF2, "f3": hotkey.KeyF3, "f4": hotkey.KeyF4,
-		"f5": hotkey.KeyF5, "f6": hotkey.KeyF6, "f7": hotkey.KeyF7, "f8": hotkey.KeyF8,
-		"f9": hotkey.KeyF9, "f10": hotkey.KeyF10, "f11": hotkey.KeyF11, "f12": hotkey.KeyF12,
-		"f13": hotkey.KeyF13, "f14": hotkey.KeyF14, "f15": hotkey.KeyF15, "f16": hotkey.KeyF16,
-		"f17": hotkey.KeyF17, "f18": hotkey.KeyF18, "f19": hotkey.KeyF19, "f20": hotkey.KeyF20,
-	}
-	// keyPunct maps punctuation (US layout) to raw VK_OEM_* codes; x/hotkey
-	// has no named constants for these. Same token set as the darwin backend.
-	keyPunct = map[string]hotkey.Key{
-		"`": 0xC0, "grave": 0xC0, "backtick": 0xC0,
-		"-": 0xBD, "minus": 0xBD,
-		"=": 0xBB, "equals": 0xBB,
-		"[": 0xDB, "]": 0xDD,
-		";": 0xBA, "'": 0xDE,
-		",": 0xBC, ".": 0xBE, "/": 0xBF, "\\": 0xDC,
-		"space": hotkey.KeySpace,
-	}
-)
-
-func keyFor(s string) (hotkey.Key, bool) {
-	l := strings.ToLower(s)
-	if k, ok := keyDigits[l]; ok {
-		return k, true
-	}
-	if k, ok := keyLetters[l]; ok {
-		return k, true
-	}
-	if k, ok := keyFns[l]; ok {
-		return k, true
-	}
-	if k, ok := keyPunct[l]; ok {
-		return k, true
-	}
-	switch l {
-	case "printscreen", "prtsc", "prtscn", "snapshot":
-		// hotkey.Key is a raw virtual-key code on windows; VK_SNAPSHOT has no
-		// named constant in x/hotkey.
-		return hotkey.Key(0x2C), true
+		return modAlt, true
 	}
 	return 0, false
 }

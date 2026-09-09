@@ -33,6 +33,10 @@ const ExitSaved = 42
 type Service struct {
 	ConfigPath string
 	Version    string // app version shown in the UI footer
+	// Packaged marks a Microsoft Store (MSIX) install. Settings the package
+	// manifest owns - start at login - are shown greyed out there instead of
+	// accepting an edit the host would then ignore.
+	Packaged bool
 
 	PickDir func() (string, error) // native directory picker
 	OpenURL func(url string) error // native browser open; nil -> osOpenURL
@@ -64,6 +68,7 @@ type LoadResult struct {
 	HostSecrets   map[string]bool `json:"hostSecrets"`
 	Version       string          `json:"version"`
 	OS            string          `json:"os"`
+	Packaged      bool            `json:"packaged"`
 }
 
 // SaveRequest carries the edited config plus optional new secret values
@@ -117,6 +122,7 @@ func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 		HostSecrets:       hostSecrets,
 		Version:           s.Version,
 		OS:                runtime.GOOS,
+		Packaged:          s.Packaged,
 	}
 }
 

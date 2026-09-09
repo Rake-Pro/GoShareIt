@@ -7,10 +7,10 @@
   pro.rake.goshareit.
 
   TCC note: macOS privacy permissions are granted at runtime via System Settings,
-  not declared here. The two permissions this app needs are:
+  not declared here. The only permission this app needs is:
     - Screen Recording   (to capture the screen)  -> Privacy & Security > Screen Recording
-    - Accessibility / Input Monitoring (global hotkeys) -> Privacy & Security > Accessibility
-  Neither is plist-declarable. The ONLY screenshot-related plist key is
+  Global hotkeys need none (Carbon RegisterEventHotKey). It is not
+  plist-declarable; the ONLY screenshot-related plist key is
   NSScreenCaptureUsageDescription below (the purpose string shown to the user).
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

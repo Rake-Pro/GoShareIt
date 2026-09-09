@@ -250,6 +250,7 @@
   #status.ok { color: var(--ok); }
   #status.err { color: var(--err); }
 </style>
+<script type="module" src="/wails/runtime.js"></script>
 </head>
 <body>
 <div class="body">
@@ -280,6 +281,13 @@ const SCHEMA = [
     icon: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#fff"/><path d="M12 4a8 8 0 000 16z" fill="rgba(0,0,0,.35)"/></svg>`,
     fields: [
     { p: "Theme", l: "Theme", t: "select", opts: ["system", "light", "dark"] },
+  ]},
+  { title: "Startup", tint: "#ffd60a",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9"/><path d="M7.4 6.6a7 7 0 109.2 0"/></svg>`,
+    fields: [
+    { p: "StartAtLogin", l: "Start at login", t: "bool", packagedOff: true,
+      hint: "launch GoShareIt when you sign in",
+      packagedHint: "managed by Windows on Microsoft Store installs: Settings > Apps > Startup > GoShareIt" },
   ]},
   { title: "Upload", tint: "#0a84ff",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16a4 4 0 01.5-7.9A5 5 0 0117 9a3.5 3.5 0 01-.5 7H7z"/><path d="M12 12v6M9.5 14.5L12 12l2.5 2.5"/></svg>`,
@@ -516,6 +524,9 @@ function renderFieldRow(f) {
   // OS-specific fields stay in the DOM (collect() reads every input) but are
   // hidden on other platforms.
   if (f.os && model.os && f.os !== model.os) row.style.display = "none";
+  // Settings the packaging system owns are shown greyed out rather than
+  // accepted and then silently ignored by the host.
+  const gated = !!(f.packagedOff && model.packaged);
   let stacked = false;
   let control = "";
   const val = f.p.startsWith("@") ? "" : get(cfg, f.p);
@@ -586,9 +597,17 @@ function renderFieldRow(f) {
     }
   }
   row.className = stacked ? "row stacked" : "row";
+  const hint = gated ? (f.packagedHint || f.hint) : f.hint;
   row.innerHTML = `<div class="row-text"><div class="row-label">${f.l}</div>` +
-    (f.hint ? `<div class="row-hint">${f.hint}</div>` : "") + `</div>` +
+    (hint ? `<div class="row-hint">${hint}</div>` : "") + `</div>` +
     `<div class="row-control">${control}</div>`;
+  if (gated) {
+    row.classList.add("dim");
+    row.querySelectorAll("input, select, textarea, button").forEach((el) => {
+      el.disabled = true;
+      el.dataset.locked = "1";
+    });
+  }
   return row;
 }
 
@@ -841,8 +860,17 @@ function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;"
 
 function status(msg, cls) { const el = $("status"); el.textContent = msg; el.className = cls || ""; }
 
+// Wails v3 bound-method shim. Methods are addressed by fully qualified Go
+// name (import path + type + method); the prefix lives here ONLY so a
+// package move cannot silently break scattered call sites.
+const SERVICE_FQN = "github.com/Rake-Pro/GoShareIt/internal/settings.Service";
+const SERVICE_METHODS = ["Load", "Save", "Presets", "PickDirectory", "ResetDefaults", "BrowserLogin", "CloseWindow"];
 function svc() {
-  return window.go && window.go.settings && window.go.settings.Service;
+  const call = globalThis.wails && globalThis.wails.Call && globalThis.wails.Call.ByName;
+  if (!call) return null;
+  const s = {};
+  for (const m of SERVICE_METHODS) s[m] = (...args) => call(SERVICE_FQN + "." + m, ...args);
+  return s;
 }
 
 async function init() {

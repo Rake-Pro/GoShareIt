@@ -46,8 +46,9 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           go build ./...
-          # Settings ships with the wails production tags; prove that variant too.
-          go build -tags desktop,production ./cmd/goshareit-settings
+          # The host and settings binaries ship with the wails production tag;
+          # prove that variant too.
+          go build -tags production ./cmd/goshareit ./cmd/goshareit-settings
 
       - name: Vet
         run: go vet ./...
@@ -61,8 +62,11 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # macOS cgo build matrix. This compiles the full app (cmd/goshareit) with cgo
-  # for both Apple Silicon and Intel, proving the darwin shells that depend on
-  # golang.design/x/clipboard, golang.design/x/hotkey and fyne.io/systray build.
+  # for both Apple Silicon and Intel, proving the darwin shells build: the
+  # AVFoundation recorder and the Screen Recording TCC preflight in
+  # platform/darwin, golang.design/x/clipboard, and the Wails v3 tray /
+  # global-shortcut / notification / dialog backends in platform/wailsapp.
+  # This is the ONLY place the darwin halves of those packages are compiled.
   # ---------------------------------------------------------------------------
   macos-build:
     name: macos-build (${{ matrix.goarch }}, cgo)
@@ -86,12 +90,9 @@ jobs:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -o /tmp/goshareit-${{ matrix.goarch }} ./cmd/goshareit
+          go build -tags production -o /tmp/goshareit-${{ matrix.goarch }} ./cmd/goshareit
           go build -o /tmp/goshareit-editor-${{ matrix.goarch }} ./cmd/goshareit-editor
-          # UniformTypeIdentifiers: wails v2 references UTType, which newer
-          # Xcode SDKs no longer link transitively.
-          CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
-            go build -tags desktop,production -o /tmp/goshareit-settings-${{ matrix.goarch }} ./cmd/goshareit-settings
+          go build -tags production -o /tmp/goshareit-settings-${{ matrix.goarch }} ./cmd/goshareit-settings
 
       # Signing is intentionally NOT performed in CI by default. It only runs
       # when the signing secrets are configured, so forks/PRs build cleanly.
