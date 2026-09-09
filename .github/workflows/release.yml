@@ -128,10 +128,9 @@ jobs:
           mkdir -p dist
           ldflags="-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
           for arch in arm64 amd64; do
-            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-$arch" ./cmd/goshareit
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags production -ldflags "$ldflags" -o "dist/goshareit-$arch" ./cmd/goshareit
             CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-editor-$arch" ./cmd/goshareit-editor
-            CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
-              CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags desktop,production -ldflags "$ldflags" -o "dist/goshareit-settings-$arch" ./cmd/goshareit-settings
+            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags production -ldflags "$ldflags" -o "dist/goshareit-settings-$arch" ./cmd/goshareit-settings
           done
           lipo -create -output dist/goshareit dist/goshareit-arm64 dist/goshareit-amd64
           lipo -create -output dist/goshareit-editor dist/goshareit-editor-arm64 dist/goshareit-editor-amd64
@@ -253,9 +252,9 @@ jobs:
           set -euo pipefail
           mkdir -p dist/windows
           ldflags="-H windowsgui -X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit.exe ./cmd/goshareit
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags production -ldflags "$ldflags" -o dist/windows/goshareit.exe ./cmd/goshareit
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit-editor.exe ./cmd/goshareit-editor
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -ldflags "$ldflags" -o dist/windows/goshareit-settings.exe ./cmd/goshareit-settings
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags production -ldflags "$ldflags" -o dist/windows/goshareit-settings.exe ./cmd/goshareit-settings
 
       # Authenticode via SignPath Foundation (free OSS signing). Gated on the
       # SIGNPATH_API_TOKEN secret: absent -> binaries ship unsigned, job stays

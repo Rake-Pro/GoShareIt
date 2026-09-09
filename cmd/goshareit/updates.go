@@ -190,9 +190,9 @@ func (c *updateController) doCheck(ctx context.Context, manual bool) *update.Rel
 	//
 	// check() always runs off the tray's main loop: menuItem's OnClick wraps
 	// onClick in `go`, and the periodic path in start() runs inside its own
-	// goroutine. On darwin the Confirmer itself dispatches a modal alert onto
-	// the main run loop, so tray handling pauses only while the dialog is
-	// actually open (bounded by its timeout) - standard modal behavior.
+	// goroutine. The Confirmer itself dispatches the modal onto the app's main
+	// thread, so tray handling pauses only while the dialog is actually open
+	// (bounded by its timeout) - standard modal behavior.
 	if manual {
 		if confirmer := c.app.Confirmer(); confirmer != nil {
 			ok, err := confirmer.Confirm(
