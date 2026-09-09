@@ -10,19 +10,24 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/gifrec"
 	"github.com/Rake-Pro/GoShareIt/platform/darwin"
+	"github.com/Rake-Pro/GoShareIt/platform/wailsapp"
 )
 
 // buildProviders on darwin returns the real macOS OS seams. The Uploader is left
 // nil here; main.go injects the portable Nextcloud uploader from config.
-func buildProviders(_ *config.Config) (core.Providers, error) {
-	// Request the macOS permissions up front so the user gets prompts instead of
-	// silent hotkey/capture failures. Best-effort; a denied state is logged.
+func buildProviders(cfg *config.Config) (core.Providers, error) {
+	// Request Screen Recording up front so the user gets a prompt instead of a
+	// silent capture failure. Best-effort; a denied state is logged. Hotkeys no
+	// longer appear here: the Wails global-shortcut backend uses Carbon's
+	// RegisterEventHotKey, which needs neither Accessibility nor Input
+	// Monitoring.
 	p := darwin.RequestPermissions()
-	log.Info().
-		Bool("accessibility", p.Accessibility).
-		Bool("screen_recording", p.ScreenRecording).
-		Bool("input_monitoring", p.InputMonitoring).
-		Msg("macOS permissions")
+	log.Info().Bool("screen_recording", p.ScreenRecording).Msg("macOS permissions")
+
+	// One Wails application owns the menu bar, the global shortcuts, the
+	// notifications and the confirm dialogs; Tray.Run drives its main loop.
+	ui := wailsapp.New()
+	ui.ReconcileAutostart(cfg.StartAtLogin)
 
 	// One Capturer instance, shared by still capture and the frame-sampling GIF
 	// recorder. The composite routes GIF -> gifrec, video -> the AVFoundation
@@ -34,9 +39,9 @@ func buildProviders(_ *config.Config) (core.Providers, error) {
 		Capturer:  capturer,
 		Recorder:  recorder,
 		Clipboard: darwin.NewClipboard(),
-		Notifier:  darwin.NewNotifier(),
-		Confirmer: darwin.NewConfirmer(),
-		Tray:      darwin.NewTray(),
-		Hotkeys:   darwin.NewHotkeyManager(),
+		Notifier:  ui.Notifier(),
+		Confirmer: ui.Confirmer(),
+		Tray:      ui.Tray(),
+		Hotkeys:   ui.Hotkeys(),
 	}, nil
 }

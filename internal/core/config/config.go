@@ -26,6 +26,13 @@ type Config struct {
 	// settings window.
 	Theme string `yaml:"theme"`
 
+	// StartAtLogin registers the host as a login item so it starts with the
+	// session (SMAppService or a LaunchAgent on macOS, the HKCU Run key on
+	// Windows). The host reconciles the OS registration with this value at
+	// every start; Microsoft Store builds skip it, because the MSIX manifest
+	// owns the startup task there.
+	StartAtLogin bool `yaml:"start_at_login"`
+
 	Nextcloud    NextcloudConfig       `yaml:"nextcloud"`
 	Upload       UploadConfig          `yaml:"upload"`
 	S3           S3Config              `yaml:"s3"`
@@ -213,6 +220,10 @@ type AfterUploadConfig struct {
 // comma-separated alternatives ("Cmd+Shift+1, Ctrl+PrintScreen") - each
 // registers independently. The *_edit variants capture the same way but force
 // the annotation editor open, independent of editor.enabled/on_modes.
+//
+// PrintScreen resolves to F13 on macOS; on Windows it binds through a direct
+// RegisterHotKey path, because the Wails accelerator grammar has no name for
+// the key.
 type HotkeysConfig struct {
 	Region         string `yaml:"region"`
 	FullScreen     string `yaml:"fullscreen"`

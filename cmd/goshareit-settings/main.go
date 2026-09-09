@@ -1,23 +1,18 @@
 //go:build darwin || windows
 
-// Command goshareit-settings is the out-of-process configuration UI (Wails v2,
+// Command goshareit-settings is the out-of-process configuration UI (Wails v3,
 // vanilla JS frontend, no node build). The tray host launches it like the
 // editor helper: a sibling binary, so it never contends with the host's
-// systray main loop. Build production binaries with -tags desktop,production.
+// main loop. Build production binaries with -tags production.
 package main
 
 import (
-	"context"
 	"flag"
-	"fmt"
+	"net/http"
 	"os"
-	"sync/atomic"
 
 	"github.com/rs/zerolog/log"
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/version"
@@ -39,41 +34,36 @@ func main() {
 		}
 	}
 
-	svc := &settings.Service{ConfigPath: path, Version: version.Version}
-	// Native dialog/browser hooks need the wails context, captured on startup.
-	// Wails runs OnStartup before the frontend loads, but guard anyway.
-	var appCtx atomic.Pointer[context.Context]
+	svc := &settings.Service{ConfigPath: path, Version: version.Version, Packaged: isPackaged()}
+	app := application.New(application.Options{
+		Name:        "GoShareIt Settings",
+		Description: "GoShareIt configuration",
+		Services:    []application.Service{application.NewService(svc)},
+		Assets:      application.AssetOptions{Handler: http.FileServer(http.FS(assets()))},
+		Mac: application.MacOptions{
+			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+	})
+	// Native dialog/browser hooks hang off the app managers; no startup
+	// context capture is needed in v3.
 	svc.PickDir = func() (string, error) {
-		ctx := appCtx.Load()
-		if ctx == nil {
-			return "", fmt.Errorf("settings: still starting up")
-		}
-		return wruntime.OpenDirectoryDialog(*ctx, wruntime.OpenDialogOptions{Title: "Choose folder"})
+		return app.Dialog.OpenFile().
+			SetTitle("Choose folder").
+			CanChooseDirectories(true).
+			CanChooseFiles(false).
+			CanCreateDirectories(true).
+			PromptForSingleSelection()
 	}
-	svc.OpenURL = func(url string) error {
-		ctx := appCtx.Load()
-		if ctx == nil {
-			return fmt.Errorf("settings: still starting up")
-		}
-		wruntime.BrowserOpenURL(*ctx, url)
-		return nil
-	}
-	svc.Close = func() {
-		if ctx := appCtx.Load(); ctx != nil {
-			wruntime.Quit(*ctx)
-		}
-	}
-	err := wails.Run(&options.App{
+	svc.OpenURL = app.Browser.OpenURL
+	svc.Close = app.Quit
+
+	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "GoShareIt Settings",
 		Width:  760,
 		Height: 820,
-		AssetServer: &assetserver.Options{
-			Assets: assets(),
-		},
-		OnStartup: func(ctx context.Context) { appCtx.Store(&ctx) },
-		Bind:      []interface{}{svc},
+		URL:    "/",
 	})
-	if err != nil {
+	if err := app.Run(); err != nil {
 		log.Fatal().Err(err).Msg("settings ui")
 	}
 	// Tell the host whether anything was saved: it restarts to apply only on

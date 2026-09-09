@@ -20,6 +20,8 @@ const StarterConfig = `# GoShareIt configuration. Set base_url/username for your
 
 theme: system   # light | dark | system - applies to the editor + settings UI
 
+start_at_login: false   # register the tray host as a login item
+
 nextcloud:
   base_url: ""          # e.g. https://cloud.example.com
   username: ""          # e.g. you@example.com

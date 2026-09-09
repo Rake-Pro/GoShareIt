@@ -54,24 +54,37 @@ only turns off the built-in updater. The macOS build is signed and notarized.
 ## Architecture: pure-Go core + thin OS shells
 
 The core (`internal/core/...`) is **pure Go**. It builds and tests on any
-platform with `CGO_ENABLED=0`, never uses cgo, never shells out, and never
-imports a `platform/` package. All OS-specific behavior is expressed as
-interface seams that the core depends on:
+platform with `CGO_ENABLED=0`, never uses cgo, and never imports a `platform/`
+package. The only processes it spawns are its own sibling helper binaries
+(editor, region overlay) and the platform updater (`ditto`/`open` on macOS).
+All other OS-specific behavior is expressed as interface seams that the core
+depends on:
 
 | Seam | Package | Responsibility |
 |------|---------|----------------|
-| `Capturer` | `internal/core/capture` | screen/region/window capture |
+| `Capturer` / `Recorder` / `RegionRecorder` | `internal/core/capture` | screen/region/window capture, video/GIF recording |
 | `Uploader` | `internal/core/upload` | upload + share (Nextcloud impl is portable) |
 | `Clipboard` | `internal/core/clipboard` | read/write text + images |
-| `Notifier` | `internal/core/notify` | desktop notifications |
+| `Notifier` / `Confirmer` | `internal/core/notify` | desktop notifications, blocking confirm dialogs |
 | `Tray` | `internal/core/tray` | menu-bar / system-tray |
 | `hotkey.Manager` | `internal/core/hotkey` | global hotkeys |
 
-Concrete OS implementations live under `platform/darwin` and `platform/windows`
-(added by later phases) and are injected through `core.Providers` by per-GOOS
+Concrete OS implementations live under `platform/`:
+
+| Package | Builds on | Backs |
+|---------|-----------|-------|
+| `platform/wailsapp` | darwin + windows | tray, global hotkeys, notifications, confirm dialogs - one Wails v3 application, one main loop |
+| `platform/darwin` | darwin (cgo) | screen capture, AVFoundation recording, clipboard, Screen Recording TCC preflight |
+| `platform/windows` | windows | screen capture, ffmpeg recording, clipboard, PrintScreen hotkey chords + registry tweak, Smart App Control notice |
+
+They are injected through `core.Providers` by per-GOOS
 `cmd/goshareit/wire_<goos>.go` files. `main.go` is OS-agnostic and calls
 `buildProviders(cfg)`. The committed `wire_linux.go` returns in-memory fakes so
 the module builds and runs on linux for CI.
+
+The tray owns the process main loop: `Tray.Run` calls the Wails `app.Run()` on
+the main goroutine (macOS pins AppKit to the first thread), and the hotkey,
+notification and dialog seams marshal onto that same loop.
 
 The orchestration pipeline (`internal/core/pipeline.go`):
 
@@ -89,6 +102,9 @@ go test ./...
 
 The macOS app is built on macOS (`GOOS=darwin`), Windows on Windows. The linux
 build is for the portable core and CI only; it has no real capture backend.
+
+The host and settings binaries ship with `-tags production` (the Wails release
+variant); the editor has no build tag. macOS needs cgo, Windows does not.
 
 ## Configuration
 
@@ -192,7 +208,7 @@ instead.
 - [docs/RELEASE.md](docs/RELEASE.md) - the CI release path, signing secrets,
   and the local `make release` runbook.
 - [docs/PERMISSIONS.md](docs/PERMISSIONS.md) - the Screen Recording and
-  Accessibility/Input Monitoring permissions the app needs and how to grant them.
+  Notifications permissions the app needs on macOS and how to grant them.
 
 ### Make targets
 

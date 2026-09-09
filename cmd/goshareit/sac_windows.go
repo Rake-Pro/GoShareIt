@@ -21,7 +21,7 @@ import (
 // on the rare On machine that let this exact build through; in the plain
 // blocked case the process never starts, which is why the installer and the
 // README carry the same text. Store builds skip it entirely.
-func warnSmartAppControl(confirmer *windows.Confirmer) {
+func warnSmartAppControl(chooser *windows.Chooser) {
 	if windows.IsPackaged() {
 		return
 	}
@@ -44,7 +44,7 @@ func warnSmartAppControl(confirmer *windows.Confirmer) {
 		return
 	}
 	log.Warn().Int("state", state).Msg("smart app control active: unsigned GoShareIt binaries will be blocked once it is On")
-	if confirmer == nil {
+	if chooser == nil {
 		return
 	}
 
@@ -57,7 +57,7 @@ func warnSmartAppControl(confirmer *windows.Confirmer) {
 		"  1. Turn Smart App Control off: Windows Security > App & browser control > Smart App Control settings > Off.\n" +
 		"  2. Uninstall this copy and install GoShareIt from the Microsoft Store instead. The Store build is signed by Microsoft and runs with Smart App Control on.\n\n" +
 		"Yes = open Windows Security    No = open the Microsoft Store    Cancel = decide later"
-	choice, err := confirmer.Choose("Windows may block GoShareIt", body)
+	choice, err := chooser.Choose("Windows may block GoShareIt", body)
 	if err != nil {
 		log.Debug().Err(err).Msg("smart app control: dialog failed")
 		return

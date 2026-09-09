@@ -74,6 +74,40 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   setting (default true; "Install updates automatically" in Settings) turns
   this off to get the previous notify-only behavior; the tray "Check for
   Updates" item still confirms before installing.
+- Start at login. New `start_at_login` setting (default false; "Start at
+  login" in Settings) registers the tray host as a login item and the host
+  reconciles the OS registration at every start: SMAppService on macOS 13+
+  (a `~/Library/LaunchAgents` plist on older or unbundled builds), the HKCU
+  Run key on Windows. A registration that fails is logged, never fatal.
+  Microsoft Store builds skip it - the MSIX manifest owns the startup task,
+  and the user controls it in Windows Settings > Apps > Startup; the toggle is
+  greyed out there rather than accepting an edit nothing would apply.
+- Notifications are clickable: a notification that carries a link (the share
+  URL after an upload) now opens it in the default browser when the banner is
+  clicked. The link still lands on the clipboard as before.
+
+### Changed
+- The tray, global hotkeys, desktop notifications and confirm dialogs moved
+  onto Wails v3, which the settings UI already used. One application now owns
+  one main loop for all four instead of `fyne.io/systray` plus
+  `golang.design/x/hotkey` plus per-dialog `osascript`/`powershell.exe`
+  children; both modules are gone from `go.mod`. Consequences:
+  - macOS no longer asks for Accessibility or Input Monitoring. Global
+    hotkeys now use Carbon's `RegisterEventHotKey`, which needs neither;
+    Screen Recording is still requested at startup and still required.
+  - Windows toasts go through the WinRT toast API in-process (a COM
+    activator registered under HKCU) instead of spawning `powershell.exe`,
+    so a click can be routed back into the running app.
+  - Windows: chords on the PrintScreen key keep a direct `RegisterHotKey`
+    path (`platform/windows`, PrintScreen only) because Wails has no
+    accelerator name for that key. `Win+Ctrl+PrintScreen`,
+    `hotkeys.disable_snipping_printscreen` and the Snipping Tool hint behave
+    exactly as before.
+  - Unbundled macOS dev builds (`go run`, a bare binary) lose the
+    `osascript` notification fallback; notifications there now need the
+    `.app` bundle that `make bundle` produces.
+- The tray host is built with `-tags production` like the settings binary,
+  so Wails debug-mode code is compiled out of release builds.
 
 ### Fixed
 - Windows: the editor (and the region, update and what's-new windows) now
