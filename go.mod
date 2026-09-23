@@ -8,7 +8,7 @@ require (
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/pkg/sftp v1.13.11
 	github.com/rs/zerolog v1.35.1
-	github.com/wailsapp/wails/v3 v3.0.0-beta.19
+	github.com/wailsapp/wails/v3 v3.0.0-beta.23
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.design/x/clipboard v0.9.0
 	golang.org/x/crypto v0.57.0
@@ -29,7 +29,6 @@ require (
 	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/jezek/xgb v1.3.1 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
