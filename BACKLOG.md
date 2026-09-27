@@ -57,10 +57,10 @@ updater check (with a PAT, correctly reports up-to-date).
 - Linux capture backend (tray/hotkey/capture are in-memory fakes today;
   artifacts ship marked experimental).
 - Custom-uploader imgur preset needs a user-registered imgur API client ID
-  (not bundled) - document where to get one and where it goes in
+  (not bundled): document where to get one and where it goes in
   config.example.yaml / the settings UI preset picker.
 
-## Wails v3 migration - DONE on branch wails-v3
+## Wails v3 migration: DONE on branch wails-v3
 
 Migrated at v3.0.0-beta.18 (v2 was bugfix-only with no maintenance commitment
 past v3 GA). Do NOT adopt the wails3 CLI/Taskfile; plain `go build` remains our
@@ -100,8 +100,8 @@ Open:
 - Windows .exe icon: `goshareit.exe`/`-editor.exe`/`-settings.exe` ship with
   no icon resource, so Explorer/taskbar/the Inno installer's
   `UninstallDisplayIcon` all show the generic exe icon. (macOS app icon is
-  done - AppIcon.icns ships as of v0.0.6.) The master logo exists at
-  build/icons/goshareit_icon.png - embed it into the Windows binaries (e.g.
+  done: AppIcon.icns ships as of v0.0.6.) The master logo exists at
+  build/icons/goshareit_icon.png; embed it into the Windows binaries (e.g.
   a `.syso` resource) and wire it into goshareit.iss.
 - Windows Authenticode signing: AT AN IMPASSE (2026-09-06). SignPath
   Foundation did not accept the project (size), and paid certificates are
@@ -110,10 +110,10 @@ Open:
   installer and first launch explain Smart App Control and offer the
   turn-off page (see CHANGELOG); README documents it.
 - Microsoft Store distribution (second install path, alongside the GitHub
-  release): CI SIDE DONE 2026-09-06 - release.yml builds the MSIX upload
+  release): CI SIDE DONE 2026-09-06: release.yml builds the MSIX upload
   package as a workflow artifact, the host disables its updater when
   packaged, the SAC dialogs point users at the Store. OPEN, owner-side:
-  (1) Partner Center individual developer account - carries a one-time
+  (1) Partner Center individual developer account, carries a one-time
   registration fee (USD 19 at last check), owner decides; (2) reserve the
   app name, copy the Package/Identity/Name and Publisher values into repo
   variables `MSSTORE_IDENTITY_NAME` and `MSSTORE_PUBLISHER`; (3) upload the

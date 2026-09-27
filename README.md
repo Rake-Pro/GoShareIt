@@ -5,25 +5,25 @@ Capture a region, window, or full screen; optionally annotate it (crop, arrow,
 text, blur, and more) in a light/dark/system-themed editor; upload to
 Nextcloud (default), S3-compatible storage, SFTP, WebDAV, or a custom HTTP
 endpoint (with imgur/catbox/0x0.st presets), with a public
-share link or direct URL copied to your clipboard - or run entirely in
+share link or direct URL copied to your clipboard, or run entirely in
 local-only mode with uploads off. Ships as a self-updating menu-bar/tray app.
 
 ## Binaries and first run
 
 GoShareIt ships as three sibling binaries:
 
-- `goshareit` - the menu-bar/tray host (always running; owns hotkeys, capture,
+- `goshareit`: the menu-bar/tray host (always running; owns hotkeys, capture,
   upload).
-- `goshareit-editor` - the out-of-process annotation editor and region
+- `goshareit-editor`: the out-of-process annotation editor and region
   selector overlay, launched by the host as needed.
-- `goshareit-settings` - the settings UI (Wails), launched from the tray
+- `goshareit-settings`: the settings UI (Wails), launched from the tray
   ("Settings...") or automatically on first run.
 
 All app state (config, secrets, logs, history) lives in one per-user root:
 `~/.goshareit` on macOS/Linux, `%USERPROFILE%\goshareit` on Windows. On an
 unconfigured install the host opens the settings UI instead of exiting, so
 first run is: install, launch, fill in (or skip) Nextcloud details in the
-settings window, save. Nothing is required to get started - local-only mode
+settings window, save. Nothing is required to get started: local-only mode
 (below) works with zero configuration.
 
 ### Windows says "Part of this app has been blocked"
@@ -73,7 +73,7 @@ Concrete OS implementations live under `platform/`:
 
 | Package | Builds on | Backs |
 |---------|-----------|-------|
-| `platform/wailsapp` | darwin + windows | tray, global hotkeys, notifications, confirm dialogs - one Wails v3 application, one main loop |
+| `platform/wailsapp` | darwin + windows | tray, global hotkeys, notifications, confirm dialogs (one Wails v3 application, one main loop) |
 | `platform/darwin` | darwin (cgo) | screen capture, AVFoundation recording, clipboard, Screen Recording TCC preflight |
 | `platform/windows` | windows | screen capture, ffmpeg recording, clipboard, PrintScreen hotkey chords + registry tweak, Smart App Control notice |
 
@@ -121,9 +121,9 @@ overridden with `GOSHAREIT_CONFIG_PATH`.
 
 The Nextcloud app password is **never** stored inline. Set exactly one of:
 
-- `nextcloud.password_file` - path to a `0600` file containing the password
+- `nextcloud.password_file`: path to a `0600` file containing the password
   (read and whitespace-trimmed), or
-- `nextcloud.password_env` - the name of an environment variable holding it.
+- `nextcloud.password_env`: the name of an environment variable holding it.
 
 Generate a Nextcloud app password under Settings -> Security -> Devices & sessions.
 
@@ -179,14 +179,17 @@ above).
    `expireDate` and `password`). The token is read from `.ocs.data.token` and
    `.ocs.meta.statuscode` must be `200`.
 3. **Links built** from the token:
-   - `DirectURL = {base_url}/s/{token}/download` - raw bytes, copied to clipboard
-   - `PublicURL = {base_url}/s/{token}` - viewer page, stored in history
+   - `DirectURL`, copied to clipboard: `{base_url}/s/{token}/preview` for
+     `image/png` and `image/jpeg` (a GIF's `/preview` is a single static
+     frame, so it must not use this), otherwise `{base_url}/s/{token}/download`
+     for raw bytes (GIFs, video, everything else)
+   - `PublicURL = {base_url}/s/{token}`: viewer page, stored in history
    - `ShareToken = token`
 
 ## Releases and self-update
 
 Releases are cut by CI (merge to `main` mints the next semver tag and builds
-all three platforms in one run - see [docs/RELEASE.md](docs/RELEASE.md) for
+all three platforms in one run; see [docs/RELEASE.md](docs/RELEASE.md) for
 the full flow): a macOS universal `.dmg`/`.zip`, a Windows Inno Setup
 installer + `.zip`, and an experimental Linux `.tar.gz`, plus a
 `checksums.txt`. The macOS `.app` is codesigned with a Developer ID
@@ -205,9 +208,9 @@ a what's-new window with the release notes since your version (Update now
 straight through. No credentials or configuration are needed for updates. Microsoft Store installs are updated by the Store
 instead.
 
-- [docs/RELEASE.md](docs/RELEASE.md) - the CI release path, signing secrets,
+- [docs/RELEASE.md](docs/RELEASE.md): the CI release path, signing secrets,
   and the local `make release` runbook.
-- [docs/PERMISSIONS.md](docs/PERMISSIONS.md) - the Screen Recording and
+- [docs/PERMISSIONS.md](docs/PERMISSIONS.md): the Screen Recording and
   Notifications permissions the app needs on macOS and how to grant them.
 
 ### Make targets
@@ -234,4 +237,4 @@ GoShareIt collects no user data and has no telemetry. See [PRIVACY.md](PRIVACY.m
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

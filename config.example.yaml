@@ -75,11 +75,11 @@ upload:
 #   remote_dir: ""
 #   url_template: ""                           # public link template; placeholder {name}
 #   # SHA256 fingerprint (ssh-keygen -lf format) pinning the host key. Leaving
-#   # this blank is allowed but leaves the host key unverified - a startup
+#   # this blank is allowed but leaves the host key unverified: a startup
 #   # warning is logged.
 #   host_key_fingerprint: ""
 
-# Generic WebDAV (no OCS share step - that is Nextcloud-specific).
+# Generic WebDAV (no OCS share step; that is Nextcloud-specific).
 # Used when upload.destination is "webdav".
 # webdav:
 #   base_url: https://webdav.example.com/remote.php/dav/files/uploads

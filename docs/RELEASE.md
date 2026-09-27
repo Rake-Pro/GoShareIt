@@ -22,9 +22,9 @@ running anything by hand:
      - **Windows**: `GoShareIt_<ver>_windows_amd64_setup.exe` (Inno Setup,
        per-user install, no admin) and `GoShareIt_<ver>_windows_amd64.zip`
        (the updater feed, loose exes).
-     - **Linux**: `GoShareIt_<ver>_linux_amd64.tar.gz` - **EXPERIMENTAL**,
+     - **Linux**: `GoShareIt_<ver>_linux_amd64.tar.gz` (**EXPERIMENTAL**,
        host binary only; `wire_linux.go` still wires in-memory fakes, so
-       there is no real capture backend.
+       there is no real capture backend).
    - writes `checksums.txt` (sha256 of every asset; the in-app updater fails
      closed if it is missing).
    - publishes everything to a GitHub Release on that tag. That release feed
@@ -46,11 +46,11 @@ Set as repository secrets; the macOS job checks for them and adapts:
 
 - `MACOS_CERT_P12` + `MACOS_CERT_P12_PASSWORD` present -> the p12 is imported
   into the build keychain, followed by Apple's Developer ID CA intermediates
-  (G1+G2) - a Keychain-exported p12 carries only the leaf cert + key, so
+  (G1+G2): a Keychain-exported p12 carries only the leaf cert + key, so
   without the intermediates the identity imports but is never valid on the
   bare runner keychain. The workflow then derives the identity's SHA-1 hash
   via `find-identity` and signs by that hash (not by the `DEVELOPER_ID_APP`
-  name string - `codesign -s <name>` matches the exact certificate CN, and
+  name string: `codesign -s <name>` matches the exact certificate CN, and
   the build keychain only ever holds the one imported identity, so the hash
   is exact and immune to name/secret formatting drift). The bundle is signed
   with the Hardened Runtime + entitlements (`scripts/sign.sh`).
@@ -62,8 +62,8 @@ Set as repository secrets; the macOS job checks for them and adapts:
 
 **Current state:** as of v0.0.8, the signing secrets carry a real Developer
 ID Application certificate (team-anchored identity). Release builds are
-codesigned and **notarized** - `notarytool` reports `Accepted` and the ticket
-is stapled - so the bundle carries full Gatekeeper credit, and (being a
+codesigned and **notarized** (`notarytool` reports `Accepted` and the ticket
+is stapled), so the bundle carries full Gatekeeper credit, and (being a
 team-anchored identity) keeps Screen Recording/Accessibility TCC grants
 persistent across installs, updates, and certificate renewals. Switching from
 the old self-signed identity required a one-time full remove-and-re-add of
@@ -130,8 +130,8 @@ SignPath-side setup (one-time, in the SignPath UI):
 4. Signing policy `release-signing` with manual approval (the Foundation
    requires it for OSS projects).
 
-Per release the Windows job submits two signing requests - first the loose
-exes, then the installer built from the signed exes - and blocks until each
+Per release the Windows job submits two signing requests (first the loose
+exes, then the installer built from the signed exes) and blocks until each
 is approved in the SignPath UI (timeout 2 h; a lapsed request fails the job,
 re-run it after approving). A `Verify signatures` step fails the job if any
 shipped exe is not `Valid`. The signer shows as "SignPath Foundation", not
@@ -191,13 +191,13 @@ make release VERSION=1.2.3
 
 `release` runs, in order:
 
-1. `bundle` - builds the cgo host, editor, and settings binaries for the host
+1. `bundle`: builds the cgo host, editor, and settings binaries for the host
    arch (`make build-darwin`) and assembles `dist/GoShareIt.app`
    (`scripts/bundle.sh`). This produces a **host-arch-only** bundle, unlike
    the CI build which lipos arm64+amd64 into a universal binary.
-2. `sign` - codesigns with the Hardened Runtime + `build/macos/entitlements.plist`
+2. `sign`: codesigns with the Hardened Runtime + `build/macos/entitlements.plist`
    (`scripts/sign.sh`).
-3. `notarize` - zips, submits to Apple with `notarytool --wait`, then
+3. `notarize`: zips, submits to Apple with `notarytool --wait`, then
    `stapler staple`s the ticket (`scripts/notarize.sh`).
 
 Individual steps are also available: `make bundle`, `make sign`, `make notarize`.
