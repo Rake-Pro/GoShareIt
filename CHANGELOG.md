@@ -61,7 +61,7 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   90-day retention) from the same exes: manifest at
   `build/windows/msix/AppxManifest.xml` (full-trust Win32, optional startup
   task off by default), Store icon set generated from the master logo.
-  Unsigned by design - Partner Center re-signs on submission - so it is not
+  Unsigned by design (Partner Center re-signs on submission), so it is not
   a release asset and not sideloadable. Identity comes from repo variables
   `MSSTORE_IDENTITY_NAME` / `MSSTORE_PUBLISHER` (placeholders until the app
   name is reserved). The host detects it runs packaged
@@ -79,7 +79,7 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   reconciles the OS registration at every start: SMAppService on macOS 13+
   (a `~/Library/LaunchAgents` plist on older or unbundled builds), the HKCU
   Run key on Windows. A registration that fails is logged, never fatal.
-  Microsoft Store builds skip it - the MSIX manifest owns the startup task,
+  Microsoft Store builds skip it: the MSIX manifest owns the startup task,
   and the user controls it in Windows Settings > Apps > Startup; the toggle is
   greyed out there rather than accepting an edit nothing would apply.
 - Notifications are clickable: a notification that carries a link (the share
@@ -200,8 +200,8 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   UI "GitHub token" field). It existed only for the fine-grained read-only PAT
   needed while the repo was private; now that the repo is public, the updater
   calls the GitHub API anonymously and the option is dead weight. Existing
-  configs with `update.token_file` set are unaffected - the field is simply
-  ignored - and any `github-token.secret` file can be deleted; fresh installs
+  configs with `update.token_file` set are unaffected (the field is simply
+  ignored), and any `github-token.secret` file can be deleted; fresh installs
   no longer scaffold one.
 
 ### Security
@@ -215,7 +215,7 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   `upload.allow_insecure_http` opt-in (settings UI: "Allow insecure http://
   server URL") re-enables it everywhere for a TLS-less server on a trusted
   network. URLs are never silently rewritten, and an already-saved `http://`
-  config does not brick the app - the loader reports the error and the host
+  config does not brick the app: the loader reports the error and the host
   opens the settings UI, same as any other invalid config. (#2)
 - The upload history log (`~/.goshareit/history.jsonl`) is created 0600 instead
   of 0644, in a 0700 directory, and an existing 0644 log is tightened on open.
@@ -232,7 +232,7 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   used. The settings helper now signals a completed save via its exit code
   (`settings.ExitSaved`) instead of the host inferring one from the config
   file's mtime, which also fired on writes the settings window never made
-  (e.g. the tray upload toggle) and on a Save with no edits - both looked
+  (e.g. the tray upload toggle) and on a Save with no edits: both looked
   like "closing settings restarts the app". Closing the window without
   saving now always discards, and a save that leaves the config
   byte-identical skips the restart too.
@@ -253,7 +253,7 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 First release signed with a real Developer ID Application certificate and
 notarized by Apple (notarytool: Accepted, ticket stapled). Note: there is no
-v0.0.7 - two failed release attempts left dangling `v0.0.7` tags, both
+v0.0.7: two failed release attempts left dangling `v0.0.7` tags, both
 deleted; numbering jumps from 0.0.6 to 0.0.8.
 
 ### Changed
@@ -283,7 +283,7 @@ deleted; numbering jumps from 0.0.6 to 0.0.8.
 - New `notify.Confirmer` seam (`internal/core/notify`) for blocking native
   yes/no dialogs, alongside `Notifier`: darwin via `osascript display dialog`
   (120s auto-cancel, Esc/-128 treated as "no"), windows via a PowerShell WPF
-  `MessageBox` (fixed Yes/No buttons - the interface's custom labels are
+  `MessageBox` (fixed Yes/No buttons: the interface's custom labels are
   advisory on this platform), wired through `core.Providers`/`core.App`
   exactly like `Notifier` (optional; nil-tolerant on linux/dev, where it is
   now backed by `fake.Confirmer`). Manually clicking "Check for Updates" and
@@ -295,7 +295,7 @@ deleted; numbering jumps from 0.0.6 to 0.0.8.
   standard adapted for a no-container repo): HIGH+CRITICAL reported for
   visibility, fixable CRITICALs block the aggregate `build` gate.
 - Four new `Uploader` implementations in `internal/core/upload`: `S3`
-  (S3-compatible buckets - AWS S3, B2, R2, MinIO - via `minio-go/v7`, public
+  (S3-compatible buckets: AWS S3, B2, R2, MinIO, via `minio-go/v7`, public
   URL template or presigned GET), `SFTP` (via `pkg/sftp` + `x/crypto/ssh`,
   key or password auth, optional host key fingerprint pinning), `WebDAV`
   (plain PUT with basic auth, no OCS share step), and `Custom` (generic HTTP
@@ -309,7 +309,7 @@ deleted; numbering jumps from 0.0.6 to 0.0.8.
   (`nextcloud | s3 | sftp | webdav | custom`, default `nextcloud`) plus
   matching top-level `s3:`, `sftp:`, `webdav:`, and `custom:` yaml sections
   (see `config.example.yaml`). Secrets follow the existing Nextcloud
-  `password_file`/`password_env` pattern - `s3.secret_key_file`/`_env`,
+  `password_file`/`password_env` pattern: `s3.secret_key_file`/`_env`,
   `sftp.password_file`/`_env` (or `sftp.private_key_file`, which takes
   precedence, plus an optional `sftp.passphrase_file`/`_env` for an encrypted
   key), `webdav.password_file`/`_env`, `custom.secret_file`/`_env` (the
@@ -323,7 +323,7 @@ deleted; numbering jumps from 0.0.6 to 0.0.8.
   (`goshareit-settings`) consolidates Nextcloud/S3/SFTP/WebDAV/Custom into a
   single Upload section: a Destination select drives one inset destination
   panel holding a sub-panel per destination (all rendered, only the selected
-  one visible - hidden via the select's change handler rather than greyed),
+  one visible, hidden via the select's change handler rather than greyed),
   plus a Custom-panel preset picker (imgur/catbox/0x0) backed by a new
   `Service.Presets()` method; headers and extra fields are edited as one
   `key=value` per line. Upload-enabled-off still greys the Destination
@@ -343,7 +343,7 @@ deleted; numbering jumps from 0.0.6 to 0.0.8.
   a generic "Confirm", composed host-side from `after_capture`/`upload.enabled`.
 - macOS bundle: `AppIcon.icns` is now generated (from
   `build/icons/goshareit_icon.png` via `sips`/`iconutil`) and shipped in
-  `Info.plist` as `CFBundleIconFile` - the icon step in `bundle.sh` was
+  `Info.plist` as `CFBundleIconFile`: the icon step in `bundle.sh` was
   previously a commented-out placeholder, so every prior build (including
   updates) fell back to the generic Finder icon.
 
@@ -366,7 +366,7 @@ deleted; numbering jumps from 0.0.6 to 0.0.8.
 - Settings Save now applies without further user action: on success the
   settings window closes itself (new shell-injected `Service.CloseWindow`),
   which is what lets the blocked host process apply the config and restart
-  immediately - previously the user had to close the window by hand before
+  immediately: previously the user had to close the window by hand before
   anything took effect (found on-device on macOS). On save failure the window
   stays open with the error.
 
