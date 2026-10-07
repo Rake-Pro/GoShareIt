@@ -3,14 +3,14 @@ module github.com/Rake-Pro/GoShareIt
 go 1.26.0
 
 require (
-	gioui.org v0.10.2
+	gioui.org v0.10.3
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/pkg/sftp v1.13.11
 	github.com/rs/zerolog v1.35.1
-	github.com/wailsapp/wails/v3 v3.0.0-beta.25
+	github.com/wailsapp/wails/v3 v3.0.0-beta.26
 	go.yaml.in/yaml/v3 v3.0.5
-	golang.design/x/clipboard v0.9.0
+	golang.design/x/clipboard v0.11.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0
 	golang.org/x/sys v0.48.0
@@ -26,7 +26,7 @@ require (
 	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/gen2brain/shm v0.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/go-text/typesetting v0.3.4 // indirect
+	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jezek/xgb v1.3.1 // indirect
