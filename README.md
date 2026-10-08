@@ -149,7 +149,7 @@ default GTK 4 + WebKitGTK 6.0); the editor has no build tag. macOS and Linux
 need cgo, Windows does not. Linux dev packages (Debian/Ubuntu):
 `libgtk-3-dev libwebkit2gtk-4.1-dev libegl1-mesa-dev libgles2-mesa-dev
 libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-dev
-libx11-xcb-dev libxcursor-dev libxfixes-dev`.
+libx11-xcb-dev libxcursor-dev libxfixes-dev libvulkan-dev libffi-dev`.
 
 ## Configuration
 

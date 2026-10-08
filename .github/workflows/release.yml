@@ -120,7 +120,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
           cache: true
 
       - name: Build universal binaries (cgo, arm64 + amd64 + lipo)
@@ -244,7 +244,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
           cache: true
 
       - name: Build (CGO off, windowsgui)
@@ -400,7 +400,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
           cache: true
 
       # The Linux desktop shell is cgo: Wails (GTK3 + WebKitGTK 4.1 via the
@@ -413,7 +413,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgtk-3-dev libwebkit2gtk-4.1-dev \
             libegl1-mesa-dev libgles2-mesa-dev libwayland-dev libxkbcommon-dev \
-            libxkbcommon-x11-dev libx11-dev libx11-xcb-dev libxcursor-dev libxfixes-dev
+            libxkbcommon-x11-dev libx11-dev libx11-xcb-dev libxcursor-dev libxfixes-dev \
+            libvulkan-dev libffi-dev
 
       - name: Build and package (cgo, GTK3)
         env:

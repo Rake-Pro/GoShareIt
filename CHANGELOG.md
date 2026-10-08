@@ -6,7 +6,9 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
-- Go toolchain 1.27rc2 -> 1.27.0
+- Go toolchain 1.27rc2 -> 1.27.2 (net/http fixes GO-2026-6613 and the
+  http2 advisories), golang.org/x/net 0.58.0 -> 0.60.0 (GO-2026-6610,
+  GO-2026-6611, GO-2026-6617).
 
 ### Added
 - Linux desktop support (beta). The Linux build is no longer the fake-backed
