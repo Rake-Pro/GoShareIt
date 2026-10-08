@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin || windows || (linux && cgo)
 
 // Package main is the GoShareIt out-of-process annotation editor helper.
 //

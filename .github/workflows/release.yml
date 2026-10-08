@@ -11,8 +11,9 @@
 #            GoShareIt_<ver>_windows_amd64.zip       (updater feed, loose exes)
 #            GoShareIt_<ver>_windows_amd64_msstore_upload.msix (workflow artifact
 #            only - Partner Center upload package, unsigned, not sideloadable)
-#   Linux    GoShareIt_<ver>_linux_amd64.tar.gz      (EXPERIMENTAL: no capture
-#            backend on linux yet - wire_linux.go runs in-memory fakes)
+#   Linux    GoShareIt_<ver>_linux_amd64.tar.gz      (BETA: updater feed + human
+#            install, loose host/editor/settings binaries, cgo, GTK3; not yet
+#            validated on real desktops)
 #   checksums.txt (sha256; the updater fails closed without it)
 #
 # macOS signing/notarization are gated on secrets and skipped cleanly when
@@ -402,16 +403,32 @@ jobs:
           go-version: "1.27.0"
           cache: true
 
-      # Host binary only: the editor is //go:build darwin||windows, and the
-      # linux shell still wires in-memory fakes. Shipped as experimental.
-      - name: Build and package (CGO off)
+      # The Linux desktop shell is cgo: Wails (GTK3 + WebKitGTK 4.1 via the
+      # gtk3 tag, the most widely installed pair) for the tray, shortcuts,
+      # notifications, dialogs and the settings UI; Gio (X11 + Wayland) for
+      # the editor and region overlay. Same package list as ci.yml.
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libegl1-mesa-dev libgles2-mesa-dev libwayland-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libx11-dev libx11-xcb-dev libxcursor-dev libxfixes-dev
+
+      - name: Build and package (cgo, GTK3)
+        env:
+          CGO_ENABLED: "1"
         run: |
           set -euo pipefail
           mkdir -p dist out
-          CGO_ENABLED=0 go build \
-            -ldflags "-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}" \
-            -o dist/goshareit ./cmd/goshareit
-          tar -C dist -czf "out/GoShareIt_${VERSION}_linux_amd64.tar.gz" goshareit
+          ldflags="-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
+          go build -tags production,gtk3 -ldflags "$ldflags" -o dist/goshareit ./cmd/goshareit
+          go build -ldflags "$ldflags" -o dist/goshareit-editor ./cmd/goshareit-editor
+          go build -tags production,gtk3 -ldflags "$ldflags" -o dist/goshareit-settings ./cmd/goshareit-settings
+          # Loose binaries at the archive root: that is the layout the in-app
+          # updater (update.applyFlat) installs from.
+          tar -C dist -czf "out/GoShareIt_${VERSION}_linux_amd64.tar.gz" \
+            goshareit goshareit-editor goshareit-settings
 
       - uses: actions/upload-artifact@v7
         with:
@@ -447,7 +464,7 @@ jobs:
           set -euo pipefail
           notes="Windows: the binaries are not code-signed. If Windows 11 Smart App Control says \"Part of this app has been blocked\", turn it off (Windows Security > App & browser control > Smart App Control settings > Off) - there is no per-app exception. Details: README, \"Windows says Part of this app has been blocked\". A SmartScreen warning is different: More info > Run anyway.
 
-          Linux artifact is EXPERIMENTAL: no capture backend is wired on linux yet."
+          Linux (BETA): the desktop shell is new and not yet validated on real desktops. The tar.gz holds the three binaries; see the README's Linux section for the runtime packages (GTK 3, WebKitGTK 4.1, ffmpeg for recording) and the desktop entry."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else

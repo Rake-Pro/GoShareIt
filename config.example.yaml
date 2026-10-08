@@ -96,7 +96,9 @@ upload:
 # Public host presets are destinations too: set upload.destination to one of
 # imgur, imgbb, imgchest, lensdump, chevereto, catbox, litterbox, uguu, 0x0,
 # pixeldrain, gofile, giphy. The request template is built in; only the key
-# is yours. Keys live in one file per host, default ~/.goshareit/host-<id>.secret
+# is yours (imgur: register an application at api.imgur.com/oauth2/addclient,
+# anonymous usage, and use its Client ID; the settings UI's preset picker
+# shows the same hint per host). Keys live in one file per host, default ~/.goshareit/host-<id>.secret
 # (or %USERPROFILE%\goshareit\host-<id>.secret on Windows); override per host:
 # hosts:
 #   imgur:

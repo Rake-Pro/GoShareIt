@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin || windows || (linux && cgo)
 
 // Command goshareit-editor is the out-of-process annotation editor helper for
 // GoShareIt. It is invoked by the menu-bar host with a captured PNG and writes

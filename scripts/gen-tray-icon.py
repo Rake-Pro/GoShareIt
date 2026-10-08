@@ -8,6 +8,8 @@
 - internal/icon/tray_windows.ico: the product logo (shutter aperture + G,
   build/icons/goshareit_icon.png) as a full-color multi-size ICO
   (16/24/32/48/64) for the Windows tray.
+- internal/icon/tray_linux.png: the same logo as a 64px full-color PNG for
+  the Linux StatusNotifierItem tray (panels scale it themselves).
 
 Run from the repo root: python3 scripts/gen-tray-icon.py
 """
@@ -51,4 +53,7 @@ sizes = [16, 24, 32, 48, 64]
 imgs = [logo.resize((s, s), Image.LANCZOS) for s in sizes]
 imgs[-1].save(os.path.join(OUT, "tray_windows.ico"),
               sizes=[(s, s) for s in sizes], append_images=imgs[:-1])
+# Linux: full-color logo PNG (StatusNotifierItem takes raw pixmaps; Wails
+# decodes PNG into one).
+logo.resize((64, 64), Image.LANCZOS).save(os.path.join(OUT, "tray_linux.png"))
 print("wrote", os.listdir(OUT))

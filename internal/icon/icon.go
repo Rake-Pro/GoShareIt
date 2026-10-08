@@ -17,3 +17,9 @@ var TrayDarwin []byte
 //
 //go:embed tray_windows.ico
 var TrayWindows []byte
+
+// TrayLinux is the product logo as a 64px full-color PNG for the
+// StatusNotifierItem tray.
+//
+//go:embed tray_linux.png
+var TrayLinux []byte

@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin || windows || (linux && cgo)
 
 // Command goshareit-settings is the out-of-process configuration UI (Wails v3,
 // vanilla JS frontend, no node build). The tray host launches it like the

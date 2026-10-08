@@ -37,6 +37,18 @@ updater check (with a PAT, correctly reports up-to-date).
   the notification service registers, and whether a toast click reaches a
   running single-instance host.
 - Both: browser sign-in (Nextcloud Login Flow v2) end-to-end.
+- Linux (new desktop shell, nothing has run on real hardware): tray icon and
+  menu under a StatusNotifierItem host (KDE, GNOME + AppIndicator), global
+  hotkeys on X11 (`XGrabKey`) and on Wayland (GlobalShortcuts portal binding
+  dialog), D-Bus notifications and click-to-open-link, the GTK confirm
+  dialog, "Start at login" (`~/.config/autostart`), the settings UI
+  (WebKitGTK), the Gio editor and region overlay (freeze-frame crop
+  accuracy on X11, and on Wayland against the portal's stitched
+  multi-monitor image), window capture on X11 (frame extents) and the
+  portal picker on Wayland, LastRegion replay, ffmpeg `x11grab` recording
+  (full + region offsets on a multi-monitor X11 layout), GIF via frame
+  sampling, the clipboard on both session types, the updater's tar.gz
+  install, and the dark-theme detection (portal Settings / gsettings).
 - v0.0.6 settings/editor UI (click-through on real hardware, not just
   container JS parse-checks): the consolidated Upload destination panel
   (Nextcloud/S3/SFTP/WebDAV/Custom select + presets) and the new theme
@@ -54,11 +66,15 @@ updater check (with a PAT, correctly reports up-to-date).
 - Upload history browser (history.jsonl exists; no UI over it).
 - Notifier improvements: thumbnail previews (click-to-open-link shipped
   with the Wails v3 migration).
-- Linux capture backend (tray/hotkey/capture are in-memory fakes today;
-  artifacts ship marked experimental).
-- Custom-uploader imgur preset needs a user-registered imgur API client ID
-  (not bundled): document where to get one and where it goes in
-  config.example.yaml / the settings UI preset picker.
+- Linux follow-ups (the shell shipped in Unreleased): video/GIF recording
+  on Wayland (ScreenCast portal + PipeWire consumer, or an external tool
+  such as `wf-recorder`/`gpu-screen-recorder` behind a config knob); a
+  PrintScreen hotkey path on X11 (direct `XGrabKey` of the Print keysym,
+  like the Windows RegisterHotKey split) since the Wails key table has no
+  name for it; a GIF path on Wayland that does not round-trip the portal
+  per frame; region selection beyond the first xinerama screen; a
+  `.desktop`/icon install step or a package (AppImage/deb) instead of the
+  bare tarball.
 
 ## Wails v3 migration: DONE on branch wails-v3
 

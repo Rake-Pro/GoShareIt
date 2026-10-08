@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin || windows || (linux && cgo)
 
 // Package updater is the out-of-process update window: a small Gio dialog
 // that waits for the host to exit, downloads and verifies the release with a

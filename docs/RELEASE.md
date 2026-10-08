@@ -22,9 +22,10 @@ running anything by hand:
      - **Windows**: `GoShareIt_<ver>_windows_amd64_setup.exe` (Inno Setup,
        per-user install, no admin) and `GoShareIt_<ver>_windows_amd64.zip`
        (the updater feed, loose exes).
-     - **Linux**: `GoShareIt_<ver>_linux_amd64.tar.gz` (**EXPERIMENTAL**,
-       host binary only; `wire_linux.go` still wires in-memory fakes, so
-       there is no real capture backend).
+     - **Linux**: `GoShareIt_<ver>_linux_amd64.tar.gz` (**BETA**: the updater
+       feed and the human install, loose host/editor/settings binaries, cgo,
+       GTK 3 + WebKitGTK 4.1; the job installs the dev packages with apt
+       first; stays beta until validated on real desktops).
    - writes `checksums.txt` (sha256 of every asset; the in-app updater fails
      closed if it is missing).
    - publishes everything to a GitHub Release on that tag. That release feed
@@ -141,7 +142,9 @@ workflow run.
 
 ## Local build (`make release`), secondary
 
-For a manual local macOS build (testing signing, building outside CI):
+For a manual local macOS build (testing signing, building outside CI). A local
+Linux build is just `make build-linux` with the dev packages from the README's
+Build section installed; there is no signing step.
 
 ### Prerequisites
 
