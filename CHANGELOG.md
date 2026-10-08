@@ -6,9 +6,35 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
 
 ## [Unreleased]
 
-- Go toolchain 1.27rc2 -> 1.27.0
+- Go toolchain 1.27rc2 -> 1.27.2 (net/http fixes GO-2026-6613 and the
+  http2 advisories), golang.org/x/net 0.58.0 -> 0.60.0 (GO-2026-6610,
+  GO-2026-6611, GO-2026-6617).
 
 ### Added
+- Linux desktop support (beta). The Linux build is no longer the fake-backed
+  host: `platform/linux` captures the screen directly on X11
+  (xinerama bounds, the focused window with its frame, freeze-frame region
+  selection through the app's own overlay, LastRegion replay) and through
+  the XDG Screenshot portal on Wayland (whole desktop, then cropped by the
+  overlay; window capture hands over to the compositor's own picker),
+  records video with ffmpeg `x11grab` (X11 only) and GIF by frame sampling,
+  and uses the Wayland data-control / X11 clipboard. The tray
+  (StatusNotifierItem), global hotkeys (`XGrabKey` on X11, the
+  GlobalShortcuts portal on Wayland), D-Bus notifications, GTK confirm
+  dialogs and `~/.config/autostart` login item come from the same Wails
+  application as on macOS and Windows; the Gio editor/region overlay and
+  the WebKitGTK settings UI now build on Linux too, with dark-theme
+  detection via the portal Settings interface (gsettings fallback). The
+  release tarball holds all three binaries (host/editor/settings, cgo,
+  GTK 3 + WebKitGTK 4.1 via the `gtk3` tag) and the in-app updater installs
+  it in place; a `build/linux/goshareit.desktop` entry and a Linux tray
+  icon ship with it. A new `linux-build (cgo)` CI job compiles the shell;
+  the CGO-off core build keeps its in-memory fakes (`wire_linux_nocgo.go`).
+  The starter config uses `Ctrl` as the Linux modifier (`Ctrl+Shift+1`
+  for region); PrintScreen chords are refused with a clear message because
+  the shortcut backend has no name for that key. Nothing has run on real
+  Linux hardware yet, so the Linux artifact stays marked beta (see
+  BACKLOG.md for the on-device list); recording is not offered on Wayland.
 - Out-of-process updater with a progress window (Windows and macOS GitHub
   builds). Installing an update now hands off to `goshareit-editor --update
   <job>`: the host quits, a small themed window shows "Waiting for GoShareIt

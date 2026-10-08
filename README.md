@@ -51,6 +51,44 @@ you have two options:
 Both builds share the same config root and behave the same; the Store build
 only turns off the built-in updater. The macOS build is signed and notarized.
 
+### Linux (beta)
+
+The Linux build is new and has not yet been validated on real desktops; it
+builds and is tested in CI, and the release tarball is marked beta until the
+on-device list in BACKLOG.md is green. It is a `.tar.gz` of the same three
+binaries. Install:
+
+```
+tar -xzf GoShareIt_<ver>_linux_amd64.tar.gz -C ~/.local/bin
+curl -fsSLo ~/.local/share/applications/goshareit.desktop https://raw.githubusercontent.com/Rake-Pro/GoShareIt/main/build/linux/goshareit.desktop
+curl -fsSLo ~/.icons/goshareit.png https://raw.githubusercontent.com/Rake-Pro/GoShareIt/main/build/icons/goshareit_icon.png
+```
+
+The desktop entry and icon are optional (the tray is the app's UI); a
+package with them built in is on the backlog.
+
+Keep the three binaries next to each other: the host finds the editor and
+settings helpers as siblings, and the in-app updater replaces them in place.
+
+Runtime packages (Debian/Ubuntu names; the host and settings UI are GTK 3 +
+WebKitGTK apps): `libgtk-3-0`, `libwebkit2gtk-4.1-0`, `xdg-desktop-portal`
+plus your desktop's portal backend (`xdg-desktop-portal-gnome`, `-kde`,
+`-wlr`, ...), and `ffmpeg` for video recording.
+
+| | X11 session | Wayland session |
+|---|---|---|
+| Region, full screen, last region | direct from the X server | XDG Screenshot portal (whole desktop, then cropped by the app's own overlay) |
+| Window capture | the focused window (`_NET_ACTIVE_WINDOW`, frame included) | the compositor's own picker (pick a window there) |
+| Video / GIF recording | ffmpeg `x11grab` / frame sampling | not offered (needs the ScreenCast portal, see BACKLOG.md) |
+| Global hotkeys | `XGrabKey` | GlobalShortcuts portal (GNOME 45+, KDE Plasma 5.27+); the desktop may show a binding dialog once |
+| Tray | StatusNotifierItem (GNOME needs the AppIndicator extension) | same |
+
+`PrintScreen` cannot be bound on Linux (no name for it in the shortcut
+backend); the default region chord is `Ctrl+Shift+1`. Notifications go
+through D-Bus (`org.freedesktop.Notifications`), the clipboard through the
+Wayland data-control protocol or X11 selections, and "Start at login" writes
+`~/.config/autostart/goshareit.desktop`.
+
 ## Architecture: pure-Go core + thin OS shells
 
 The core (`internal/core/...`) is **pure Go**. It builds and tests on any
@@ -73,14 +111,15 @@ Concrete OS implementations live under `platform/`:
 
 | Package | Builds on | Backs |
 |---------|-----------|-------|
-| `platform/wailsapp` | darwin + windows | tray, global hotkeys, notifications, confirm dialogs (one Wails v3 application, one main loop) |
+| `platform/wailsapp` | darwin + windows + linux (cgo) | tray, global hotkeys, notifications, confirm dialogs (one Wails v3 application, one main loop) |
 | `platform/darwin` | darwin (cgo) | screen capture, AVFoundation recording, clipboard, Screen Recording TCC preflight |
 | `platform/windows` | windows | screen capture, ffmpeg recording, clipboard, PrintScreen hotkey chords + registry tweak, Smart App Control notice |
+| `platform/linux` | linux (pure Go) | screen capture (X11 direct / XDG Screenshot portal on Wayland), ffmpeg `x11grab` recording, clipboard |
 
 They are injected through `core.Providers` by per-GOOS
 `cmd/goshareit/wire_<goos>.go` files. `main.go` is OS-agnostic and calls
-`buildProviders(cfg)`. The committed `wire_linux.go` returns in-memory fakes so
-the module builds and runs on linux for CI.
+`buildProviders(cfg)`. A CGO-off linux build (`wire_linux_nocgo.go`) returns
+in-memory fakes so the portable core still builds and runs for CI.
 
 The tray owns the process main loop: `Tray.Run` calls the Wails `app.Run()` on
 the main goroutine (macOS pins AppKit to the first thread), and the hotkey,
@@ -100,11 +139,17 @@ CGO_ENABLED=0 go build ./...
 go test ./...
 ```
 
-The macOS app is built on macOS (`GOOS=darwin`), Windows on Windows. The linux
-build is for the portable core and CI only; it has no real capture backend.
+The macOS app is built on macOS (`GOOS=darwin`), Windows on Windows, Linux on
+Linux with cgo (`make build-linux`; the CGO-off linux build above is the
+portable core with fake desktop seams, for CI).
 
 The host and settings binaries ship with `-tags production` (the Wails release
-variant); the editor has no build tag. macOS needs cgo, Windows does not.
+variant, plus `gtk3` on Linux: GTK 3 + WebKitGTK 4.1 rather than Wails'
+default GTK 4 + WebKitGTK 6.0); the editor has no build tag. macOS and Linux
+need cgo, Windows does not. Linux dev packages (Debian/Ubuntu):
+`libgtk-3-dev libwebkit2gtk-4.1-dev libegl1-mesa-dev libgles2-mesa-dev
+libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-dev
+libx11-xcb-dev libxcursor-dev libxfixes-dev libvulkan-dev libffi-dev`.
 
 ## Configuration
 
@@ -191,7 +236,7 @@ above).
 Releases are cut by CI (merge to `main` mints the next semver tag and builds
 all three platforms in one run; see [docs/RELEASE.md](docs/RELEASE.md) for
 the full flow): a macOS universal `.dmg`/`.zip`, a Windows Inno Setup
-installer + `.zip`, and an experimental Linux `.tar.gz`, plus a
+installer + `.zip`, and a Linux `.tar.gz` (beta), plus a
 `checksums.txt`. The macOS `.app` is codesigned with a Developer ID
 certificate and notarized in CI (menubar-only, `LSUIElement`); see
 docs/RELEASE.md for the signing flow.
@@ -221,6 +266,7 @@ instead.
 | `vet`          | `go vet ./...`                                                    |
 | `fmt-check`    | fail if any file is not gofmt-clean                               |
 | `build-darwin` | build the cgo host, editor, and settings binaries for the host arch into `dist/` |
+| `build-linux`  | build the cgo host, editor, and settings binaries for linux into `dist/` |
 | `bundle`       | assemble `dist/GoShareIt.app` from those binaries                 |
 | `sign`         | codesign with Hardened Runtime + entitlements                     |
 | `notarize`     | submit to Apple notary service and staple the ticket              |

@@ -14,6 +14,8 @@ func trayIcon() []byte {
 		return icon.TrayDarwin
 	case "windows":
 		return icon.TrayWindows
+	case "linux":
+		return icon.TrayLinux
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin || windows || (linux && cgo)
 
 // Package ui is the Gio-based annotation canvas for the GoShareIt editor
 // helper. It is build-tagged for darwin and windows only because Gio requires

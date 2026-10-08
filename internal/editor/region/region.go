@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin || windows || (linux && cgo)
 
 // Package region is the Gio-based interactive screen-region selector for
 // GoShareIt. It shows a dimmed, borderless fullscreen overlay; the user drags a

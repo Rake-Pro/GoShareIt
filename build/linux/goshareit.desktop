@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GoShareIt
+Comment=Screenshot capture, annotation and upload
+Exec=goshareit
+Icon=goshareit
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=screenshot;capture;upload;
+StartupNotify=false

@@ -24,13 +24,17 @@ jobs:
   core:
     name: core (linux, CGO off)
     runs-on: ubuntu-latest
+    env:
+      # Job-wide: vet and test must not compile the linux cgo shell either
+      # (that is linux-build's job, with the GTK/Gio packages installed).
+      CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
           # setup-go enables module + build caching keyed on go.sum by default.
           cache: true
 
@@ -81,7 +85,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
           cache: true
 
       - name: Build host + editor + settings (cgo on)
@@ -114,6 +118,48 @@ jobs:
       - name: Sign & notarize (gated)
         if: steps.secrets.outputs.present == 'true'
         run: echo "Signing path would run here (see docs/RELEASE.md)."
+
+  # ---------------------------------------------------------------------------
+  # Linux desktop shell: cgo build of the host, editor and settings binaries
+  # with the same system packages the release job installs. This is the ONLY
+  # place the linux halves of platform/wailsapp (Wails GTK3 tray / X11 and
+  # portal global shortcuts / D-Bus notifications / GTK dialogs), the Gio
+  # editor and the settings UI are compiled; platform/linux itself is pure Go
+  # and already covered by the core job.
+  # ---------------------------------------------------------------------------
+  linux-build:
+    name: linux-build (cgo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.2"
+          cache: true
+
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libegl1-mesa-dev libgles2-mesa-dev libwayland-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libx11-dev libx11-xcb-dev libxcursor-dev libxfixes-dev \
+            libvulkan-dev libffi-dev
+
+      - name: Build host + editor + settings (cgo on, GTK3)
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go build -tags production,gtk3 -o /tmp/goshareit ./cmd/goshareit
+          go build -o /tmp/goshareit-editor ./cmd/goshareit-editor
+          go build -tags production,gtk3 -o /tmp/goshareit-settings ./cmd/goshareit-settings
+
+      - name: Vet (cgo on, GTK3)
+        env:
+          CGO_ENABLED: "1"
+        run: go vet -tags production,gtk3 ./...
 
   # ---------------------------------------------------------------------------
   # Trivy CVE scan of the module tree (org security-scanning standard). No
@@ -161,7 +207,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.0"
+          go-version: "1.27.2"
           cache: true
 
       - name: govulncheck
@@ -175,7 +221,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: build
-    needs: [core, macos-build, trivy, vuln]
+    needs: [core, macos-build, linux-build, trivy, vuln]
     runs-on: ubuntu-latest
     steps:
       - run: echo "all builds green"

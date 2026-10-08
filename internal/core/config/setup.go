@@ -111,14 +111,17 @@ func Dir() (string, error) {
 }
 
 // StarterYAML renders the starter config template for the current OS: {mod}
-// is the native primary modifier (Cmd/Ctrl - the windows backend maps
-// Cmd->Ctrl anyway, but the config should show what the user actually
+// is the native primary modifier (Cmd/Ctrl - the windows and linux backends
+// map Cmd->Ctrl anyway, but the config should show what the user actually
 // presses), region gets the platform-conventional chord on windows, and
 // {confdir} becomes the per-OS app root.
 func StarterYAML() string {
 	mod, region := "Cmd", "Cmd+Shift+1"
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		mod, region = "Ctrl", "Win+Ctrl+PrintScreen"
+	case "linux":
+		mod, region = "Ctrl", "Ctrl+Shift+1"
 	}
 	r := strings.ReplaceAll(StarterConfig, "{confdir}", "~/"+dirName())
 	r = strings.ReplaceAll(r, "{mod}", mod)

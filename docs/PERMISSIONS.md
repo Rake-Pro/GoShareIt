@@ -68,3 +68,14 @@ pro.rake.goshareit` alongside the entry above.
 
 Omit the bundle id to reset the permission for every app. Replace
 `pro.rake.goshareit` if you built with a different `BUNDLE_ID`.
+
+## Linux
+
+Nothing is granted up front. On X11 the app reads the screen and grabs keys
+directly. On Wayland the compositor mediates through XDG desktop portals:
+the Screenshot portal may ask once whether GoShareIt may take screenshots,
+and the GlobalShortcuts portal may show a binding dialog the first time the
+hotkeys are registered (GNOME 45+, KDE Plasma 5.27+). Both answers are kept
+by the portal's permission store; reset them from the desktop's Settings >
+Apps (GNOME) or `flatpak permission-reset` style tooling if you need the
+prompts again. Windows and Linux have no notification permission.

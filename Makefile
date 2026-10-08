@@ -35,7 +35,7 @@ LDFLAGS := -X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=$(VERS
 export VERSION
 export BUNDLE_ID
 
-.PHONY: all test vet fmt-check build-darwin bundle sign notarize release dev dev-run clean help
+.PHONY: all test vet fmt-check build-darwin build-linux bundle sign notarize release dev dev-run clean help
 
 all: test vet fmt-check ## Run the core checks.
 
@@ -58,6 +58,13 @@ build-darwin: ## Build the cgo host + editor + settings binaries for the host ar
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -ldflags "$(LDFLAGS)" -o $(EDITOR_BIN) $(EDITOR_CMD)
 	CGO_ENABLED=1 GOOS=darwin GOARCH=$(HOST_ARCH) $(GO) build -tags production -ldflags "$(LDFLAGS)" -o $(SETTINGS_BIN) $(SETTINGS_CMD)
 	@echo "built $(BIN), $(EDITOR_BIN) and $(SETTINGS_BIN) (darwin/$(HOST_ARCH))"
+
+build-linux: ## Build the cgo host + editor + settings binaries for linux into dist/ (needs the GTK3/WebKitGTK/Gio dev packages, see README).
+	@mkdir -p $(DIST)
+	CGO_ENABLED=1 GOOS=linux $(GO) build -tags production,gtk3 -ldflags "$(LDFLAGS)" -o $(BIN) $(CMD)
+	CGO_ENABLED=1 GOOS=linux $(GO) build -ldflags "$(LDFLAGS)" -o $(EDITOR_BIN) $(EDITOR_CMD)
+	CGO_ENABLED=1 GOOS=linux $(GO) build -tags production,gtk3 -ldflags "$(LDFLAGS)" -o $(SETTINGS_BIN) $(SETTINGS_CMD)
+	@echo "built $(BIN), $(EDITOR_BIN) and $(SETTINGS_BIN) (linux)"
 
 bundle: build-darwin ## Assemble dist/GoShareIt.app (host + editor + settings) from the built binaries.
 	VERSION=$(VERSION) BUNDLE_ID=$(BUNDLE_ID) BIN=$(BIN) EDITOR_BIN=$(EDITOR_BIN) SETTINGS_BIN=$(SETTINGS_BIN) APP=$(APP) \

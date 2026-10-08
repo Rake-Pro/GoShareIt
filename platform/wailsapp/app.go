@@ -1,4 +1,4 @@
-//go:build darwin || windows
+//go:build darwin || windows || (linux && cgo)
 
 // Package wailsapp implements the tray, global-hotkey, notification and
 // confirm-dialog seams on top of a single Wails v3 application.
