@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
 )
 
 const (
@@ -26,7 +28,7 @@ const (
 
 // ErrPortalCancelled is returned when the user dismisses the portal's own
 // picker (interactive capture) without taking a screenshot.
-var ErrPortalCancelled = errors.New("linux capture: cancelled by user")
+var ErrPortalCancelled = fmt.Errorf("linux capture: %w", capture.ErrCancelled)
 
 // portalWait bounds a non-interactive portal screenshot; interactive calls are
 // bounded only by ctx, because the user is driving the compositor's picker.

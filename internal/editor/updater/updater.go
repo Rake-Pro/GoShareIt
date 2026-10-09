@@ -39,7 +39,14 @@ type state struct {
 	detail   string  // second line, e.g. "3.2 MB of 12.0 MB"
 	progress float32 // 0..1, or -1 for indeterminate
 	err      error
+	note     string // on failure: one plain sentence on what state the app is left in
 	done     bool
+}
+
+func (s *state) setNote(note string) {
+	s.mu.Lock()
+	s.note = note
+	s.mu.Unlock()
 }
 
 func (s *state) set(phase, detail string, progress float32) {
@@ -60,7 +67,8 @@ func Run(job update.Job, dark bool) error {
 		app.Title("GoShareIt Update"),
 		app.Size(unit.Dp(440), unit.Dp(150)),
 		app.MinSize(unit.Dp(440), unit.Dp(150)),
-		app.MaxSize(unit.Dp(440), unit.Dp(150)),
+		// Taller is allowed so a long failure reason fits; it also scrolls.
+		app.MaxSize(unit.Dp(440), unit.Dp(600)),
 	)
 
 	go func() {
@@ -75,6 +83,9 @@ func Run(job update.Job, dark bool) error {
 			// Give the last frame a moment to paint, then close.
 			time.Sleep(600 * time.Millisecond)
 			w.Perform(system.ActionClose)
+		} else {
+			// Make room for the reason (it also scrolls).
+			w.Option(app.Size(unit.Dp(440), unit.Dp(260)))
 		}
 	}()
 
@@ -108,8 +119,10 @@ func perform(job update.Job, st *state, w *app.Window) (err error) {
 		}
 		if rerr := update.Relaunch(job.Relaunch, job.Args...); rerr != nil {
 			err = fmt.Errorf("%w (and GoShareIt could not be restarted: %v; start it manually)", err, rerr)
+			st.setNote("Nothing was changed, but GoShareIt could not be restarted. Start it again yourself.")
 		} else {
 			err = fmt.Errorf("%w (GoShareIt has been restarted unchanged)", err)
+			st.setNote("Nothing was changed and GoShareIt has been restarted.")
 		}
 	}()
 
@@ -162,6 +175,7 @@ func perform(job update.Job, st *state, w *app.Window) (err error) {
 	st.set("Starting GoShareIt", "v"+rel.Version+" installed", 1)
 	w.Invalidate()
 	if err := update.Relaunch(job.Relaunch, job.Args...); err != nil {
+		st.setNote("Version " + rel.Version + " is installed, but it did not start. Start GoShareIt again yourself.")
 		return fmt.Errorf("installed v%s but could not start it: %w (start GoShareIt manually)", rel.Version, err)
 	}
 	return nil
@@ -171,6 +185,7 @@ func loop(w *app.Window, st *state, dark bool) error {
 	th := newTheme(dark)
 	bg, fg := th.Palette.Bg, th.Palette.Fg
 	var closeBtn widget.Clickable
+	detailList := widget.List{List: layout.List{Axis: layout.Vertical}}
 	var ops op.Ops
 	for {
 		switch ev := w.Event().(type) {
@@ -189,7 +204,7 @@ func loop(w *app.Window, st *state, dark bool) error {
 				w.Perform(system.ActionClose)
 			}
 			st.mu.Lock()
-			phase, detail, progress, err, done := st.phase, st.detail, st.progress, st.err, st.done
+			phase, detail, progress, err, done, note := st.phase, st.detail, st.progress, st.err, st.done, st.note
 			st.mu.Unlock()
 			layout.UniformInset(unit.Dp(18)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -203,15 +218,22 @@ func loop(w *app.Window, st *state, dark bool) error {
 						return l.Layout(gtx)
 					}),
 					layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					// The detail takes the remaining height and scrolls, so a long
+					// error chain never pushes the Close button out of the window.
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 						text := detail
 						if err != nil {
 							text = err.Error()
+							if note != "" {
+								text = note + "\n\nReason: " + text
+							}
 						}
 						l := material.Body2(th, text)
 						l.Color = fg
 						l.Color.A = 0xb0
-						return l.Layout(gtx)
+						return material.List(th, &detailList).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+							return l.Layout(gtx)
+						})
 					}),
 					layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {

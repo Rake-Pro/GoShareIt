@@ -1,9 +1,9 @@
 //go:build darwin || windows || (linux && cgo)
 
 // Package ui is the Gio-based annotation canvas for the GoShareIt editor
-// helper. It is build-tagged for darwin and windows only because Gio requires
-// cgo on macOS and a platform GPU backend on both; the Linux/CGO-disabled host
-// build excludes this package entirely. All pixel work is delegated to the
+// helper. It is build-tagged for darwin, windows and linux with cgo because
+// Gio requires cgo on macOS and Linux and a platform GPU backend everywhere;
+// the CGO-disabled Linux host build excludes this package entirely. All pixel work is delegated to the
 // pure-Go internal/editor/annotate package so it stays toolkit-independent and
 // unit-testable.
 //
@@ -16,6 +16,7 @@ package ui
 import (
 	"image"
 	"image/color"
+	"slices"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -109,6 +110,11 @@ type shape struct {
 	text   string
 	num    int           // step-badge number (kStep)
 	pts    []image.Point // freehand polyline (kFreehand)
+
+	// textOp/textSize cache the rendered text (kText) so the canvas shows
+	// exactly what annotate will draw, at its real size.
+	textOp   paint.ImageOp
+	textSize image.Point
 }
 
 // Run shows the editor for img and returns the (possibly annotated) result.
@@ -148,11 +154,26 @@ type editor struct {
 	dragTo      image.Point
 	freehandPts []image.Point // accumulated points for the active freehand stroke
 
+	// text tool hover preview (image coords) and its cached rendering
+	hover    image.Point
+	hovering bool
+	ghost    shape
+
 	// view transform
 	zoom       float64
 	panX, panY float32
 	lastOrigin f32.Point
 	lastScale  float32
+	lastSize   image.Point // canvas size at the last layout
+
+	// panning: middle-button drag, or Space held while dragging
+	panning   bool
+	panLast   f32.Point
+	spaceDown bool
+
+	// discardArmed is set by a first Esc/Cancel while annotations exist; a
+	// second one confirms the discard.
+	discardArmed bool
 
 	// widgets
 	th           *material.Theme
@@ -180,13 +201,21 @@ type editor struct {
 	result image.Image
 	action Action
 	done   bool
+	err    error // render failure on confirm; Run returns it
 }
 
 const canvasTag = "goshareit.canvas"
 
-// badgeRadius is the step-badge disc radius in image pixels; shared by the
-// annotate render and the on-canvas preview so they line up.
-const badgeRadius = 14
+// badgeRadius is the step-badge disc radius in image pixels for a stroke
+// width; shared by the annotate render and the on-canvas preview so they line
+// up. It grows with the stroke so badges keep pace with everything else on
+// high-DPI captures, where the stroke default is larger.
+func badgeRadius(stroke int) int {
+	return max(14, 3*stroke)
+}
+
+// maxStroke caps the stroke width (the toolbar "+" stops here).
+const maxStroke = 32
 
 func newEditor(img image.Image, opts Options) *editor {
 	b := img.Bounds()
@@ -198,7 +227,15 @@ func newEditor(img image.Image, opts Options) *editor {
 		}
 	}
 
-	tools := opts.Tools
+	// Unknown tool names are dropped (they would get a button that draws
+	// nothing), and a default tool outside the enabled list falls back to the
+	// first enabled one so the active tool always has a highlighted button.
+	var tools []Tool
+	for _, t := range opts.Tools {
+		if toolLabel(t) != "" {
+			tools = append(tools, t)
+		}
+	}
 	if len(tools) == 0 {
 		tools = []Tool{
 			ToolCrop, ToolArrow, ToolRect, ToolEllip, ToolText,
@@ -209,6 +246,9 @@ func newEditor(img image.Image, opts Options) *editor {
 	if tool == "" {
 		tool = ToolArrow
 	}
+	if !slices.Contains(tools, tool) {
+		tool = tools[0]
+	}
 	col := opts.Color
 	if col == (color.NRGBA{}) {
 		col = color.NRGBA{R: 0xff, G: 0x3b, B: 0x30, A: 0xff}
@@ -217,6 +257,7 @@ func newEditor(img image.Image, opts Options) *editor {
 	if stroke < 1 {
 		stroke = 6
 	}
+	stroke = min(stroke, maxStroke)
 
 	theme := darkTheme
 	if opts.Theme == "light" {
@@ -315,11 +356,12 @@ func (e *editor) loop(w *app.Window) (image.Image, Action, error) {
 			if ev.Err != nil {
 				return nil, ActionCancel, ev.Err
 			}
-			// Window closed without confirm -> cancel.
+			// Window closed without confirm -> cancel. Gio cannot veto a
+			// native close, so this path has no discard confirmation.
 			if e.action != ActionCancel {
 				return e.result, e.action, nil
 			}
-			return nil, ActionCancel, nil
+			return nil, ActionCancel, e.err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
 			e.handleInput(gtx)
@@ -328,7 +370,7 @@ func (e *editor) loop(w *app.Window) (image.Image, Action, error) {
 				if e.action != ActionCancel {
 					return e.result, e.action, nil
 				}
-				return nil, ActionCancel, nil
+				return nil, ActionCancel, e.err
 			}
 			e.layout(gtx)
 			ev.Frame(gtx.Ops)
@@ -339,23 +381,80 @@ func (e *editor) loop(w *app.Window) (image.Image, Action, error) {
 // handleInput drains queued pointer and key events for the canvas before
 // layout registers the next frame's input areas.
 func (e *editor) handleInput(gtx layout.Context) {
-	// Escape cancels.
+	// Escape cancels (with a confirmation step when annotations would be lost).
 	for {
 		ev, ok := gtx.Source.Event(key.Filter{Name: key.NameEscape})
 		if !ok {
 			break
 		}
 		if ke, ok := ev.(key.Event); ok && ke.State == key.Press {
-			e.action = ActionCancel
-			e.done = true
-			return
+			e.requestCancel()
+			if e.done {
+				return
+			}
 		}
+	}
+
+	// Shortcuts. They are only read while the text field does not have focus,
+	// so typing (and the field's own undo/copy) keeps working there.
+	if !gtx.Focused(&e.textIn) {
+		for {
+			ev, ok := gtx.Source.Event(
+				key.Filter{Name: "Z", Required: key.ModShortcut, Optional: key.ModShift},
+				key.Filter{Name: "Y", Required: key.ModShortcut},
+				key.Filter{Name: "C", Required: key.ModShortcut},
+				key.Filter{Name: "S", Required: key.ModShortcut},
+				key.Filter{Name: key.NameReturn},
+				key.Filter{Name: key.NameEnter},
+				key.Filter{Name: key.NameSpace},
+			)
+			if !ok {
+				break
+			}
+			ke, ok := ev.(key.Event)
+			if !ok {
+				continue
+			}
+			if ke.Name == key.NameSpace {
+				e.spaceDown = ke.State == key.Press
+				continue
+			}
+			if ke.State != key.Press {
+				continue
+			}
+			switch ke.Name {
+			case "Z":
+				if ke.Modifiers.Contain(key.ModShift) {
+					e.redoOne()
+				} else {
+					e.undo()
+				}
+			case "Y":
+				e.redoOne()
+			case "C":
+				if e.actions {
+					e.confirmNow(ActionCopy)
+				}
+			case "S":
+				if e.actions {
+					e.confirmNow(ActionSave)
+				}
+			case key.NameReturn, key.NameEnter:
+				e.confirmNow(ActionConfirm)
+			}
+			if e.done {
+				return
+			}
+		}
+	} else {
+		e.spaceDown = false
 	}
 
 	for {
 		ev, ok := gtx.Source.Event(pointer.Filter{
-			Target: canvasTag,
-			Kinds:  pointer.Press | pointer.Drag | pointer.Release | pointer.Scroll,
+			Target:  canvasTag,
+			Kinds:   pointer.Press | pointer.Drag | pointer.Release | pointer.Move | pointer.Leave | pointer.Cancel | pointer.Scroll,
+			ScrollY: pointer.ScrollRange{Min: -1 << 20, Max: 1 << 20},
 		})
 		if !ok {
 			break
@@ -368,19 +467,60 @@ func (e *editor) handleInput(gtx layout.Context) {
 	}
 }
 
+// requestCancel handles Esc and the Cancel button: with annotations on the
+// canvas the first press only arms the discard (the toolbar asks to confirm),
+// the second one cancels.
+func (e *editor) requestCancel() {
+	if len(e.shapes) > 0 && !e.discardArmed {
+		e.discardArmed = true
+		return
+	}
+	e.action = ActionCancel
+	e.done = true
+}
+
 func (e *editor) handlePointer(pe pointer.Event) {
+	if pe.Kind == pointer.Press {
+		e.discardArmed = false
+	}
 	switch pe.Kind {
+	case pointer.Move:
+		e.hover = e.toImage(pe.Position)
+		e.hovering = true
+	case pointer.Leave:
+		e.hovering = false
+	case pointer.Cancel:
+		// The grab was taken away mid-gesture: drop the drag, keep nothing.
+		e.dragging = false
+		e.freehandPts = nil
+		e.panning = false
 	case pointer.Scroll:
-		// Zoom around the cursor.
+		// Zoom around the cursor: keep the image point under the pointer
+		// fixed by moving the pan offset along with the scale.
+		before := e.zoom
 		factor := 1.0 - float64(pe.Scroll.Y)*0.0015
-		e.zoom *= factor
-		if e.zoom < 0.05 {
-			e.zoom = 0.05
-		}
-		if e.zoom > 20 {
-			e.zoom = 20
+		e.zoom = min(max(e.zoom*factor, 0.05), 20)
+		if e.lastScale > 0 {
+			ix := (pe.Position.X - e.lastOrigin.X) / e.lastScale
+			iy := (pe.Position.Y - e.lastOrigin.Y) / e.lastScale
+			s2 := e.lastScale * float32(e.zoom/before)
+			bw, bh := float32(e.bounds.Dx()), float32(e.bounds.Dy())
+			e.panX = pe.Position.X - ix*s2 - (float32(e.lastSize.X)-bw*s2)/2
+			e.panY = pe.Position.Y - iy*s2 - (float32(e.lastSize.Y)-bh*s2)/2
+			// Several scroll events can arrive before the next layout; keep
+			// the transform in step so each one zooms from the current view.
+			e.lastScale = s2
+			e.lastOrigin = f32.Pt(pe.Position.X-ix*s2, pe.Position.Y-iy*s2)
 		}
 	case pointer.Press:
+		if pe.Buttons.Contain(pointer.ButtonTertiary) || (e.spaceDown && pe.Buttons.Contain(pointer.ButtonPrimary)) {
+			e.panning = true
+			e.panLast = pe.Position
+			return
+		}
+		if !pe.Buttons.Contain(pointer.ButtonPrimary) {
+			return // right-click and other buttons do not draw
+		}
 		ip := e.toImage(pe.Position)
 		e.dragging = true
 		e.dragFrom = ip
@@ -392,7 +532,9 @@ func (e *editor) handlePointer(pe pointer.Event) {
 			txt := e.textIn.Text()
 			e.dragging = false
 			if txt != "" {
-				e.push(shape{kind: kText, p0: ip, col: e.col, stroke: e.stroke, text: txt})
+				sh := shape{kind: kText, p0: ip, col: e.col, stroke: e.stroke, text: txt}
+				sh.textOp, sh.textSize = textImage(txt, e.col, e.stroke)
+				e.push(sh)
 				e.textIn.SetText("")
 			}
 		case ToolStep:
@@ -405,6 +547,12 @@ func (e *editor) handlePointer(pe pointer.Event) {
 			e.freehandPts = []image.Point{ip}
 		}
 	case pointer.Drag:
+		if e.panning {
+			e.panX += pe.Position.X - e.panLast.X
+			e.panY += pe.Position.Y - e.panLast.Y
+			e.panLast = pe.Position
+			return
+		}
 		if e.dragging {
 			e.dragTo = e.toImage(pe.Position)
 			if e.tool == ToolFreehand {
@@ -412,6 +560,10 @@ func (e *editor) handlePointer(pe pointer.Event) {
 			}
 		}
 	case pointer.Release:
+		if e.panning {
+			e.panning = false
+			return
+		}
 		if !e.dragging {
 			return
 		}
@@ -507,6 +659,9 @@ func (e *editor) undo() {
 	if len(e.shapes) == 0 {
 		return
 	}
+	// The discard prompt counts annotations; an undo changes the count, so
+	// the next Esc/Cancel asks again (or, with none left, just cancels).
+	e.discardArmed = false
 	last := e.shapes[len(e.shapes)-1]
 	e.shapes = e.shapes[:len(e.shapes)-1]
 	e.redo = append(e.redo, last)
@@ -547,16 +702,38 @@ func (e *editor) toImage(p f32.Point) image.Point {
 }
 
 // confirmNow renders the annotations and marks the editor done with the given
-// action. Reused by the plain confirm button and each explicit action button.
-func (e *editor) confirmNow(action Action) error {
+// action. Reused by the plain confirm button, each explicit action button and
+// the keyboard shortcuts. A render failure ends the editor with that error
+// (Run returns it), so the host reports it instead of leaving a dead button.
+func (e *editor) confirmNow(action Action) {
 	img, err := annotate.Render(e.base, e.crop, e.buildShapes())
 	if err != nil {
-		return err
+		e.err = err
+		e.action = ActionCancel
+		e.done = true
+		return
 	}
 	e.result = img
 	e.action = action
 	e.done = true
-	return nil
+}
+
+// textImage renders s exactly as annotate will (built-in face, scaled by
+// stroke) onto a transparent image, for the on-canvas text preview.
+func textImage(s string, col color.NRGBA, stroke int) (paint.ImageOp, image.Point) {
+	sz := annotate.TextSize(s, stroke)
+	if sz.X < 1 || sz.Y < 1 {
+		return paint.ImageOp{}, image.Point{}
+	}
+	img, err := annotate.Render(image.NewRGBA(image.Rectangle{Max: sz}), nil, []annotate.Shape{
+		annotate.Text{Text: s, Color: col, Stroke: stroke},
+	})
+	if err != nil {
+		return paint.ImageOp{}, image.Point{}
+	}
+	op := paint.NewImageOp(img)
+	op.Filter = paint.FilterNearest
+	return op, sz
 }
 
 // buildShapes converts UI shapes to annotate shapes, translating into
@@ -589,7 +766,7 @@ func (e *editor) buildShapes() []annotate.Shape {
 		case kHighlight:
 			out = append(out, annotate.Highlight{Rect: rectOf(s.p0, s.p1).Sub(off), Color: s.col, Alpha: 0x60})
 		case kStep:
-			out = append(out, annotate.StepBadge{Center: s.p0.Sub(off), Number: s.num, Color: s.col, Radius: badgeRadius})
+			out = append(out, annotate.StepBadge{Center: s.p0.Sub(off), Number: s.num, Color: s.col, Radius: badgeRadius(s.stroke)})
 		case kFreehand:
 			pts := make([]image.Point, len(s.pts))
 			for i, p := range s.pts {

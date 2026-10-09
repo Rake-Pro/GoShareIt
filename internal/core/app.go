@@ -32,7 +32,7 @@ type Providers struct {
 	Confirmer notify.Confirmer // optional; nil = no blocking confirm dialogs (e.g. linux/dev)
 	Tray      tray.Tray
 	Hotkeys   hotkey.Manager
-	Editor    edit.Editor // optional; nil -> NoopEditor
+	Editor    edit.Editor // optional; nil -> no edit step
 }
 
 // App is the portable orchestrator.
@@ -46,6 +46,11 @@ type App struct {
 	// goroutines while the toggle writes it.
 	uploadEnabled atomic.Bool
 
+	// capturing is set while a one-shot capture is on screen (overlay, picker
+	// or editor); presses that arrive meanwhile are dropped. It is released
+	// before the upload, so a slow upload never swallows the next press.
+	capturing atomic.Bool
+
 	capturer  capture.Capturer
 	recorder  capture.Recorder // may be nil
 	uploader  upload.Uploader
@@ -54,7 +59,7 @@ type App struct {
 	confirmer notify.Confirmer
 	tray      tray.Tray
 	hotkeys   hotkey.Manager
-	editor    edit.Editor
+	editor    edit.Editor // may be nil: no edit step
 }
 
 // New constructs an App from config, providers, a logger and a history store.
@@ -68,10 +73,6 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 	if hist == nil {
 		return nil, fmt.Errorf("core: nil history")
 	}
-	editor := p.Editor
-	if editor == nil {
-		editor = edit.NoopEditor{}
-	}
 	a := &App{
 		cfg:       cfg,
 		log:       log,
@@ -84,7 +85,7 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 		confirmer: p.Confirmer,
 		tray:      p.Tray,
 		hotkeys:   p.Hotkeys,
-		editor:    editor,
+		editor:    p.Editor,
 	}
 	a.uploadEnabled.Store(cfg.UploadEnabled())
 	return a, nil
@@ -97,10 +98,11 @@ func (a *App) UploadEnabled() bool { return a.uploadEnabled.Load() }
 // concern - see the cmd layer's toggle handler).
 func (a *App) SetUploadEnabled(v bool) { a.uploadEnabled.Store(v) }
 
-// UploadConfigured reports whether the config carries everything an upload
+// UploadConfigured reports whether the active upload destination (Nextcloud,
+// S3, SFTP, WebDAV, Custom or a public host) carries everything an upload
 // needs; the toggle refuses to enable uploads without it.
 func (a *App) UploadConfigured() bool {
-	return a.cfg.Nextcloud.BaseURL != "" && a.cfg.Nextcloud.Username != "" && a.cfg.Password() != ""
+	return a.cfg.UploadReady() == nil
 }
 
 // Config exposes the loaded config (read-only use).
@@ -136,9 +138,12 @@ func (a *App) runCapture(ctx context.Context, mode capture.Mode, edit bool) (upl
 	req := capture.Request{
 		Mode:            mode,
 		CopyToClipboard: a.cfg.AfterCapture.CopyImageToClipboard,
-		SaveLocal:       a.cfg.AfterCapture.SaveLocal,
-		SaveDir:         a.cfg.AfterCapture.SaveDir,
-		Edit:            edit,
+		// When the editor will run, the capturer must not write the
+		// unedited original to disk: the pipeline saves the confirmed
+		// (edited) image itself, and a cancel must leave nothing behind.
+		SaveLocal: a.cfg.AfterCapture.SaveLocal && !edit,
+		SaveDir:   a.cfg.AfterCapture.SaveDir,
+		Edit:      edit,
 	}
 	return a.runPipeline(ctx, req)
 }

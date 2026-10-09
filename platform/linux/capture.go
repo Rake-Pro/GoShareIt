@@ -25,7 +25,7 @@ import (
 // ErrCaptureCancelled is returned when the user dismisses an interactive
 // capture (the region overlay or the portal picker) without selecting
 // anything. The pipeline treats it as a no-op rather than an error.
-var ErrCaptureCancelled = errors.New("linux capture: cancelled by user")
+var ErrCaptureCancelled = fmt.Errorf("linux capture: %w", capture.ErrCancelled)
 
 // ErrUnsupportedMode is returned for modes the still-image Capturer does not
 // implement (video and GIF belong to the Recorder).

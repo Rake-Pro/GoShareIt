@@ -301,6 +301,18 @@ func (t Text) draw(dst draw.Image) {
 	d.DrawString(t.Text)
 }
 
+// TextSize returns the size of s drawn by Text with the built-in face at the
+// given stroke (scale factor), so a GUI can preview the exact extent.
+func TextSize(s string, stroke int) image.Point {
+	if stroke < 1 {
+		stroke = 1
+	}
+	face := basicfont.Face7x13
+	w := (&font.Drawer{Face: face}).MeasureString(s).Ceil()
+	h := face.Metrics().Height.Ceil()
+	return image.Pt(w*stroke, h*stroke)
+}
+
 // drawScaledText renders text with basicfont.Face7x13 into a small mask and
 // nearest-neighbor scales it by factor onto dst. At is the top-left of the text
 // box (not the baseline) for predictable placement from a GUI click.

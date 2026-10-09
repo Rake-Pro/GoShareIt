@@ -39,21 +39,23 @@ type Opts struct {
 //     (if any) the user confirmed with; ActionDefault means the plain confirm
 //     button was used and the caller should run its normal config-driven
 //     pipeline.
-//   - If the user SKIPS or CANCELS, returns the input Result unchanged,
-//     ok=false and action=ActionDefault. Callers MUST treat ok=false as
-//     "proceed with the original".
-//   - Returns an error only for genuine failures (helper crash, decode error).
-//     A failure is non-fatal to the pipeline: the caller logs and continues
-//     with the original image (fail-open), matching the app's "never fatal on
-//     a non-core failure" posture. action is ActionDefault on error.
+//   - If the user CANCELS (Cancel, Esc, window close), returns the input
+//     Result unchanged, ok=false and action=ActionDefault. Callers MUST treat
+//     ok=false as "discard this capture": the user opened the editor to change
+//     the image, so the unedited original must not be copied, saved or
+//     uploaded.
+//   - Returns an error only for genuine failures (helper crash, timeout,
+//     decode error). Callers fail closed on it the same way: the capture is
+//     discarded and the error reported. action is ActionDefault on error.
 //   - Only KindImage is editable. KindVideo is returned unchanged, ok=false,
 //     action=ActionDefault.
 type Editor interface {
 	Edit(ctx context.Context, in capture.Result, opts Opts) (out capture.Result, action Action, ok bool, err error)
 }
 
-// NoopEditor is the default when editing is disabled. It always passes through
-// the input unchanged with ok=false.
+// NoopEditor is a stand-in that never edits. It returns the input unchanged
+// with ok=false, which a caller following the contract above treats as a
+// cancel; core skips the edit step entirely when no Editor is wired.
 type NoopEditor struct{}
 
 // Edit returns the input unchanged, action=ActionDefault and ok=false.

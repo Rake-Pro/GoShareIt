@@ -22,8 +22,9 @@
 //	    [--theme light|dark|system] [--confirm-label <text>] \
 //	    [--actions] [--upload-enabled=true|false]
 //
-// It is build-tagged for darwin and windows because Gio needs cgo on macOS and
-// a GPU backend on both; the Linux/CGO-disabled host build excludes it.
+// It is build-tagged for darwin, windows and linux with cgo because Gio needs
+// cgo on macOS and Linux and a GPU backend everywhere; the CGO-disabled Linux
+// host build excludes it.
 package main
 
 import (
@@ -51,7 +52,7 @@ func main() {
 	regionMode := flag.Bool("region", false, "run the interactive screen-region selector instead of the editor")
 	updateJob := flag.String("update", "", "run the update window for the given job file instead of the editor")
 	changelogJob := flag.String("changelog", "", "show the what's-new window for the given job file; exit 0 = update now, 64 = later")
-	tool := flag.String("tool", "", "initial tool (crop|arrow|rect|ellipse|text)")
+	tool := flag.String("tool", "", "initial tool (crop|arrow|rect|ellipse|line|freehand|text|blur|pixelate|highlight|step)")
 	colorHex := flag.String("color", "", "initial color as #rrggbb")
 	stroke := flag.Int("stroke", 0, "initial stroke width")
 	toolsCSV := flag.String("tools", "", "comma-separated tool whitelist")

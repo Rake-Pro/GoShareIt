@@ -82,6 +82,11 @@ type Capturer interface {
 	Capabilities() Caps
 }
 
+// ErrCancelled is what every platform capturer wraps when the user backs out
+// of an interactive capture (Esc in the region overlay, a dismissed picker).
+// It is not a failure: the pipeline ends quietly, with no notification.
+var ErrCancelled = errors.New("cancelled by user")
+
 // Sentinel errors for the Recorder state machine.
 var (
 	ErrAlreadyRecording = errors.New("capture: recording already in progress")

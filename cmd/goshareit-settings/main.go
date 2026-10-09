@@ -13,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/version"
@@ -35,6 +36,7 @@ func main() {
 	}
 
 	svc := &settings.Service{ConfigPath: path, Version: version.Version, Packaged: isPackaged()}
+	var win *application.WebviewWindow
 	app := application.New(application.Options{
 		Name:        "GoShareIt Settings",
 		Description: "GoShareIt configuration",
@@ -42,6 +44,20 @@ func main() {
 		Assets:      application.AssetOptions{Handler: http.FileServer(http.FS(assets()))},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+		// One settings window at a time: the tray's "Settings..." launches the
+		// helper again while it is open, and that second copy hands over to
+		// this one (which comes to the front) and exits.
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.rakepro.goshareit.settings",
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				if win != nil {
+					win.UnMinimise()
+					win.Show()
+					win.Focus()
+					raiseWindow()
+				}
+			},
 		},
 	})
 	// Native dialog/browser hooks hang off the app managers; no startup
@@ -55,13 +71,22 @@ func main() {
 			PromptForSingleSelection()
 	}
 	svc.OpenURL = app.Browser.OpenURL
+	svc.CheckHotkey = checkChord
 	svc.Close = app.Quit
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	win = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "GoShareIt Settings",
 		Width:  760,
 		Height: 820,
 		URL:    "/",
+	})
+	// Closing the window with unsaved edits: the first close is held back and
+	// the page asks what to do; closing again (or Discard changes) discards.
+	win.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if svc.HoldClose() {
+			e.Cancel()
+			app.Event.Emit("settings:unsaved-close")
+		}
 	})
 	if err := app.Run(); err != nil {
 		log.Fatal().Err(err).Msg("settings ui")

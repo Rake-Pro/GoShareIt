@@ -21,7 +21,7 @@ import (
 // ErrCaptureCancelled is returned when the user dismisses an interactive
 // capture without selecting anything (screencapture exits 0 but writes no
 // file). The pipeline treats this as a no-op rather than an error.
-var ErrCaptureCancelled = errors.New("darwin capture: cancelled by user")
+var ErrCaptureCancelled = fmt.Errorf("darwin capture: %w", capture.ErrCancelled)
 
 // ErrUnsupportedMode is returned for modes not implemented in Phase 1.
 var ErrUnsupportedMode = errors.New("darwin capture: mode not implemented in P1")

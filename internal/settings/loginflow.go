@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,6 +69,9 @@ func pollLoginFlow(ctx context.Context, client *http.Client, start *loginFlowSta
 	for {
 		select {
 		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, fmt.Errorf("login: sign-in cancelled")
+			}
 			return nil, fmt.Errorf("login: timed out waiting for the browser sign-in")
 		case <-tick.C:
 		}

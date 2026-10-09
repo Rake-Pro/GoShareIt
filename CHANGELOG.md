@@ -136,6 +136,91 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   so Wails debug-mode code is compiled out of release builds.
 
 ### Fixed
+- Editor: Cancel, Esc, closing the window, a helper crash or a
+  `timeout_seconds` expiry no longer upload, copy or save the unedited
+  capture. With "Keep a local copy" on, the capture is no longer written to
+  disk before the editor opens; only the confirmed (edited) image is saved.
+  A cancel drops the capture quietly, and an editor failure drops it and
+  says so in a notification.
+- Failed captures, uploads and recordings now show a notification with the
+  reason (for example a missing public-host key or a wrong password)
+  instead of only a log line; backing out of a capture (Esc in the region
+  overlay, a dismissed picker) stays quiet. Hotkeys that could not be
+  registered are listed in a notification at startup.
+- Tray / `upload_toggle` "Uploads: On" works for every destination (S3,
+  SFTP, WebDAV, Custom, public hosts), not only Nextcloud, and the refusal
+  message names the real problem.
+- Settings: a rejected Save no longer overwrites stored passwords and keys.
+  New secrets are staged next to their files, the whole config is validated
+  with them, and only then are secrets and config moved into place.
+- "Keep a local copy" with no folder set saves to Pictures/GoShareIt (as the
+  editor's Save already did) instead of failing every capture, along with
+  its clipboard copy and upload.
+- New installs start in local-only mode, so the first-run settings window
+  can be closed without saving and "Reset to defaults" can be saved as-is;
+  a config that still cannot be loaded after the settings window closes now
+  runs local-only (with a notification) instead of exiting, and a
+  destination that cannot even be set up (for example S3 with a blank
+  endpoint) fails each upload with a pointer to Settings instead of keeping
+  the app from starting.
+- Editor: the confirm button label follows the live upload switch (after a
+  tray or hotkey toggle it no longer says "Upload" when nothing uploads, or
+  the reverse).
+- Editor: Esc or Cancel with annotations on the canvas asks once before
+  discarding them; Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y, Enter, and (with
+  the action buttons) Ctrl/Cmd+C and Ctrl/Cmd+S work; scroll zoom now
+  actually zooms, around the pointer, and middle-drag or Space+drag pans;
+  only the active crop is shown, with the area outside it dimmed; text
+  previews at its real size under the pointer and stays visible once
+  placed; Undo/Redo grey out when there is nothing to undo or redo; a
+  configured color outside the palette shows as a swatch; right-click no
+  longer draws; step badges scale with the stroke width; the default tool
+  falls back to an enabled one and unknown tool names are ignored.
+- Region overlay: a release on a selection smaller than 4x4 dp no longer
+  captures a sliver; the size readout matches the captured image; a hint
+  says the overlay covers the primary display only (also in README).
+- Settings: closing the window or clicking "Discard changes" with unsaved
+  edits asks once first; "Settings..." brings an already open window to the
+  front (on Windows through the same foreground hand-off as the editor, not
+  yet checked on a device); browser sign-in honors the unsaved "Allow insecure http://" switch
+  and can be cancelled; Save refuses hotkeys the host could not bind and
+  hotkeys used twice, and the Linux recorder no longer accepts PrintScreen.
+- Settings: save errors name the setting in plain words ("Server URL is
+  required, or turn off Upload captures ..."), switch to its section and
+  highlight it, instead of showing YAML keys and Go package prefixes.
+- Settings: the file name and the notification switch moved to After
+  capture and stay editable in local-only mode (both apply to local
+  captures); "Copy the direct image link" moved to the main Upload card
+  because it applies to every destination; the image/link clipboard
+  interaction is explained on both switches; the public-host key hint no
+  longer loses its text; options the platform ignores (updater on Store
+  builds, what's-new on Linux, recording hotkey on Wayland) are greyed out
+  with the reason; Default tool only offers the checked tools; Color is a
+  color picker; stroke width is capped at 32 like the editor; "Apply
+  preset" is disabled until a host is chosen; stale recorder and reset
+  messages clear themselves; error text and the config path can be
+  selected and copied.
+- Settings accessibility: every field has a programmatic label, the
+  sidebar is a real tab list (arrow keys, Home/End, one tab stop), status
+  messages are announced, and text, focus ring and control borders meet
+  WCAG AA contrast in both themes (accent fill, success, error, secondary
+  and tertiary text, danger button); a greyed-out row keeps its explanation
+  readable.
+- Settings copy: plain labels for theme, capture modes, tools, log level
+  and S3/Nextcloud options instead of raw ids and protocol terms.
+- Updates: a manual check of a minor update asks once (in the what's-new
+  window) instead of twice, and the tray only says "Installing" after
+  "Update now"; update failures are reported in plain words; the progress
+  window grows and scrolls for a long failure reason instead of pushing its
+  Close button off-screen; the what's-new window's Later button is visible
+  against the background and Esc/Enter choose Later/Update now.
+- The tray menu adds "Capture Region and Edit", and "Capture Window" on
+  macOS (elsewhere a window capture from the menu would grab the taskbar).
+- A hotkey press while a capture overlay or the editor is still open is
+  ignored instead of starting a second one (a press during an upload starts
+  a new capture as before); the tray upload toggle rewrites the
+  config atomically; a "system" theme that cannot be detected falls back to
+  light on every OS.
 - Windows: the editor (and the region, update and what's-new windows) now
   come to the foreground on their own instead of opening behind the current
   app. Windows refuses foreground to a process started by the background

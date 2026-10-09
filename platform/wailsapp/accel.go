@@ -46,6 +46,13 @@ func toAccelerator(chord string) (string, error) {
 	return strings.Join(append(mods, key), "+"), nil
 }
 
+// ValidateChord reports whether one chord ("Cmd+Shift+1") can be bound by the
+// global-shortcut manager on this OS, returning the accelerator it binds.
+// The settings UI uses it to refuse an unusable hotkey at Save time.
+func ValidateChord(chord string) (string, error) {
+	return toAccelerator(chord)
+}
+
 // keyAliases maps the spelled-out punctuation names the chord grammar accepts
 // onto the single characters Wails parses.
 var keyAliases = map[string]string{

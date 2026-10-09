@@ -8,10 +8,11 @@ import (
 
 // composeConfirmLabel builds the editor confirm button's label from the
 // after-capture pipeline so the button always says what will happen on
-// click. Enabled parts are collected in order Copy, Save, Upload and joined:
-// one part as-is, two as "A & B", three as "A, B & C"; none enabled yields
-// "Done".
-func composeConfirmLabel(cfg *config.Config) string {
+// click. upload is the live upload switch at launch time (it can differ from
+// the config after a tray/hotkey toggle). Enabled parts are collected in
+// order Copy, Save, Upload and joined: one part as-is, two as "A & B", three
+// as "A, B & C"; none enabled yields "Done".
+func composeConfirmLabel(cfg *config.Config, upload bool) string {
 	var parts []string
 	if cfg.AfterCapture.CopyImageToClipboard {
 		parts = append(parts, "Copy")
@@ -19,7 +20,7 @@ func composeConfirmLabel(cfg *config.Config) string {
 	if cfg.AfterCapture.SaveLocal {
 		parts = append(parts, "Save")
 	}
-	if cfg.UploadEnabled() {
+	if upload {
 		parts = append(parts, "Upload")
 	}
 	switch len(parts) {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
@@ -30,9 +32,30 @@ func TestComposeConfirmLabel(t *testing.T) {
 			cfg.AfterCapture.CopyImageToClipboard = tt.copy
 			cfg.AfterCapture.SaveLocal = tt.save
 			cfg.Upload.Enabled = tt.upload
-			if got := composeConfirmLabel(cfg); got != tt.want {
+			if got := composeConfirmLabel(cfg, cfg.UploadEnabled()); got != tt.want {
 				t.Errorf("composeConfirmLabel() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFriendlyError(t *testing.T) {
+	for _, tc := range []struct {
+		err         error
+		title, body string
+	}{
+		{errors.New("upload: Catbox needs your userhash: open Settings > Upload and enter it"), "Upload failed", "Catbox needs your userhash: open Settings > Upload and enter it"},
+		{errors.New("capture: screen recording permission denied"), "Capture failed", "Screen recording permission denied"},
+		{errors.New("editor: the capture was discarded: editor: run helper: signal: killed"), "Capture discarded", ""},
+		{errors.New("stop recording: ffmpeg exited"), "Recording failed", "Ffmpeg exited"},
+	} {
+		title, body := friendlyError(tc.err)
+		if title != tc.title || (tc.body != "" && body != tc.body) || body == "" {
+			t.Errorf("friendlyError(%q) = %q, %q; want %q, %q", tc.err, title, body, tc.title, tc.body)
+		}
+	}
+	long := errors.New("upload: " + strings.Repeat("x", 500))
+	if _, body := friendlyError(long); len(body) > 260 || !strings.Contains(body, "goshareit.log") {
+		t.Errorf("long error body not shortened: %d chars", len(body))
 	}
 }

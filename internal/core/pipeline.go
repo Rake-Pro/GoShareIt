@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,27 +20,51 @@ import (
 // runPipeline: capture -> processResult. It is the entry point for one-shot
 // captures.
 func (a *App) runPipeline(ctx context.Context, req capture.Request) (upload.UploadResult, error) {
+	// One capture on screen at a time (overlay, picker, editor). The guard
+	// covers only the interactive part; it is released before the upload.
+	if !a.capturing.CompareAndSwap(false, true) {
+		a.log.Info().Str("mode", req.Mode.String()).Msg("capture already in progress; press ignored")
+		return upload.UploadResult{}, nil
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			a.capturing.Store(false)
+		}
+	}
+	defer release()
+
 	res, err := a.capturer.Capture(ctx, req)
+	if errors.Is(err, capture.ErrCancelled) {
+		// The user backed out (Esc in the overlay, a dismissed picker): not
+		// a failure, so nothing to report.
+		a.log.Info().Msg("capture cancelled by user")
+		return upload.UploadResult{}, nil
+	}
 	if err != nil {
 		return upload.UploadResult{}, fmt.Errorf("capture: %w", err)
 	}
 
-	// 1b. Optional edit (gated by config + per-request flag). Fail-open: an
-	// editor error never aborts the capture; the original image flows on.
+	// 1b. Optional edit (gated by config + per-request flag). Fail-closed: the
+	// user opened the editor to change the image (often to blur something), so
+	// a cancel, a closed window, a crash or a timeout must never let the
+	// unedited original go on to the clipboard, disk or an upload.
 	action := edit.ActionDefault
-	if req.Edit && res.Kind == capture.KindImage {
+	if req.Edit && res.Kind == capture.KindImage && a.editor != nil {
 		edited, a2, ok, eerr := a.editor.Edit(ctx, res, edit.Opts{CanUpload: a.UploadEnabled()})
 		switch {
 		case eerr != nil:
-			a.log.Warn().Err(eerr).Msg("editor failed; using original capture")
-		case ok:
-			res = edited
-			action = a2
-		default:
-			// skipped or cancelled: keep original res unchanged.
+			return upload.UploadResult{}, fmt.Errorf("editor: the capture was discarded: %w", eerr)
+		case !ok:
+			a.log.Info().Msg("editor cancelled; capture discarded")
+			return upload.UploadResult{}, nil
 		}
+		res = edited
+		action = a2
 	}
 
+	release()
 	return a.processResult(ctx, res, action)
 }
 
@@ -64,15 +89,7 @@ func (a *App) processResult(ctx context.Context, res capture.Result, action edit
 		}
 		return upload.UploadResult{}, a.finishLocalOnly(fname, res, fname+" (copied)", "capture complete (copied)")
 	case edit.ActionSave:
-		dir := a.cfg.AfterCapture.SaveDir
-		if dir == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return upload.UploadResult{}, fmt.Errorf("save local: home dir: %w", err)
-			}
-			dir = filepath.Join(home, "Pictures", "GoShareIt")
-		}
-		if err := a.saveLocal(res, dir); err != nil {
+		if err := a.saveLocal(res, a.cfg.AfterCapture.SaveDir, fname); err != nil {
 			return upload.UploadResult{}, err
 		}
 		return upload.UploadResult{}, a.finishLocalOnly(fname, res, fname+" (saved locally)", "capture complete (saved locally)")
@@ -88,7 +105,7 @@ func (a *App) processResult(ctx context.Context, res capture.Result, action edit
 
 	// 2. After-capture: optional local save + clipboard image copy.
 	if a.cfg.AfterCapture.SaveLocal {
-		if err := a.saveLocal(res, a.cfg.AfterCapture.SaveDir); err != nil {
+		if err := a.saveLocal(res, a.cfg.AfterCapture.SaveDir, fname); err != nil {
 			return upload.UploadResult{}, err
 		}
 	}
@@ -179,14 +196,22 @@ func (a *App) upload(ctx context.Context, fname string, res capture.Result) (upl
 	return up, nil
 }
 
-func (a *App) saveLocal(res capture.Result, dir string) error {
+// saveLocal writes the capture into dir; an empty dir means the default
+// folder, Pictures/GoShareIt in the user's home.
+// fname is the name processResult already rendered from the template: a
+// second render would roll {rand} again and leave history and the
+// notification naming a file that is not on disk.
+func (a *App) saveLocal(res capture.Result, dir, fname string) error {
 	if dir == "" {
-		return fmt.Errorf("save_local enabled but save_dir is empty")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("save local: home dir: %w", err)
+		}
+		dir = filepath.Join(home, "Pictures", "GoShareIt")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("save local: mkdir: %w", err)
 	}
-	fname := name.Render(a.cfg.Upload.FilenameTemplate, extFor(res))
 	path := filepath.Join(dir, fname)
 	if err := os.WriteFile(path, res.Bytes, 0o644); err != nil {
 		return fmt.Errorf("save local: write: %w", err)

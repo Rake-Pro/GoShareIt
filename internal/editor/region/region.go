@@ -2,9 +2,11 @@
 
 // Package region is the Gio-based interactive screen-region selector for
 // GoShareIt. It shows a dimmed, borderless fullscreen overlay; the user drags a
-// rectangle (press-drag-release) and confirms with the mouse release on a
-// non-empty box or with Enter. Esc, an empty selection on Enter, or closing the
-// window cancels.
+// rectangle (press-drag-release) and the mouse release confirms it once it is
+// at least minSelectDp on each side (a smaller one is dropped so a jittery
+// click does not capture a sliver). Enter confirms a selection that is still
+// being dragged. Esc, an empty selection on Enter, or closing the window
+// cancels.
 //
 // Backdrop: Gio windows are opaque on Windows, so a translucent dim over
 // "nothing" renders as a solid grey screen. Run therefore takes a frozen
@@ -14,9 +16,9 @@
 // after the overlay closes (which raced the window teardown and captured the
 // overlay itself). With a nil backdrop the old plain overlay is drawn.
 //
-// It is build-tagged for darwin and windows only because Gio requires cgo on
-// macOS and a platform GPU backend on both; the Linux/CGO-disabled host build
-// excludes this package entirely.
+// It is build-tagged for darwin, windows and linux with cgo because Gio
+// requires cgo on macOS and Linux and a platform GPU backend everywhere; the
+// CGO-disabled Linux host build excludes this package entirely.
 //
 // Coordinate mapping: the overlay is a single fullscreen window on the PRIMARY
 // display. Gio pointer positions and FrameEvent.Size are in device pixels with a
@@ -75,6 +77,10 @@ func Run(screen image.Image) (rect image.Rectangle, ok bool, err error) {
 
 const overlayTag = "goshareit.region.overlay"
 
+// minSelectDp is the smallest selection side, in dp, that a mouse release
+// accepts.
+const minSelectDp = 4
+
 type selector struct {
 	th *material.Theme
 
@@ -86,6 +92,7 @@ type selector struct {
 	to       image.Point
 
 	winSize image.Point
+	minPx   int // minSelectDp in window pixels, set each frame
 
 	result    image.Rectangle
 	confirmed bool
@@ -107,6 +114,7 @@ func (s *selector) loop(w *app.Window) (image.Rectangle, bool, error) {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
 			s.winSize = ev.Size
+			s.minPx = gtx.Dp(minSelectDp)
 			s.handleInput(gtx)
 			if s.done {
 				ev.Frame(gtx.Ops)
@@ -186,8 +194,12 @@ func (s *selector) handlePointer(pe pointer.Event) {
 		}
 		s.dragging = false
 		s.to = toPoint(pe.Position)
-		// Release on a non-empty box confirms; an empty box (a bare click) is a
-		// no-op so the user can retry without leaving the overlay.
+		// Release confirms a box of at least minSelectDp per side; anything
+		// smaller (a bare or jittery click) is a no-op so the user can retry
+		// without leaving the overlay.
+		if r := s.selection(); r.Dx() < s.minPx || r.Dy() < s.minPx {
+			return
+		}
 		s.confirm()
 	}
 }
@@ -271,6 +283,9 @@ func (s *selector) layout(gtx layout.Context) layout.Dimensions {
 		strokeRect(gtx.Ops, sel, 2, color.NRGBA{0xff, 0xff, 0xff, 0xff})
 		s.drawReadout(gtx, sel)
 	}
+	if !s.dragging {
+		s.drawHint(gtx)
+	}
 
 	// Register the whole window as the input area for the next frame.
 	area := clip.Rect{Max: size}.Push(gtx.Ops)
@@ -290,9 +305,24 @@ func (s *selector) activeRect() image.Rectangle {
 	return s.selection()
 }
 
-// drawReadout renders the "WxH" dimensions label just above (or below) the box.
+// drawHint shows how to use the overlay, and that it covers the primary
+// display only, at the top of the screen.
+func (s *selector) drawHint(gtx layout.Context) {
+	lbl := material.Label(s.th, unit.Sp(15), "Drag to select an area of this screen (primary display only). Esc cancels.")
+	lbl.Color = color.NRGBA{0xff, 0xff, 0xff, 0xff}
+	lbl.Alignment = text.Middle
+	off := op.Offset(image.Pt(0, gtx.Dp(unit.Dp(24)))).Push(gtx.Ops)
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	lbl.Layout(gtx)
+	off.Pop()
+}
+
+// drawReadout renders the "WxH" dimensions label just above (or below) the
+// box. It shows the size of the image that will be captured (backdrop
+// pixels), which differs from the window size on a DPI mismatch.
 func (s *selector) drawReadout(gtx layout.Context, sel image.Rectangle) {
-	lbl := material.Label(s.th, unit.Sp(14), itoa(sel.Dx())+" x "+itoa(sel.Dy()))
+	out := toBackdrop(sel, s.winSize, s.bgSize)
+	lbl := material.Label(s.th, unit.Sp(14), itoa(out.Dx())+" x "+itoa(out.Dy()))
 	lbl.Color = color.NRGBA{0xff, 0xff, 0xff, 0xff}
 	lbl.Alignment = text.Start
 

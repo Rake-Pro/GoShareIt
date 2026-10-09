@@ -12,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 
 // ExitSaved is the settings helper's process exit code when the user saved at
 // least once. The host restarts to apply the new config only on this code; a
-// plain window close (or Discard Changes) exits 0 and the host does nothing.
+// plain window close (or Discard changes) exits 0 and the host does nothing.
 const ExitSaved = 42
 
 // Service is bound into the Wails frontend. All methods are invoked from JS.
@@ -41,8 +43,43 @@ type Service struct {
 	PickDir func() (string, error) // native directory picker
 	OpenURL func(url string) error // native browser open; nil -> osOpenURL
 	Close   func()                 // close the settings window; nil in tests
+	// CheckHotkey validates one chord the way the host will bind it on this
+	// OS and returns its canonical form (aliases such as Cmd/Ctrl or
+	// Option/Alt resolved per OS), which the duplicate check compares. nil
+	// skips validation; duplicates are then compared on the spelled chord.
+	CheckHotkey func(chord string) (string, error)
 
 	saved atomic.Bool // set once Save succeeds; drives the ExitSaved exit code
+
+	// dirty mirrors the page's unsaved-edits state (SetDirty); closeWarned
+	// records that one close was already held back for it.
+	dirty       atomic.Bool
+	closeWarned atomic.Bool
+
+	loginMu     sync.Mutex
+	loginCancel context.CancelFunc // set while BrowserLogin runs
+
+	// loadedUpload is upload.enabled as the page loaded it (Load), so Save
+	// can tell "the user flipped Upload captures" from "the form still holds
+	// the old value while the tray toggle changed the file".
+	uploadMu        sync.Mutex
+	loadedUpload    bool
+	loadedUploadSet bool
+}
+
+// SetDirty is called by the page whenever its unsaved-edits state changes.
+func (s *Service) SetDirty(dirty bool) {
+	s.dirty.Store(dirty)
+	if !dirty {
+		s.closeWarned.Store(false)
+	}
+}
+
+// HoldClose reports whether a window close should be held back so the page
+// can warn about unsaved edits. It holds only the first close per dirty
+// state, so closing again goes through.
+func (s *Service) HoldClose() bool {
+	return s.dirty.Load() && s.closeWarned.CompareAndSwap(false, true)
 }
 
 // DidSave reports whether Save succeeded at least once in this session.
@@ -69,6 +106,13 @@ type LoadResult struct {
 	Version       string          `json:"version"`
 	OS            string          `json:"os"`
 	Packaged      bool            `json:"packaged"`
+	// What this build/session can actually do, so the page greys out
+	// settings the host would ignore: the updater is off on Store builds,
+	// the what's-new window is not offered on Linux, and recording is not
+	// available in Wayland sessions.
+	UpdaterAvailable   bool `json:"updaterAvailable"`
+	ChangelogSupported bool `json:"changelogSupported"`
+	RecordingSupported bool `json:"recordingSupported"`
 }
 
 // SaveRequest carries the edited config plus optional new secret values
@@ -90,6 +134,18 @@ type SaveRequest struct {
 // Load reads the config for editing. A missing file yields the starter
 // defaults so first-run users edit a sensible template.
 func (s *Service) Load() (*LoadResult, error) {
+	res, err := s.load()
+	if err == nil {
+		s.uploadMu.Lock()
+		s.loadedUpload, s.loadedUploadSet = res.Config.UploadEnabled(), true
+		s.uploadMu.Unlock()
+	}
+	return res, err
+}
+
+// load is Load without recording the loaded upload switch (BrowserLogin
+// reads the file again mid-session).
+func (s *Service) load() (*LoadResult, error) {
 	cfg, err := config.LoadRaw(s.ConfigPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -123,81 +179,358 @@ func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 		Version:           s.Version,
 		OS:                runtime.GOOS,
 		Packaged:          s.Packaged,
+
+		UpdaterAvailable:   !s.Packaged,
+		ChangelogSupported: runtime.GOOS != "linux",
+		RecordingSupported: runtime.GOOS != "linux" || !waylandSession(),
 	}
 }
 
-// Save persists the edited config: writes any new secrets to their files,
-// marshals the YAML (0600), then runs the full loader so the user gets real
-// validation errors immediately instead of at next app start.
-func (s *Service) Save(req *SaveRequest) error {
-	if req == nil || req.Config == nil {
-		return fmt.Errorf("settings: empty save request")
+// waylandSession mirrors platform/linux.IsWayland (the host wires no
+// recorder there); that package only builds on Linux, so the rule is
+// repeated here: XDG_SESSION_TYPE decides when set, else WAYLAND_DISPLAY.
+func waylandSession() bool {
+	switch strings.ToLower(os.Getenv("XDG_SESSION_TYPE")) {
+	case "wayland":
+		return true
+	case "x11":
+		return false
 	}
-	cfg := req.Config
-	applyEditingDefaults(cfg)
+	return os.Getenv("WAYLAND_DISPLAY") != ""
+}
 
-	if req.NewPassword != "" {
-		if cfg.Nextcloud.PasswordEnv != "" {
-			return fmt.Errorf("settings: password is sourced from env var %s; unset password_env to use a file", cfg.Nextcloud.PasswordEnv)
-		}
-		if err := writeSecret(cfg.Nextcloud.PasswordFile, req.NewPassword); err != nil {
-			return err
-		}
-	}
-	if err := saveSecretField(req.NewS3SecretKey, "s3 secret key", cfg.S3.SecretKeyFile, cfg.S3.SecretKeyEnv); err != nil {
-		return err
-	}
-	if err := saveSecretField(req.NewSFTPPassword, "sftp password", cfg.SFTP.PasswordFile, cfg.SFTP.PasswordEnv); err != nil {
-		return err
-	}
-	if err := saveSecretField(req.NewSFTPPassphrase, "sftp passphrase", cfg.SFTP.PassphraseFile, cfg.SFTP.PassphraseEnv); err != nil {
-		return err
-	}
-	if err := saveSecretField(req.NewWebDAVPassword, "webdav password", cfg.WebDAV.PasswordFile, cfg.WebDAV.PasswordEnv); err != nil {
-		return err
-	}
-	if err := saveSecretField(req.NewCustomSecret, "custom secret", cfg.Custom.SecretFile, cfg.Custom.SecretEnv); err != nil {
-		return err
-	}
-	if config.IsHostDestination(cfg.Upload.Destination) {
-		file, env := cfg.HostSecretSource(cfg.Upload.Destination)
-		if err := saveSecretField(req.NewHostSecret, cfg.Upload.Destination+" key", file, env); err != nil {
-			return err
-		}
-	}
+// SaveError is how Save refuses a save. Field names the settings-form field
+// at fault in the frontend schema's terms ("Nextcloud.BaseURL", "@password";
+// "" when no single field is), Problem is a plain phrase that reads after
+// that field's label ("is required"), and Message is a full plain sentence
+// for when there is no field. Error() keeps the technical detail for logs.
+// Wails hands the JSON form to the page as the rejected call's cause.
+type SaveError struct {
+	Field   string `json:"field"`
+	Problem string `json:"problem"`
+	Message string `json:"message"`
+	detail  string
+}
 
+func (e *SaveError) Error() string { return e.detail }
+
+// uiFields maps config.FieldError keys to the frontend schema paths.
+var uiFields = map[string]string{
+	"theme":                    "Theme",
+	"upload.destination":       "Upload.Destination",
+	"upload.share_expire_days": "Upload.ShareExpireDays",
+	"nextcloud.base_url":       "Nextcloud.BaseURL",
+	"nextcloud.username":       "Nextcloud.Username",
+	"nextcloud.dav_user":       "Nextcloud.DavUser",
+	"nextcloud.password":       "@password",
+	"s3.endpoint":              "S3.Endpoint",
+	"s3.bucket":                "S3.Bucket",
+	"s3.access_key":            "S3.AccessKey",
+	"s3.secret_key":            "@s3_secret_key",
+	"sftp.host":                "SFTP.Host",
+	"sftp.user":                "SFTP.User",
+	"sftp.password":            "@sftp_password",
+	"sftp.passphrase":          "@sftp_passphrase",
+	"sftp.private_key_file":    "SFTP.PrivateKeyFile",
+	"webdav.base_url":          "WebDAV.BaseURL",
+	"webdav.password":          "@webdav_password",
+	"custom.url":               "Custom.URL",
+	"custom.secret":            "@custom_secret",
+}
+
+// saveErrorFrom converts a loader error into a SaveError, keeping the field
+// and plain problem when the loader attached them.
+func saveErrorFrom(err error) *SaveError {
+	detail := "not saved - the config does not validate: " + err.Error()
+	var fe *config.FieldError
+	if errors.As(err, &fe) {
+		field := uiFields[fe.Field]
+		if strings.HasPrefix(fe.Field, "hosts.") {
+			field = "@host_secret"
+		}
+		return &SaveError{Field: field, Problem: fe.Problem, Message: "A setting " + fe.Problem + ".", detail: detail}
+	}
+	return &SaveError{Message: "The settings could not be checked: " + err.Error(), detail: detail}
+}
+
+// keepUploadToggle: when the form's "Upload captures" still has the value the
+// page loaded, the user did not touch it, so the file's current value wins.
+// That keeps a tray or hotkey upload toggle made while the window was open
+// from being undone by Save.
+func (s *Service) keepUploadToggle(cfg *config.Config) {
+	s.uploadMu.Lock()
+	loaded, ok := s.loadedUpload, s.loadedUploadSet
+	s.uploadMu.Unlock()
+	if !ok || cfg.UploadEnabled() != loaded {
+		return
+	}
+	cur, err := config.LoadRaw(s.ConfigPath)
+	if err != nil || cur.Upload.Enabled == nil {
+		return
+	}
+	v := *cur.Upload.Enabled
+	cfg.Upload.Enabled = &v
+}
+
+// checkHotkeys refuses a chord the host could not bind and a chord used by two
+// hotkeys, naming the field so the page can point at it.
+func (s *Service) checkHotkeys(h *config.HotkeysConfig) error {
+	fields := []struct{ field, value string }{
+		{"Hotkeys.Region", h.Region},
+		{"Hotkeys.FullScreen", h.FullScreen},
+		{"Hotkeys.Window", h.Window},
+		{"Hotkeys.RegionEdit", h.RegionEdit},
+		{"Hotkeys.FullScreenEdit", h.FullScreenEdit},
+		{"Hotkeys.WindowEdit", h.WindowEdit},
+		{"Hotkeys.UploadToggle", h.UploadToggle},
+		{"Hotkeys.Record", h.Record},
+		{"Hotkeys.Quit", h.Quit},
+	}
+	seen := map[string]bool{}
+	for _, f := range fields {
+		for _, chord := range strings.Split(f.value, ",") {
+			chord = strings.TrimSpace(chord)
+			if chord == "" {
+				continue
+			}
+			canonical := chord
+			if s.CheckHotkey != nil {
+				c, err := s.CheckHotkey(chord)
+				if err != nil {
+					return &SaveError{
+						Field:   f.field,
+						Problem: "uses " + chord + ", which cannot be set up as a hotkey on this computer; pick another key combination",
+						detail:  fmt.Sprintf("settings: hotkey %s %q: %v", f.field, chord, err),
+					}
+				}
+				canonical = c
+			}
+			key := chordKey(canonical)
+			if seen[key] {
+				return &SaveError{
+					Field:   f.field,
+					Problem: "uses " + chord + ", which another hotkey already uses",
+					detail:  fmt.Sprintf("settings: hotkey %s %q is a duplicate", f.field, chord),
+				}
+			}
+			seen[key] = true
+		}
+	}
+	return nil
+}
+
+// chordKey normalizes a chord for duplicate detection: case, token order and
+// same-meaning spellings do not matter ("shift+control+1" == "Ctrl+Shift+1").
+// Off macOS, Cmd is bound as Control (the accelerator spelling "cmd" means
+// CmdOrCtrl there), so it folds to ctrl here as well: the per-OS checker keeps
+// the two spellings apart and would otherwise let Cmd+X sit next to Ctrl+X.
+func chordKey(chord string) string {
+	alias := map[string]string{"command": "cmd", "control": "ctrl", "option": "alt", "opt": "alt"}
+	if runtime.GOOS != "darwin" {
+		alias["cmd"], alias["command"] = "ctrl", "ctrl"
+	}
+	var tokens []string
+	for _, t := range strings.Split(chord, "+") {
+		if t = strings.ToLower(strings.TrimSpace(t)); t != "" {
+			if a, ok := alias[t]; ok {
+				t = a
+			}
+			tokens = append(tokens, t)
+		}
+	}
+	sort.Strings(tokens)
+	return strings.Join(tokens, "+")
+}
+
+// stagedSecret is a new secret value written next to its target file but not
+// yet renamed over it.
+type stagedSecret struct {
+	tmp, target string
+}
+
+// stageSecret writes value to a 0600 temp file in the target's directory, so
+// the later rename is atomic and never crosses a filesystem.
+func stageSecret(path, value string) (stagedSecret, error) {
+	if path == "" {
+		return stagedSecret{}, fmt.Errorf("settings: no secret file path configured")
+	}
+	full := config.ExpandHome(path)
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		return stagedSecret{}, fmt.Errorf("settings: create secret dir: %w", err)
+	}
+	f, err := os.CreateTemp(filepath.Dir(full), "."+filepath.Base(full)+".pending-*")
+	if err != nil {
+		return stagedSecret{}, fmt.Errorf("settings: stage secret: %w", err)
+	}
+	_, werr := f.WriteString(strings.TrimSpace(value) + "\n")
+	cerr := f.Close()
+	if werr == nil {
+		werr = os.Chmod(f.Name(), 0o600)
+	}
+	if werr != nil || cerr != nil {
+		os.Remove(f.Name())
+		return stagedSecret{}, fmt.Errorf("settings: write secret %s: write=%v close=%v", full, werr, cerr)
+	}
+	return stagedSecret{tmp: f.Name(), target: full}, nil
+}
+
+// writeTempConfig writes cfg as YAML to a temp file in dir and returns its
+// path.
+func writeTempConfig(dir string, cfg *config.Config) (string, error) {
 	out, err := yaml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("settings: marshal config: %w", err)
+		return "", fmt.Errorf("settings: marshal config: %w", err)
 	}
 	header := "# GoShareIt configuration. Managed by the settings UI; comments are not preserved.\n"
-	dir := filepath.Dir(s.ConfigPath)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("settings: create config dir: %w", err)
-	}
-
-	// Validate BEFORE installing: an invalid config must never reach the real
-	// path - the host restarts on config mtime change and would fatal on load,
-	// leaving the app dead until the file is hand-edited. Same-dir temp file +
-	// rename keeps the install atomic.
 	tmp, err := os.CreateTemp(dir, ".config-*.yaml")
 	if err != nil {
-		return fmt.Errorf("settings: temp config: %w", err)
+		return "", fmt.Errorf("settings: temp config: %w", err)
 	}
 	_, werr := tmp.Write(append([]byte(header), out...))
 	cerr := tmp.Close()
 	if werr != nil || cerr != nil {
 		os.Remove(tmp.Name())
-		return fmt.Errorf("settings: write temp config: write=%v close=%v", werr, cerr)
+		return "", fmt.Errorf("settings: write temp config: write=%v close=%v", werr, cerr)
 	}
-	if _, err := config.LoadFile(tmp.Name()); err != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("not saved - the config does not validate: %w", err)
+	return tmp.Name(), nil
+}
+
+// Save persists the edited config and any new secrets, validating before
+// anything is written over the current files. New secrets are staged next
+// to their targets and a candidate config that points at the staged copies
+// runs through the full loader, so the user gets real validation errors
+// immediately. Only when it passes are the secrets and then the config
+// renamed into place; a rejected save leaves every stored secret and the
+// config exactly as they were.
+func (s *Service) Save(req *SaveRequest) error {
+	if req == nil || req.Config == nil {
+		return &SaveError{Message: "There was nothing to save.", detail: "settings: empty save request"}
 	}
-	if err := os.Rename(tmp.Name(), s.ConfigPath); err != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("settings: install config: %w", err)
+	cfg := req.Config
+	applyEditingDefaults(cfg)
+	s.keepUploadToggle(cfg)
+	if err := s.checkHotkeys(&cfg.Hotkeys); err != nil {
+		return err
 	}
+
+	// cand is what gets validated: cfg with each new secret's file field
+	// pointed at its staged copy. Hosts is copied so repointing a host key
+	// never leaks into the config that is installed.
+	cand := *cfg
+	cand.Hosts = make(map[string]config.HostConfig, len(cfg.Hosts)+1)
+	for k, v := range cfg.Hosts {
+		cand.Hosts[k] = v
+	}
+	type secretField struct {
+		value, field, file, env string
+		point                   func(staged string)
+	}
+	fields := []secretField{
+		{req.NewPassword, "@password", cfg.Nextcloud.PasswordFile, cfg.Nextcloud.PasswordEnv, func(p string) { cand.Nextcloud.PasswordFile = p }},
+		{req.NewS3SecretKey, "@s3_secret_key", cfg.S3.SecretKeyFile, cfg.S3.SecretKeyEnv, func(p string) { cand.S3.SecretKeyFile = p }},
+		{req.NewSFTPPassword, "@sftp_password", cfg.SFTP.PasswordFile, cfg.SFTP.PasswordEnv, func(p string) { cand.SFTP.PasswordFile = p }},
+		{req.NewSFTPPassphrase, "@sftp_passphrase", cfg.SFTP.PassphraseFile, cfg.SFTP.PassphraseEnv, func(p string) { cand.SFTP.PassphraseFile = p }},
+		{req.NewWebDAVPassword, "@webdav_password", cfg.WebDAV.PasswordFile, cfg.WebDAV.PasswordEnv, func(p string) { cand.WebDAV.PasswordFile = p }},
+		{req.NewCustomSecret, "@custom_secret", cfg.Custom.SecretFile, cfg.Custom.SecretEnv, func(p string) { cand.Custom.SecretFile = p }},
+	}
+	if dest := cfg.Upload.Destination; config.IsHostDestination(dest) {
+		file, env := cfg.HostSecretSource(dest)
+		fields = append(fields, secretField{req.NewHostSecret, "@host_secret", file, env, func(p string) {
+			h := cand.Hosts[dest]
+			h.SecretFile, h.SecretEnv = p, ""
+			cand.Hosts[dest] = h
+		}})
+	}
+
+	var staged []stagedSecret
+	installed := false
+	defer func() {
+		if !installed {
+			for _, st := range staged {
+				os.Remove(st.tmp)
+			}
+		}
+	}()
+	for _, f := range fields {
+		if f.value == "" {
+			continue
+		}
+		if f.env != "" {
+			// Env-sourced: a written file would be silently ignored at load.
+			return &SaveError{
+				Field:   f.field,
+				Problem: "comes from the environment variable " + f.env + ", so it cannot be changed here",
+				detail:  fmt.Sprintf("settings: %s is sourced from env var %s; unset the corresponding _env setting to use a file", f.field, f.env),
+			}
+		}
+		st, err := stageSecret(f.file, f.value)
+		if err != nil {
+			return &SaveError{Message: "Not saved: a password or key could not be written.", detail: err.Error()}
+		}
+		staged = append(staged, st)
+		f.point(st.tmp)
+	}
+
+	dir := filepath.Dir(s.ConfigPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return &SaveError{Message: "Not saved: the settings folder could not be created.", detail: fmt.Sprintf("settings: create config dir: %v", err)}
+	}
+
+	// Validate BEFORE installing anything: an invalid config must never reach
+	// the real path - the host would fail to load it on its next start.
+	check, err := writeTempConfig(dir, &cand)
+	if err != nil {
+		return &SaveError{Message: "Not saved: the settings file could not be written.", detail: err.Error()}
+	}
+	_, lerr := config.LoadFile(check)
+	os.Remove(check)
+	if lerr != nil {
+		return saveErrorFrom(lerr)
+	}
+
+	tmp, err := writeTempConfig(dir, cfg)
+	if err != nil {
+		return &SaveError{Message: "Not saved: the settings file could not be written.", detail: err.Error()}
+	}
+	// Install secrets, then the config. Each replaced secret's previous
+	// content is kept in memory, so a failure part way through puts every
+	// file back and "Not saved" stays true.
+	type previous struct {
+		target  string
+		data    []byte
+		existed bool
+	}
+	var replaced []previous
+	rollback := func() {
+		for i := len(replaced) - 1; i >= 0; i-- {
+			p := replaced[i]
+			if p.existed {
+				_ = os.WriteFile(p.target, p.data, 0o600)
+			} else {
+				os.Remove(p.target)
+			}
+		}
+	}
+	for _, st := range staged {
+		old, rerr := os.ReadFile(st.target)
+		if rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+			rollback()
+			os.Remove(tmp)
+			return &SaveError{Message: "Not saved: a password or key could not be stored.", detail: fmt.Sprintf("settings: read current secret %s: %v", st.target, rerr)}
+		}
+		if err := os.Rename(st.tmp, st.target); err != nil {
+			rollback()
+			os.Remove(tmp)
+			return &SaveError{Message: "Not saved: a password or key could not be stored.", detail: fmt.Sprintf("settings: install secret %s: %v", st.target, err)}
+		}
+		replaced = append(replaced, previous{target: st.target, data: old, existed: rerr == nil})
+	}
+	if err := os.Rename(tmp, s.ConfigPath); err != nil {
+		rollback()
+		os.Remove(tmp)
+		return &SaveError{Message: "Not saved: the settings file could not be replaced.", detail: fmt.Sprintf("settings: install config: %v", err)}
+	}
+	installed = true
 	s.saved.Store(true)
 	return nil
 }
@@ -210,6 +543,7 @@ func (s *Service) CloseWindow() error {
 	if s.Close == nil {
 		return fmt.Errorf("settings: close is not available")
 	}
+	s.dirty.Store(false) // an explicit Save or Discard: never hold this close
 	s.Close()
 	return nil
 }
@@ -253,16 +587,22 @@ type LoginResult struct {
 // BrowserLogin runs the Nextcloud Login Flow v2 against baseURL: opens the
 // browser (where the server-side auth - password, OIDC/SSO, 2FA - happens),
 // waits for completion, and returns the minted credential. Blocks up to 5
-// minutes. Persisting is deferred to Save.
-func (s *Service) BrowserLogin(baseURL string) (*LoginResult, error) {
+// minutes, or until CancelLogin. allowInsecure is the form's current "Allow
+// insecure http://" switch, so it applies before the user saves. Persisting
+// is deferred to Save.
+func (s *Service) BrowserLogin(baseURL string, allowInsecure bool) (*LoginResult, error) {
 	baseURL = strings.TrimSpace(baseURL)
-	cur, err := s.Load()
+	cur, err := s.load()
 	if err != nil {
 		return nil, err
 	}
 	// The flow returns a freshly minted app password over this connection, so
 	// it gets the same TLS requirement as the saved config.
-	if err := config.ValidateBaseURL("nextcloud.base_url", baseURL, cur.Config.Upload.AllowInsecureHTTP); err != nil {
+	if err := config.ValidateBaseURL("nextcloud.base_url", baseURL, allowInsecure); err != nil {
+		var fe *config.FieldError
+		if errors.As(err, &fe) {
+			return nil, &SaveError{Field: "Nextcloud.BaseURL", Problem: fe.Problem, detail: err.Error()}
+		}
 		return nil, err
 	}
 	if cur.Config.Nextcloud.PasswordEnv != "" {
@@ -271,6 +611,14 @@ func (s *Service) BrowserLogin(baseURL string) (*LoginResult, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	s.loginMu.Lock()
+	s.loginCancel = cancel
+	s.loginMu.Unlock()
+	defer func() {
+		s.loginMu.Lock()
+		s.loginCancel = nil
+		s.loginMu.Unlock()
+	}()
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	start, err := startLoginFlow(ctx, client, baseURL)
@@ -289,6 +637,16 @@ func (s *Service) BrowserLogin(baseURL string) (*LoginResult, error) {
 		return nil, err
 	}
 	return &LoginResult{LoginName: result.LoginName, AppPassword: result.AppPassword}, nil
+}
+
+// CancelLogin ends a running BrowserLogin; it then returns a "cancelled"
+// error. A no-op when no sign-in is running.
+func (s *Service) CancelLogin() {
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	if s.loginCancel != nil {
+		s.loginCancel()
+	}
 }
 
 // applyEditingDefaults fills the fields the UI relies on: secret file paths
@@ -334,33 +692,6 @@ func applyEditingDefaults(cfg *config.Config) {
 	if cfg.Custom.SecretFile == "" && cfg.Custom.SecretEnv == "" {
 		cfg.Custom.SecretFile = tilde("custom-secret.secret")
 	}
-}
-
-// saveSecretField writes value to file, unless value is empty (nothing to
-// do) or env is set (the secret is env-sourced, so writing a file would be
-// silently ignored at load - same rule as the Nextcloud password).
-func saveSecretField(value, label, file, env string) error {
-	if value == "" {
-		return nil
-	}
-	if env != "" {
-		return fmt.Errorf("settings: %s is sourced from env var %s; unset the corresponding _env setting to use a file", label, env)
-	}
-	return writeSecret(file, value)
-}
-
-func writeSecret(path, value string) error {
-	if path == "" {
-		return fmt.Errorf("settings: no secret file path configured")
-	}
-	full := config.ExpandHome(path)
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		return fmt.Errorf("settings: create secret dir: %w", err)
-	}
-	if err := os.WriteFile(full, []byte(strings.TrimSpace(value)+"\n"), 0o600); err != nil {
-		return fmt.Errorf("settings: write secret %s: %w", full, err)
-	}
-	return nil
 }
 
 // secretPresent reports whether a secret is effectively configured: a

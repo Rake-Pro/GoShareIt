@@ -1,6 +1,7 @@
 # GoShareIt
 
-A cross-platform screenshot and screen-recording tool for macOS and Windows.
+A cross-platform screenshot and screen-recording tool for macOS and Windows,
+with a Linux build in beta.
 Capture a region, window, or full screen; optionally annotate it (crop, arrow,
 text, blur, and more) in a light/dark/system-themed editor; upload to
 Nextcloud (default), S3-compatible storage, SFTP, WebDAV, or a custom HTTP
@@ -19,12 +20,17 @@ GoShareIt ships as three sibling binaries:
 - `goshareit-settings`: the settings UI (Wails), launched from the tray
   ("Settings...") or automatically on first run.
 
+The region selector covers the primary display only; on a multi-monitor
+setup, capture another display with full-screen capture.
+
 All app state (config, secrets, logs, history) lives in one per-user root:
-`~/.goshareit` on macOS/Linux, `%USERPROFILE%\goshareit` on Windows. On an
-unconfigured install the host opens the settings UI instead of exiting, so
-first run is: install, launch, fill in (or skip) Nextcloud details in the
-settings window, save. Nothing is required to get started: local-only mode
-(below) works with zero configuration.
+`~/.goshareit` on macOS/Linux, `%USERPROFILE%\goshareit` on Windows. First
+run is: install, launch, and the settings window opens. A new install starts
+in local-only mode (uploads off), so nothing is required to get started:
+close the window and capture, or set up an upload destination, turn on
+"Upload captures" and save. If an existing config cannot be loaded, the
+settings window opens too, and if the upload setup is still incomplete
+after it closes, the app runs in local-only mode instead of exiting.
 
 ### Windows says "Part of this app has been blocked"
 
@@ -154,8 +160,11 @@ libx11-xcb-dev libxcursor-dev libxfixes-dev libvulkan-dev libffi-dev`.
 ## Configuration
 
 The easiest path is the **settings UI** (`goshareit-settings`, opened from the
-tray or automatically on first run): every option is editable there, including
-"Sign in with browser" (Nextcloud Login Flow v2, OIDC/SSO-compatible) which
+tray or automatically on first run): every everyday option is editable there
+(a few advanced ones, such as `editor.timeout_seconds`, `editor.helper_path`,
+`update.repo`, secret file paths and the `*_env` secret sources, are
+YAML-only), including "Sign in with browser" (Nextcloud Login Flow v2,
+OIDC/SSO-compatible) which
 sets up the server credentials without ever typing a password into a text
 field. Saving restarts the host automatically.
 
@@ -210,8 +219,9 @@ Deletion links, when a host returns one, are written to `history.jsonl`
 
 ## Validated upload flow
 
-Applies when `upload.enabled: true` (the default; off = local-only mode, see
-above).
+Applies when `upload.enabled: true` (the default when the key is absent; new
+installs start with it off until a destination is set up; off = local-only
+mode, see above).
 
 1. **WebDAV PUT** to
    `{base_url}/remote.php/dav/files/{dav_user}/{remote_dir}/{name}` with HTTP

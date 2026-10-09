@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -61,16 +63,27 @@ func main() {
 	}
 
 	cfg, err := config.Load(cfgFile)
-	if err != nil {
-		// Onboarding instead of a silent death: a fresh install always lands
-		// here (empty password file), and on windowsgui builds stderr is
-		// invisible, so a fatal would look like the app simply not starting.
-		log.Warn().Err(err).Str("config", cfgFile).Msg("config not usable - opening settings UI")
+	localOnlyFallback := false
+	if err != nil || didSetup {
+		// Onboarding instead of a silent death: a fresh install (local-only
+		// starter) or an unusable config opens the settings UI first; on
+		// windowsgui builds stderr is invisible, so a fatal would look like
+		// the app simply not starting.
+		if err != nil {
+			log.Warn().Err(err).Str("config", cfgFile).Msg("config not usable - opening settings UI")
+		}
 		if serr := runSettingsBlocking(context.Background(), cfgFile); serr != nil {
-			log.Fatal().Err(serr).Str("config", cfgFile).Msg("config invalid and settings UI unavailable - edit the config manually")
+			log.Warn().Err(serr).Str("config", cfgFile).Msg("settings UI unavailable")
 		}
 		if cfg, err = config.Load(cfgFile); err != nil {
-			log.Fatal().Err(err).Str("config", cfgFile).Msg("config still invalid after setup - exiting")
+			// Still incomplete (e.g. the window was closed without saving):
+			// run local-only rather than exit, and say so once the notifier
+			// exists.
+			log.Warn().Err(err).Str("config", cfgFile).Msg("config still not usable - running local-only")
+			if cfg, err = config.LoadLocalOnly(cfgFile); err != nil {
+				log.Fatal().Err(err).Str("config", cfgFile).Msg("config invalid even in local-only mode - edit the config manually")
+			}
+			localOnlyFallback = true
 		}
 	}
 
@@ -91,29 +104,35 @@ func main() {
 		logger.Fatal().Err(err).Msg("build providers")
 	}
 	// The uploader is portable; wire it from config here regardless of GOOS.
-	uploader, err := buildUploader(cfg)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("build uploader")
-	}
-	providers.Uploader = uploader
+	providers.Uploader = uploaderFor(cfg)
 
 	// The editor launcher is portable (CGO-free); the GUI it spawns lives in a
 	// separate goshareit-editor binary. It is only ever invoked when
 	// cfg.Editor.Enabled, so a missing editor binary is harmless when disabled.
 	providers.Editor = edit.Launcher{
-		HelperPath:   cfg.Editor.HelperPath,
-		Timeout:      time.Duration(cfg.Editor.TimeoutSeconds) * time.Second,
-		Tool:         cfg.Editor.DefaultTool,
-		Color:        cfg.Editor.Color,
-		StrokeWidth:  cfg.Editor.StrokeWidth,
-		Tools:        cfg.Editor.Tools,
-		Theme:        cfg.Theme,
-		ConfirmLabel: composeConfirmLabel(cfg),
+		HelperPath:  cfg.Editor.HelperPath,
+		Timeout:     time.Duration(cfg.Editor.TimeoutSeconds) * time.Second,
+		Tool:        cfg.Editor.DefaultTool,
+		Color:       cfg.Editor.Color,
+		StrokeWidth: cfg.Editor.StrokeWidth,
+		Tools:       cfg.Editor.Tools,
+		Theme:       cfg.Theme,
+		ConfirmLabelFor: func(canUpload bool) string {
+			return composeConfirmLabel(cfg, canUpload)
+		},
 	}
 
 	app, err := core.New(cfg, providers, logger, hist)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("init app")
+	}
+	if localOnlyFallback && app.Notifier() != nil {
+		if err := app.Notifier().Notify(notify.Notification{
+			Title: "Uploads are off",
+			Body:  "The upload settings are incomplete, so captures stay on this computer. Finish the setup in Settings > Upload.",
+		}); err != nil {
+			logger.Debug().Err(err).Msg("notification failed")
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -192,14 +211,6 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		hooked.OnShutdown(shutdown)
 	}
 
-	runShot := func(mode capture.Mode) func() {
-		return func() {
-			if _, err := app.RunCapture(ctx, mode); err != nil {
-				log.Error().Err(err).Msg("capture failed")
-			}
-		}
-	}
-
 	// label appends the configured hotkey to a menu title, e.g.
 	// "Capture Region  (Cmd+Shift+1)", so the menu documents its own shortcuts.
 	label := func(title, keys string) string {
@@ -213,6 +224,24 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		if n := app.Notifier(); n != nil {
 			if err := n.Notify(notify.Notification{Title: title, Body: body}); err != nil {
 				log.Debug().Err(err).Msg("notification failed")
+			}
+		}
+	}
+	// notifyFailure tells the user a capture, upload or recording did not go
+	// through. It is not gated by after_upload.notify: a failure the user
+	// cannot see looks exactly like a hotkey that did nothing.
+	notifyFailure := func(err error) {
+		if ctx.Err() != nil || errors.Is(err, capture.ErrCancelled) {
+			return // shutting down, or the user backed out on purpose
+		}
+		notifyUser(friendlyError(err))
+	}
+
+	runShot := func(mode capture.Mode) func() {
+		return func() {
+			if _, err := app.RunCapture(ctx, mode); err != nil {
+				log.Error().Err(err).Msg("capture failed")
+				notifyFailure(err)
 			}
 		}
 	}
@@ -316,6 +345,7 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 			}
 			if _, err := app.StopRecording(ctx); err != nil {
 				log.Error().Err(err).Str("trigger", trigger).Msg("stop recording failed")
+				notifyFailure(err)
 			} else {
 				log.Info().Str("trigger", trigger).Msg("recording stopped")
 			}
@@ -338,6 +368,7 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		return func() {
 			if _, err := app.RunCaptureEdit(ctx, mode); err != nil {
 				log.Error().Err(err).Msg("capture (edit) failed")
+				notifyFailure(err)
 			}
 		}
 	}
@@ -354,7 +385,7 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 	uploadToggle := func() {
 		enable := !app.UploadEnabled()
 		if enable && !app.UploadConfigured() {
-			notifyUser("Uploads unavailable", "No server configured - set it up in Settings first.")
+			notifyUser("Uploads unavailable", "The upload destination is not fully set up yet. Finish it in Settings > Upload first.")
 			return
 		}
 		app.SetUploadEnabled(enable)
@@ -396,6 +427,7 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 				fn       func()
 			}{"record", cfg.Hotkeys.Record, recordToggle})
 		}
+		var failed []string
 		for _, b := range bindings {
 			// Each value may hold comma-separated alternatives; register each
 			// under a suffixed id so they bind independently.
@@ -406,8 +438,15 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 				}
 				if err := hk.Register(id, keys, b.fn); err != nil {
 					log.Warn().Err(err).Str("id", id).Str("keys", keys).Msg("register hotkey")
+					failed = append(failed, keys)
 				}
 			}
+		}
+		if len(failed) > 0 {
+			// A hotkey that silently does nothing is indistinguishable from a
+			// broken app; say which ones are not active.
+			notifyUser("Some hotkeys are not active",
+				"Could not set up "+strings.Join(failed, ", ")+". Another app may be using them; pick different ones in Settings > Hotkeys.")
 		}
 		go func() {
 			if err := hk.Run(ctx); err != nil && ctx.Err() == nil {
@@ -424,6 +463,13 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		{ID: "region", Title: label("Capture Region", cfg.Hotkeys.Region), OnClick: runShot(captureMode("region"))},
 		{ID: "fullscreen", Title: label("Capture Full Screen", cfg.Hotkeys.FullScreen), OnClick: runShot(captureMode("fullscreen"))},
 	}
+	// Window capture from the menu only where the user then picks the window
+	// (macOS): elsewhere it grabs the focused window, which right after a
+	// tray click is the taskbar or panel, not what the user meant.
+	if runtime.GOOS == "darwin" {
+		items = append(items, tray.MenuItem{ID: "window", Title: label("Capture Window", cfg.Hotkeys.Window), OnClick: runShot(captureMode("window"))})
+	}
+	items = append(items, tray.MenuItem{ID: "region-edit", Title: label("Capture Region and Edit", cfg.Hotkeys.RegionEdit), OnClick: runShotEdit(captureMode("region"))})
 	// Recording: separate Start (video), Start GIF, and a shared Stop. Stop starts
 	// greyed out; while recording, both Start items grey and Stop enables. Each
 	// Start item appears only if its mode is supported on this build.
@@ -492,6 +538,33 @@ func setupFileLog() {
 		return
 	}
 	log.Logger = log.Output(zerolog.MultiLevelWriter(zerolog.ConsoleWriter{Out: os.Stderr}, f))
+}
+
+// friendlyError turns a pipeline error into a notification title and body.
+// The core wraps errors with a step prefix ("capture: ", "upload: ", ...);
+// the prefix picks the title and is dropped from the body, and long error
+// chains are cut short with a pointer to the log, which keeps the full text.
+func friendlyError(err error) (title, body string) {
+	msg := err.Error()
+	title = "Capture failed"
+	switch {
+	case strings.HasPrefix(msg, "editor:"):
+		return "Capture discarded", "The editor did not finish, so nothing was copied, saved or uploaded. Details are in goshareit.log."
+	case strings.HasPrefix(msg, "upload: "):
+		title, msg = "Upload failed", strings.TrimPrefix(msg, "upload: ")
+	case strings.HasPrefix(msg, "stop recording: "):
+		title, msg = "Recording failed", strings.TrimPrefix(msg, "stop recording: ")
+	default:
+		msg = strings.TrimPrefix(msg, "capture: ")
+	}
+	const limit = 200
+	if r := []rune(msg); len(r) > limit {
+		msg = string(r[:limit]) + "... (details in goshareit.log)"
+	}
+	if r, n := utf8.DecodeRuneInString(msg); n > 0 {
+		msg = string(unicode.ToUpper(r)) + msg[n:]
+	}
+	return title, msg
 }
 
 // splitHotkeys splits a comma-separated alternatives string into individual
