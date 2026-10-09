@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/io/key"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -16,6 +17,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
+	"github.com/rs/zerolog/log"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/update"
 )
@@ -49,6 +51,7 @@ func RunChangelog(job update.Job, dark bool) (proceed bool, err error) {
 		}
 		mu.Lock()
 		if e != nil {
+			log.Warn().Err(e).Msg("changelog: release notes unavailable")
 			loadErr = e
 		} else if len(notes) == 0 {
 			lines = []update.NoteLine{{Text: "No release notes were published for this span."}}
@@ -76,6 +79,21 @@ func RunChangelog(job update.Job, dark bool) (proceed bool, err error) {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
 			paint.Fill(gtx.Ops, th.Palette.Bg)
+			// Keyboard: Enter = Update now, Esc = Later.
+			for {
+				kev, ok := gtx.Source.Event(
+					key.Filter{Name: key.NameEscape},
+					key.Filter{Name: key.NameReturn},
+					key.Filter{Name: key.NameEnter},
+				)
+				if !ok {
+					break
+				}
+				if ke, ok := kev.(key.Event); ok && ke.State == key.Press {
+					choice = ke.Name != key.NameEscape
+					w.Perform(system.ActionClose)
+				}
+			}
 			if updBtn.Clicked(gtx) {
 				choice = true
 				w.Perform(system.ActionClose)
@@ -100,7 +118,7 @@ func RunChangelog(job update.Job, dark bool) (proceed bool, err error) {
 						case !ok:
 							return material.Body2(th, "Loading release notes...").Layout(gtx)
 						case e != nil:
-							return material.Body2(th, "Release notes unavailable: "+e.Error()).Layout(gtx)
+							return material.Body2(th, "The release notes could not be loaded right now. You can still update now or later.").Layout(gtx)
 						}
 						return material.List(th, &list).Layout(gtx, len(cur), func(gtx layout.Context, i int) layout.Dimensions {
 							line := cur[i]
@@ -119,8 +137,10 @@ func RunChangelog(job update.Job, dark bool) (proceed bool, err error) {
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Spacing: layout.SpaceStart}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								// Secondary button: a surface fill so it reads as a
+								// button against the window background.
 								b := material.Button(th, &lateBtn, "Later")
-								b.Background = th.Palette.Bg
+								b.Background = surfaceColor(dark)
 								b.Color = th.Palette.Fg
 								return b.Layout(gtx)
 							}),
@@ -133,6 +153,15 @@ func RunChangelog(job update.Job, dark bool) (proceed bool, err error) {
 			ev.Frame(gtx.Ops)
 		}
 	}
+}
+
+// surfaceColor is the fill for secondary buttons (the editor's surface
+// color), distinct from the window background in both themes.
+func surfaceColor(dark bool) color.NRGBA {
+	if dark {
+		return color.NRGBA{R: 0x3a, G: 0x3a, B: 0x3c, A: 0xff}
+	}
+	return color.NRGBA{R: 0xdc, G: 0xdc, B: 0xe0, A: 0xff}
 }
 
 // newTheme is the shared light/dark palette of the updater windows.

@@ -152,7 +152,7 @@ func (c *updateController) doCheck(ctx context.Context, manual bool) *update.Rel
 	if err != nil {
 		log.Warn().Err(err).Msg("update check failed")
 		if manual {
-			c.notify("Update check failed", err.Error())
+			c.notify("Update check failed", "Could not reach the update server. Check your connection and try again; details are in goshareit.log.")
 		}
 		return nil
 	}
@@ -194,6 +194,12 @@ func (c *updateController) doCheck(ctx context.Context, manual bool) *update.Rel
 	// thread, so tray handling pauses only while the dialog is actually open
 	// (bounded by its timeout) - standard modal behavior.
 	if manual {
+		// A minor/major update opens the what's-new window, which already
+		// asks "Update now / Later"; asking first in a dialog too would ask
+		// twice.
+		if c.showsChangelog(rel) {
+			return rel
+		}
 		if confirmer := c.app.Confirmer(); confirmer != nil {
 			ok, err := confirmer.Confirm(
 				"Update available",
@@ -222,8 +228,13 @@ func (c *updateController) install(ctx context.Context, rel *update.Release) {
 	}
 	c.busy = true
 	c.mu.Unlock()
-	c.setEnabled(false)
-	c.setTitle("Installing Update v" + rel.Version + "...")
+	// installing marks the tray item busy. It runs once the user is past the
+	// what's-new window (if any), so the tray never says "Installing" while
+	// that window still offers Later.
+	installing := func() {
+		c.setEnabled(false)
+		c.setTitle("Installing Update v" + rel.Version + "...")
+	}
 	defer func() {
 		c.mu.Lock()
 		c.busy = false
@@ -238,11 +249,11 @@ func (c *updateController) install(ctx context.Context, rel *update.Release) {
 		path, err := update.WriteJob(job)
 		if err != nil {
 			log.Error().Err(err).Msg("update handoff failed")
-			c.notify("Update failed", err.Error())
+			c.notify("Update failed", "The update could not be started; details are in goshareit.log.")
 			c.setTitle("Install Update v" + rel.Version)
 			return
 		}
-		if c.changelog && update.MinorBump(job.Current, rel.Version) {
+		if c.showsChangelog(rel) {
 			// What's-new window first; the host keeps running while it is up.
 			// Exit 64 = Later: keep the pending install on the tray item.
 			var exitErr *exec.ExitError
@@ -259,11 +270,12 @@ func (c *updateController) install(ctx context.Context, rel *update.Release) {
 				log.Warn().Err(err).Msg("changelog window failed; continuing with the update")
 			}
 		}
+		installing()
 		cmd := exec.Command(c.helper, "--update", path)
 		if err := cmd.Start(); err != nil {
 			os.Remove(path)
 			log.Error().Err(err).Msg("update handoff: start updater")
-			c.notify("Update failed", err.Error())
+			c.notify("Update failed", "The update could not be started; details are in goshareit.log.")
 			c.setTitle("Install Update v" + rel.Version)
 			return
 		}
@@ -273,17 +285,18 @@ func (c *updateController) install(ctx context.Context, rel *update.Release) {
 		return
 	}
 
+	installing()
 	archive, err := c.upd.Download(ctx, rel)
 	if err != nil {
 		log.Error().Err(err).Msg("update download failed")
-		c.notify("Update failed", err.Error())
+		c.notify("Update failed", "The update could not be downloaded; details are in goshareit.log.")
 		c.setTitle("Install Update v" + rel.Version)
 		return
 	}
 	relaunch, err := update.Apply(archive)
 	if err != nil {
 		log.Error().Err(err).Msg("update apply failed")
-		c.notify("Update failed", err.Error())
+		c.notify("Update failed", "The update could not be installed; details are in goshareit.log.")
 		c.setTitle("Install Update v" + rel.Version)
 		return
 	}
@@ -292,6 +305,12 @@ func (c *updateController) install(ctx context.Context, rel *update.Release) {
 		log.Error().Err(err).Msg("update relaunch failed - start the app manually")
 	}
 	c.quit()
+}
+
+// showsChangelog reports whether installing rel opens the what's-new window
+// (out-of-process installs only, minor or major bumps, setting on).
+func (c *updateController) showsChangelog(rel *update.Release) bool {
+	return c.handoff != nil && c.changelog && update.MinorBump(c.handoff.Current, rel.Version)
 }
 
 func (c *updateController) setTitle(title string) {

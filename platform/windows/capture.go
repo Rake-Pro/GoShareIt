@@ -33,7 +33,7 @@ import (
 // with no file" signal: ms-screenclip simply never places a new image on the
 // clipboard, so we detect cancellation as a polling timeout. The pipeline treats
 // this as a no-op rather than an error.
-var ErrCaptureCancelled = errors.New("windows capture: cancelled by user")
+var ErrCaptureCancelled = fmt.Errorf("windows capture: %w", capture.ErrCancelled)
 
 // ErrUnsupportedMode is returned for modes not implemented in Phase 2.
 var ErrUnsupportedMode = errors.New("windows capture: mode not implemented in P2")

@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"slices"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -36,6 +37,7 @@ func (e *editor) layout(gtx layout.Context) layout.Dimensions {
 func (e *editor) handleWidgets(gtx layout.Context) {
 	for t, b := range e.toolBtns {
 		if b.Clicked(gtx) {
+			e.discardArmed = false
 			e.tool = t
 			// Selecting the text tool focuses the toolbar field so the user can
 			// type immediately, then click the canvas to place the text.
@@ -49,7 +51,7 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 			e.col = e.palette[i]
 		}
 	}
-	if e.strokeInc.Clicked(gtx) && e.stroke < 32 {
+	if e.strokeInc.Clicked(gtx) && e.stroke < maxStroke {
 		e.stroke++
 	}
 	if e.strokeDec.Clicked(gtx) && e.stroke > 1 {
@@ -62,23 +64,20 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 		e.redoOne()
 	}
 	if e.cancelB.Clicked(gtx) {
-		e.action = ActionCancel
-		e.done = true
+		e.requestCancel()
 	}
 	if e.confirm.Clicked(gtx) {
-		// Render error is surfaced by leaving done set with no result; the
-		// helper treats a nil confirmed result as a failure path.
-		_ = e.confirmNow(ActionConfirm)
+		e.confirmNow(ActionConfirm)
 	}
 	if e.actions {
 		if e.copyB.Clicked(gtx) {
-			_ = e.confirmNow(ActionCopy)
+			e.confirmNow(ActionCopy)
 		}
 		if e.saveB.Clicked(gtx) {
-			_ = e.confirmNow(ActionSave)
+			e.confirmNow(ActionSave)
 		}
 		if e.canUpload && e.uploadB.Clicked(gtx) {
-			_ = e.confirmNow(ActionUpload)
+			e.confirmNow(ActionUpload)
 		}
 	}
 }
@@ -122,13 +121,16 @@ func (e *editor) layoutToolbarContent(gtx layout.Context) layout.Dimensions {
 				return e.layoutSwatch(gtx, i)
 			})
 		}
+		if !slices.Contains(e.palette, e.col) {
+			// The configured color is not one of the swatches: show it as an
+			// extra, already-selected chip so the current color is visible.
+			items = append(items, e.layoutCurrentColor)
+		}
 
 		// Row 2: stroke controls | text input | undo/redo | [copy/save/upload]
 		// | cancel/confirm, visually grouped with spacers.
 		dec := e.subtleButton(&e.strokeDec, "-")
 		inc := e.subtleButton(&e.strokeInc, "+")
-		undo := e.subtleButton(&e.undoBtn, "Undo")
-		redo := e.subtleButton(&e.redoBtn, "Redo")
 		cancel := e.subtleButton(&e.cancelB, "Cancel")
 		ok := e.accentButton(&e.confirm, e.confirmLabel)
 
@@ -145,8 +147,12 @@ func (e *editor) layoutToolbarContent(gtx layout.Context) layout.Dimensions {
 				return e.layoutTextField(gtx)
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-			rigidBtn(undo),
-			rigidBtn(redo),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return e.layoutMaybeButton(gtx, &e.undoBtn, "Undo", len(e.shapes) > 0)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return e.layoutMaybeButton(gtx, &e.redoBtn, "Redo", len(e.redo) > 0)
+			}),
 		}
 		if e.actions {
 			copyBtn := e.subtleButton(&e.copyB, "Copy")
@@ -175,7 +181,43 @@ func (e *editor) layoutToolbarContent(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, row2Children...)
 			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !e.discardArmed || len(e.shapes) == 0 {
+					return layout.Dimensions{}
+				}
+				msg := "Discard " + itoa(len(e.shapes)) + " annotations? Press Esc or Cancel again to discard this capture."
+				if len(e.shapes) == 1 {
+					msg = "Discard 1 annotation? Press Esc or Cancel again to discard this capture."
+				}
+				lbl := material.Body2(th, msg)
+				lbl.Color = e.theme.fg
+				return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
+			}),
 		)
+	})
+}
+
+// layoutMaybeButton renders a subtle button that is greyed out and inert when
+// enabled is false (Undo/Redo with nothing to undo or redo).
+func (e *editor) layoutMaybeButton(gtx layout.Context, btn *widget.Clickable, label string, enabled bool) layout.Dimensions {
+	b := e.subtleButton(btn, label)
+	if !enabled {
+		gtx = gtx.Disabled()
+		b = e.styledButton(btn, label, mutedColor(e.theme.surfaceBg), mutedColor(e.theme.fg))
+	}
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, b.Layout)
+}
+
+// layoutCurrentColor draws a non-clickable chip of the current color with the
+// selection ring, for a configured color that has no palette swatch.
+func (e *editor) layoutCurrentColor(gtx layout.Context) layout.Dimensions {
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		sz := gtx.Dp(unit.Dp(22))
+		d := image.Pt(sz, sz)
+		rr := clip.RRect{Rect: image.Rectangle{Max: d}, SE: 4, SW: 4, NE: 4, NW: 4}
+		paint.FillShape(gtx.Ops, e.col, rr.Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, e.theme.fg, clip.Stroke{Path: rr.Path(gtx.Ops), Width: 2}.Op())
+		return layout.Dimensions{Size: d}
 	})
 }
 
@@ -225,7 +267,7 @@ func rigidBtn(b material.ButtonStyle) layout.FlexChild {
 // layoutTextField renders the annotation text input with a subtle themed
 // background pill so it reads as an input rather than bare text.
 func (e *editor) layoutTextField(gtx layout.Context) layout.Dimensions {
-	ed := material.Editor(e.th, &e.textIn, "text...")
+	ed := material.Editor(e.th, &e.textIn, "Type text, then click the image")
 	ed.Color = e.theme.fg
 	ed.HintColor = mutedColor(e.theme.fg)
 	return layoutPill(gtx, e.theme.surfaceBg, func(gtx layout.Context) layout.Dimensions {
@@ -296,6 +338,7 @@ func (e *editor) layoutCanvas(gtx layout.Context) layout.Dimensions {
 	)
 	e.lastScale = scale
 	e.lastOrigin = origin
+	e.lastSize = size
 
 	// Draw the image.
 	{
@@ -307,12 +350,36 @@ func (e *editor) layoutCanvas(gtx layout.Context) layout.Dimensions {
 		stack.Pop()
 	}
 
-	// Draw committed shapes and the in-progress drag in screen space.
+	// Draw committed shapes and the in-progress drag in screen space. Crop
+	// shapes are not drawn one by one: only the active crop applies, shown by
+	// dimming everything outside it.
 	for _, s := range e.shapes {
-		e.drawShape(gtx.Ops, s)
+		if s.kind != kCrop {
+			e.drawShape(gtx.Ops, s)
+		}
+	}
+	if e.crop != nil {
+		min, max := e.screen(e.crop.Min), e.screen(e.crop.Max)
+		r := image.Rect(int(min.X), int(min.Y), int(max.X), int(max.Y))
+		dim := color.NRGBA{0x00, 0x00, 0x00, 0xa0}
+		fillRect(gtx.Ops, f32.Pt(0, 0), f32.Pt(float32(size.X), float32(r.Min.Y)), dim)
+		fillRect(gtx.Ops, f32.Pt(0, float32(r.Max.Y)), f32.Pt(float32(size.X), float32(size.Y)), dim)
+		fillRect(gtx.Ops, f32.Pt(0, float32(r.Min.Y)), f32.Pt(float32(r.Min.X), float32(r.Max.Y)), dim)
+		fillRect(gtx.Ops, f32.Pt(float32(r.Max.X), float32(r.Min.Y)), f32.Pt(float32(size.X), float32(r.Max.Y)), dim)
+		strokeRect(gtx.Ops, min, max, 2, color.NRGBA{0xff, 0xff, 0xff, 0xff})
 	}
 	if e.dragging {
 		e.drawShape(gtx.Ops, e.previewShape())
+	}
+	// Text tool: show the typed text at the pointer, at its real size, before
+	// the click places it.
+	if txt := e.textIn.Text(); e.tool == ToolText && e.hovering && txt != "" && !e.dragging {
+		if e.ghost.text != txt || e.ghost.col != e.col || e.ghost.stroke != e.stroke {
+			e.ghost = shape{kind: kText, text: txt, col: e.col, stroke: e.stroke}
+			e.ghost.textOp, e.ghost.textSize = textImage(txt, e.col, e.stroke)
+		}
+		e.ghost.p0 = e.hover
+		e.drawShape(gtx.Ops, e.ghost)
 	}
 
 	// Register the canvas input area for the next frame.
@@ -373,10 +440,17 @@ func (e *editor) drawShape(ops *op.Ops, s shape) {
 		el := clip.Ellipse{Min: image.Pt(int(min.X), int(min.Y)), Max: image.Pt(int(max.X), int(max.Y))}
 		paint.FillShape(ops, s.col, clip.Stroke{Path: el.Path(ops), Width: w}.Op())
 	case kText:
-		// Approximate preview marker; final raster is produced by annotate.
-		p := e.screen(s.p0)
-		dot := clip.Rect{Min: image.Pt(int(p.X), int(p.Y)), Max: image.Pt(int(p.X)+4, int(p.Y)+4)}
-		paint.FillShape(ops, s.col, dot.Op())
+		// The cached rendering is annotate's own output, so position and size
+		// match the final image.
+		if s.textSize == (image.Point{}) {
+			return
+		}
+		st := op.Affine(f32.Affine2D{}.
+			Scale(f32.Pt(0, 0), f32.Pt(e.lastScale, e.lastScale)).
+			Offset(e.screen(s.p0))).Push(ops)
+		s.textOp.Add(ops)
+		paint.PaintOp{}.Add(ops)
+		st.Pop()
 	case kLine:
 		strokeLine(ops, e.screen(s.p0), e.screen(s.p1), w, s.col)
 	case kFreehand:
@@ -410,7 +484,7 @@ func (e *editor) drawShape(ops *op.Ops, s shape) {
 	case kStep:
 		// Filled disc preview; the centered number is rasterized by annotate.
 		c := e.screen(s.p0)
-		rad := float32(badgeRadius) * e.lastScale
+		rad := float32(badgeRadius(s.stroke)) * e.lastScale
 		if rad < 3 {
 			rad = 3
 		}
@@ -482,7 +556,7 @@ func toolLabel(t Tool) string {
 	case ToolArrow:
 		return "Arrow"
 	case ToolRect:
-		return "Rect"
+		return "Rectangle"
 	case ToolEllip:
 		return "Ellipse"
 	case ToolText:
@@ -500,7 +574,7 @@ func toolLabel(t Tool) string {
 	case ToolFreehand:
 		return "Freehand"
 	}
-	return string(t)
+	return "" // unknown tool
 }
 
 func colorsEqual(a, b color.NRGBA) bool { return a == b }

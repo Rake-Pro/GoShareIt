@@ -94,6 +94,17 @@ func IsPrintScreenChord(keys string) bool {
 	return false
 }
 
+// ValidatePrintScreenChord reports whether a PrintScreen chord parses for this
+// backend and returns a canonical form of it (modifier aliases resolved), so
+// the settings UI can check hotkeys and spot duplicates at Save time.
+func ValidatePrintScreenChord(keys string) (string, error) {
+	mods, err := parsePrintScreenChord(keys)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("printscreen+mods%d", mods), nil
+}
+
 func isPrintScreenKey(token string) bool {
 	switch token {
 	case "printscreen", "prtsc", "prtscn", "snapshot":

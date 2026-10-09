@@ -3,6 +3,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -181,9 +182,11 @@ type NextcloudConfig struct {
 type UploadConfig struct {
 	Enabled *bool `yaml:"enabled"`
 	// Destination selects the active upload provider: nextcloud, s3, sftp,
-	// webdav, or custom (empty defaults to nextcloud). DirectLink,
-	// ShareExpireDays, and SharePassword are Nextcloud-only and only take
-	// effect for that destination.
+	// webdav, or custom (empty defaults to nextcloud). ShareExpireDays and
+	// SharePassword are Nextcloud-only. DirectLink picks which link is copied
+	// for every destination: the direct one, or the share/public page where
+	// the destination returns a different one (Nextcloud, Custom, public
+	// hosts).
 	Destination      string `yaml:"destination"`
 	DirectLink       bool   `yaml:"direct_link"`
 	FilenameTemplate string `yaml:"filename_template"`
@@ -240,9 +243,10 @@ type HotkeysConfig struct {
 	DisableSnippingPrintScreen bool `yaml:"disable_snipping_printscreen,omitempty"`
 }
 
-// SetUploadEnabledFile flips upload.enabled in the config file in place so a
-// runtime toggle survives restart. Comments are not preserved (same tradeoff
-// as the settings UI writer).
+// SetUploadEnabledFile flips upload.enabled in the config file so a runtime
+// toggle survives restart. The file is replaced atomically (temp file in the
+// same directory, then rename), so a reader never sees a half-written config.
+// Comments are not preserved (same tradeoff as the settings UI writer).
 func SetUploadEnabledFile(path string, enabled bool) error {
 	cfg, err := LoadRaw(path)
 	if err != nil {
@@ -254,14 +258,29 @@ func SetUploadEnabledFile(path string, enabled bool) error {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
 	header := "# GoShareIt configuration. Managed by the settings UI; comments are not preserved.\n"
-	if err := os.WriteFile(path, append([]byte(header), out...), 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.yaml")
+	if err != nil {
 		return fmt.Errorf("config: write %s: %w", path, err)
+	}
+	_, werr := tmp.Write(append([]byte(header), out...))
+	cerr := tmp.Close()
+	if werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Rename(tmp.Name(), path)
+	}
+	if werr != nil {
+		os.Remove(tmp.Name())
+		return fmt.Errorf("config: write %s: %w", path, werr)
 	}
 	return nil
 }
 
-// EditorConfig controls the optional post-capture annotation editor. When
-// Enabled is false (default) the app uses a NoopEditor and behavior is unchanged.
+// EditorConfig controls the optional post-capture annotation editor. Enabled
+// (default false) and OnModes decide when a plain capture opens it; the
+// *_edit hotkeys and the tray's "Capture Region and Edit" open it regardless.
+// A cancel, crash or TimeoutSeconds expiry in the editor discards the capture.
 type EditorConfig struct {
 	Enabled        bool     `yaml:"enabled"`
 	OnModes        []string `yaml:"on_modes"`
@@ -397,6 +416,21 @@ func Load(path string) (*Config, error) {
 // given file. The settings service uses it to vet a candidate config before
 // installing it, where the override would silently validate the wrong file.
 func LoadFile(path string) (*Config, error) {
+	return loadFile(path, false)
+}
+
+// LoadLocalOnly is Load with uploads forced off in memory (the file is not
+// changed). The host falls back to it when a config cannot be loaded as
+// written, so an incomplete upload setup leaves a working local-only app
+// instead of no app at all.
+func LoadLocalOnly(path string) (*Config, error) {
+	if env := os.Getenv(EnvConfigPath); env != "" {
+		path = env
+	}
+	return loadFile(path, true)
+}
+
+func loadFile(path string, localOnly bool) (*Config, error) {
 	if path == "" {
 		return nil, fmt.Errorf("config: no path provided")
 	}
@@ -409,6 +443,10 @@ func LoadFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 	cfg.applyDefaults()
+	if localOnly {
+		off := false
+		cfg.Upload.Enabled = &off
+	}
 	if err := cfg.resolvePassword(); err != nil {
 		return nil, err
 	}
@@ -468,25 +506,25 @@ func (c *Config) resolvePassword() error {
 	}
 	switch {
 	case file != "" && env != "":
-		return fmt.Errorf("config: set exactly one of nextcloud.password_file or nextcloud.password_env, not both")
+		return fieldErr("nextcloud.password", "is set both as a file and as an environment variable in the config file; remove one of them", "config: set exactly one of nextcloud.password_file or nextcloud.password_env, not both")
 	case file != "":
 		b, err := os.ReadFile(expandHome(file))
 		if err != nil {
-			return fmt.Errorf("config: read password_file %s: %w", file, err)
+			return fieldErr("nextcloud.password", "could not be read; enter it again", "config: read password_file %s: %w", file, err)
 		}
 		pw := strings.TrimSpace(string(b))
 		if pw == "" {
-			return fmt.Errorf("config: password_file %s is empty", file)
+			return fieldErr("nextcloud.password", "is not set; enter it, or use Sign in with browser", "config: password_file %s is empty", file)
 		}
 		c.password = pw
 	case env != "":
 		pw := os.Getenv(env)
 		if pw == "" {
-			return fmt.Errorf("config: password_env %s is unset or empty", env)
+			return fieldErr("nextcloud.password", "comes from an environment variable that is not set", "config: password_env %s is unset or empty", env)
 		}
 		c.password = pw
 	default:
-		return fmt.Errorf("config: set exactly one of nextcloud.password_file or nextcloud.password_env")
+		return fieldErr("nextcloud.password", "is not set; enter it, or use Sign in with browser", "config: set exactly one of nextcloud.password_file or nextcloud.password_env")
 	}
 	return nil
 }
@@ -514,25 +552,25 @@ func resolveSecretPair(fieldPrefix, file, env string, required bool) (string, er
 	}
 	switch {
 	case file != "" && env != "":
-		return "", fmt.Errorf("config: set exactly one of %[1]s_file or %[1]s_env, not both", fieldPrefix)
+		return "", fieldErr(fieldPrefix, "is set both as a file and as an environment variable in the config file; remove one of them", "config: set exactly one of %[1]s_file or %[1]s_env, not both", fieldPrefix)
 	case file != "":
 		b, err := os.ReadFile(expandHome(file))
 		if err != nil {
-			return "", fmt.Errorf("config: read %s_file %s: %w", fieldPrefix, file, err)
+			return "", fieldErr(fieldPrefix, "could not be read; enter it again", "config: read %s_file %s: %w", fieldPrefix, file, err)
 		}
 		v := strings.TrimSpace(string(b))
 		if v == "" {
-			return "", fmt.Errorf("config: %s_file %s is empty", fieldPrefix, file)
+			return "", fieldErr(fieldPrefix, "is not set", "config: %s_file %s is empty", fieldPrefix, file)
 		}
 		return v, nil
 	case env != "":
 		v := os.Getenv(env)
 		if v == "" {
-			return "", fmt.Errorf("config: %s_env %s is unset or empty", fieldPrefix, env)
+			return "", fieldErr(fieldPrefix, "comes from an environment variable that is not set", "config: %s_env %s is unset or empty", fieldPrefix, env)
 		}
 		return v, nil
 	default:
-		return "", fmt.Errorf("config: set exactly one of %s_file or %s_env", fieldPrefix, fieldPrefix)
+		return "", fieldErr(fieldPrefix, "is not set", "config: set exactly one of %s_file or %s_env", fieldPrefix, fieldPrefix)
 	}
 }
 
@@ -591,7 +629,7 @@ func (c *Config) resolveSFTPSecrets(active bool) error {
 		b, err := os.ReadFile(expandHome(keyFile))
 		if err != nil {
 			if active {
-				return fmt.Errorf("config: read sftp.private_key_file %s: %w", keyFile, err)
+				return fieldErr("sftp.private_key_file", "could not be read; check the path", "config: read sftp.private_key_file %s: %w", keyFile, err)
 			}
 		} else {
 			c.sftpPrivateKeyPEM = string(b)
@@ -626,10 +664,10 @@ func (c *Config) resolveSFTPSecrets(active bool) error {
 func ValidateBaseURL(field, raw string, allowInsecure bool) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("config: %s is not a valid URL: %w", field, err)
+		return fieldErr(field, "is not a valid web address", "config: %s is not a valid URL: %w", field, err)
 	}
 	if u.Host == "" {
-		return fmt.Errorf("config: %s must be a full URL, e.g. https://cloud.example.com", field)
+		return fieldErr(field, "must be a full web address, for example https://cloud.example.com", "config: %s must be a full URL, e.g. https://cloud.example.com", field)
 	}
 	switch u.Scheme {
 	case "https":
@@ -638,9 +676,9 @@ func ValidateBaseURL(field, raw string, allowInsecure bool) error {
 		if allowInsecure || isLocalHostname(u.Hostname()) {
 			return nil
 		}
-		return fmt.Errorf("config: %s uses plain http://, which sends the password in cleartext; use https:// (or set upload.allow_insecure_http: true if this server has no TLS and is only reachable on a trusted network)", field)
+		return fieldErr(field, "starts with http://, which sends your sign-in details unencrypted; use https://, or turn on \"Allow insecure http://\" if this server is only reachable on a trusted network", "config: %s uses plain http://, which sends the password in cleartext; use https:// (or set upload.allow_insecure_http: true if this server has no TLS and is only reachable on a trusted network)", field)
 	default:
-		return fmt.Errorf("config: %s must start with https://", field)
+		return fieldErr(field, "must start with https://", "config: %s must start with https://", field)
 	}
 }
 
@@ -659,17 +697,56 @@ func isLocalHostname(host string) bool {
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
+// UploadReady reports whether the active upload destination is set up well
+// enough to turn uploads on: the same checks Load applies with
+// upload.enabled: true, for whichever destination is selected. nil = ready.
+// The runtime upload toggle uses it, so a config loaded in local-only mode can
+// be switched on without a restart when its destination is complete.
+func (c *Config) UploadReady() error {
+	cp := *c
+	on := true
+	cp.Upload.Enabled = &on
+	if err := cp.validate(); err != nil {
+		return err
+	}
+	// Load enforces the Nextcloud password in resolvePassword rather than
+	// validate; mirror that here.
+	if cp.Upload.Destination == "nextcloud" && cp.password == "" {
+		return fieldErr("nextcloud.password", "is not set", "config: the Nextcloud app password is not set")
+	}
+	return nil
+}
+
+// FieldError is a load or validation failure tied to one setting. Error()
+// keeps the technical message (YAML keys, file paths) for logs and
+// hand-edited configs. Field is the YAML key ("nextcloud.base_url"; secrets
+// use their key without the _file/_env suffix, e.g. "s3.secret_key") and
+// Problem is a plain phrase that reads after the setting's name ("is
+// required"), so the settings UI can point at the field without internals.
+type FieldError struct {
+	Field   string
+	Problem string
+	err     error
+}
+
+func (e *FieldError) Error() string { return e.err.Error() }
+func (e *FieldError) Unwrap() error { return errors.Unwrap(e.err) }
+
+func fieldErr(field, problem, format string, args ...any) error {
+	return &FieldError{Field: field, Problem: problem, err: fmt.Errorf(format, args...)}
+}
+
 func (c *Config) validate() error {
 	switch c.Theme {
 	case "", "light", "dark", "system":
 	default:
-		return fmt.Errorf("config: theme must be one of light, dark, system, or empty (system)")
+		return fieldErr("theme", "must be System, Light or Dark", "config: theme must be one of light, dark, system, or empty (system)")
 	}
 	if c.Upload.ShareExpireDays < 0 {
-		return fmt.Errorf("config: upload.share_expire_days must be >= 0")
+		return fieldErr("upload.share_expire_days", "cannot be negative", "config: upload.share_expire_days must be >= 0")
 	}
 	if !validUploadDestinations[c.Upload.Destination] && !IsHostDestination(c.Upload.Destination) {
-		return fmt.Errorf("config: upload.destination must be one of nextcloud, s3, sftp, webdav, custom, or a public host preset id (%s)", strings.Join(hostDestinationIDs(), ", "))
+		return fieldErr("upload.destination", "is not one of the listed destinations", "config: upload.destination must be one of nextcloud, s3, sftp, webdav, custom, or a public host preset id (%s)", strings.Join(hostDestinationIDs(), ", "))
 	}
 	if !c.UploadEnabled() {
 		// Local-only mode: every destination section is entirely optional.
@@ -680,20 +757,20 @@ func (c *Config) validate() error {
 	switch c.Upload.Destination {
 	case "nextcloud":
 		if c.Nextcloud.BaseURL == "" {
-			return fmt.Errorf("config: nextcloud.base_url is required (or set upload.enabled: false for local-only use)")
+			return fieldErr("nextcloud.base_url", "is required, or turn off Upload captures to keep captures on this computer", "config: nextcloud.base_url is required (or set upload.enabled: false for local-only use)")
 		}
 		if err := ValidateBaseURL("nextcloud.base_url", c.Nextcloud.BaseURL, c.Upload.AllowInsecureHTTP); err != nil {
 			return err
 		}
 		if c.Nextcloud.Username == "" {
-			return fmt.Errorf("config: nextcloud.username is required")
+			return fieldErr("nextcloud.username", "is required", "config: nextcloud.username is required")
 		}
 		if c.Nextcloud.DavUser == "" {
-			return fmt.Errorf("config: nextcloud.dav_user could not be derived; set it explicitly")
+			return fieldErr("nextcloud.dav_user", "could not be worked out from the username; fill it in", "config: nextcloud.dav_user could not be derived; set it explicitly")
 		}
 	case "s3":
 		if c.S3.Endpoint == "" {
-			return fmt.Errorf("config: s3.endpoint is required")
+			return fieldErr("s3.endpoint", "is required", "config: s3.endpoint is required")
 		}
 		// s3.endpoint is documented as scheme-less host[:port] (TLS on), but an
 		// http:// prefix silently disables TLS in the uploader. SigV4 keeps the
@@ -703,41 +780,41 @@ func (c *Config) validate() error {
 		if strings.HasPrefix(c.S3.Endpoint, "http://") {
 			u, err := url.Parse(c.S3.Endpoint)
 			if err != nil || u.Hostname() == "" {
-				return fmt.Errorf("config: s3.endpoint is not a valid URL: %v", err)
+				return fieldErr("s3.endpoint", "is not a valid address", "config: s3.endpoint is not a valid URL: %v", err)
 			}
 			if !c.Upload.AllowInsecureHTTP && !isLocalHostname(u.Hostname()) {
-				return fmt.Errorf("config: s3.endpoint uses plain http://, which disables TLS for uploads; use https:// or a bare host[:port] (or set upload.allow_insecure_http: true if this server is only reachable on a trusted network)")
+				return fieldErr("s3.endpoint", "starts with http://, which sends uploads unencrypted; leave the http:// off, or turn on \"Allow insecure http://\" if this server is only reachable on a trusted network", "config: s3.endpoint uses plain http://, which disables TLS for uploads; use https:// or a bare host[:port] (or set upload.allow_insecure_http: true if this server is only reachable on a trusted network)")
 			}
 		}
 		if c.S3.Bucket == "" {
-			return fmt.Errorf("config: s3.bucket is required")
+			return fieldErr("s3.bucket", "is required", "config: s3.bucket is required")
 		}
 		if c.S3.AccessKey == "" {
-			return fmt.Errorf("config: s3.access_key is required")
+			return fieldErr("s3.access_key", "is required", "config: s3.access_key is required")
 		}
 		if c.s3SecretKey == "" {
-			return fmt.Errorf("config: set exactly one of s3.secret_key_file or s3.secret_key_env")
+			return fieldErr("s3.secret_key", "is not set", "config: set exactly one of s3.secret_key_file or s3.secret_key_env")
 		}
 	case "sftp":
 		if c.SFTP.Host == "" {
-			return fmt.Errorf("config: sftp.host is required")
+			return fieldErr("sftp.host", "is required", "config: sftp.host is required")
 		}
 		if c.SFTP.User == "" {
-			return fmt.Errorf("config: sftp.user is required")
+			return fieldErr("sftp.user", "is required", "config: sftp.user is required")
 		}
 		if c.sftpPassword == "" && c.sftpPrivateKeyPEM == "" {
-			return fmt.Errorf("config: sftp requires a password (password_file/password_env) or a private_key_file")
+			return fieldErr("sftp.password", "is required unless a private key file is set", "config: sftp requires a password (password_file/password_env) or a private_key_file")
 		}
 	case "webdav":
 		if c.WebDAV.BaseURL == "" {
-			return fmt.Errorf("config: webdav.base_url is required")
+			return fieldErr("webdav.base_url", "is required", "config: webdav.base_url is required")
 		}
 		if err := ValidateBaseURL("webdav.base_url", c.WebDAV.BaseURL, c.Upload.AllowInsecureHTTP); err != nil {
 			return err
 		}
 	case "custom":
 		if c.Custom.URL == "" {
-			return fmt.Errorf("config: custom.url is required")
+			return fieldErr("custom.url", "is required", "config: custom.url is required")
 		}
 		// The resolved secret is substituted into Headers/ExtraFields, so the
 		// endpoint carries a credential the same way the basic-auth

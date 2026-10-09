@@ -12,14 +12,15 @@ import (
 // detectSystemDark reports whether the desktop prefers a dark theme: first via
 // the XDG settings portal (org.freedesktop.appearance color-scheme, honored by
 // GNOME, KDE and most portal backends; 1 = prefer dark), then via gsettings
-// for desktops without a portal. Anything unreadable falls back to dark.
+// for desktops without a portal. Anything unreadable falls back to light, the
+// desktops' own default and the same fallback as macOS and Windows.
 func detectSystemDark() bool {
 	if dark, ok := portalColorScheme(); ok {
 		return dark
 	}
 	out, err := exec.Command("gsettings", "get", "org.gnome.desktop.interface", "color-scheme").Output()
 	if err != nil {
-		return true
+		return false
 	}
 	return strings.Contains(string(out), "dark")
 }

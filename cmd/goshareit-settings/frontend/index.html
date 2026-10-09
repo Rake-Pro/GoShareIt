@@ -7,7 +7,16 @@
   /* Token structure is three-state on purpose: :root carries the light
      defaults, the media block applies dark ONLY when the config has not
      forced light, and the [data-theme] blocks let applyTheme() override
-     prefers-color-scheme in either direction. */
+     prefers-color-scheme in either direction.
+     Contrast (WCAG AA, computed): white on --accent-fill #0064d2 5.59;
+     light --text-secondary/--text-tertiary #636366 on #e9e9eb 4.94, on
+     #fff 5.99; light --ok #12733b on #e9e9eb 4.89; light --err #b42318 on
+     #e9e9eb 5.42; white on light --danger-fill 6.57; dark --text-tertiary
+     #8e8e93 on #262629 4.63; dark --text-secondary on #2c2c2e 4.85; dark
+     --ok 6.44 and --err 5.44 on #262629; white on dark --danger-fill
+     #c53030 5.47. Non-text (3:1): --focus-ring #0a84ff on #fff 3.65, on
+     #e9e9eb 3.01, on #1e1e1e 4.57, on #3a3a3c 3.11; --control-border
+     #8e8e93 on #fff 3.26, on #3a3a3c 3.48, on #2c2c2e 4.27. */
   :root {
     color-scheme: light dark;
     --bg-window: #ececec;
@@ -17,16 +26,19 @@
     --bg-card: #ffffff;
     --bg-control: #ffffff;
     --text-primary: #1d1d1f;
-    --text-secondary: #6e6e73;
-    --text-tertiary: #a1a1a6;
+    --text-secondary: #636366;
+    --text-tertiary: #636366;
     --hairline: rgba(0, 0, 0, 0.12);
     --hairline-card: rgba(0, 0, 0, 0.09);
+    --control-border: #8e8e93;
     --accent: #0a84ff;
+    --accent-fill: #0064d2;
     --switch-off: rgba(0, 0, 0, 0.17);
-    --focus-ring: rgba(10, 132, 255, 0.55);
+    --focus-ring: #0a84ff;
     --keycap-bg: linear-gradient(180deg, #ffffff, #eeeeef);
-    --ok: #1f9d55;
-    --err: #d64545;
+    --ok: #12733b;
+    --err: #b42318;
+    --danger-fill: #b42318;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -38,15 +50,18 @@
       --bg-control: #3a3a3c;
       --text-primary: #f5f5f7;
       --text-secondary: #98989d;
-      --text-tertiary: #6e6e73;
+      --text-tertiary: #8e8e93;
       --hairline: rgba(255, 255, 255, 0.13);
       --hairline-card: rgba(255, 255, 255, 0.1);
+      --control-border: #8e8e93;
       --accent: #0a84ff;
+      --accent-fill: #0064d2;
       --switch-off: rgba(255, 255, 255, 0.18);
-      --focus-ring: rgba(10, 132, 255, 0.65);
+      --focus-ring: #0a84ff;
       --keycap-bg: linear-gradient(180deg, #48484a, #3a3a3c);
       --ok: #34c07a;
       --err: #ff6b6b;
+      --danger-fill: #c53030;
     }
   }
   :root[data-theme="light"] {
@@ -58,16 +73,19 @@
     --bg-card: #ffffff;
     --bg-control: #ffffff;
     --text-primary: #1d1d1f;
-    --text-secondary: #6e6e73;
-    --text-tertiary: #a1a1a6;
+    --text-secondary: #636366;
+    --text-tertiary: #636366;
     --hairline: rgba(0, 0, 0, 0.12);
     --hairline-card: rgba(0, 0, 0, 0.09);
+    --control-border: #8e8e93;
     --accent: #0a84ff;
+    --accent-fill: #0064d2;
     --switch-off: rgba(0, 0, 0, 0.17);
-    --focus-ring: rgba(10, 132, 255, 0.55);
+    --focus-ring: #0a84ff;
     --keycap-bg: linear-gradient(180deg, #ffffff, #eeeeef);
-    --ok: #1f9d55;
-    --err: #d64545;
+    --ok: #12733b;
+    --err: #b42318;
+    --danger-fill: #b42318;
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
@@ -79,15 +97,18 @@
     --bg-control: #3a3a3c;
     --text-primary: #f5f5f7;
     --text-secondary: #98989d;
-    --text-tertiary: #6e6e73;
+    --text-tertiary: #8e8e93;
     --hairline: rgba(255, 255, 255, 0.13);
     --hairline-card: rgba(255, 255, 255, 0.1);
+    --control-border: #8e8e93;
     --accent: #0a84ff;
+    --accent-fill: #0064d2;
     --switch-off: rgba(255, 255, 255, 0.18);
-    --focus-ring: rgba(10, 132, 255, 0.65);
+    --focus-ring: #0a84ff;
     --keycap-bg: linear-gradient(180deg, #48484a, #3a3a3c);
     --ok: #34c07a;
     --err: #ff6b6b;
+    --danger-fill: #c53030;
   }
 
   * { box-sizing: border-box; }
@@ -101,7 +122,8 @@
     font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
     -webkit-user-select: none; user-select: none;
   }
-  input, textarea { -webkit-user-select: text; user-select: text; }
+  /* Error text and the config path are what a bug report needs: copyable. */
+  input, textarea, #status, .config-path { -webkit-user-select: text; user-select: text; }
 
   .body { flex: 1; display: flex; min-height: 0; }
 
@@ -121,9 +143,10 @@
     font-family: inherit; font-size: 13px; text-align: left; cursor: pointer;
   }
   .nav-item:hover { background: rgba(127, 127, 127, 0.12); }
-  .nav-item.active, .nav-item.active:hover { background: var(--accent); color: #fff; }
+  .nav-item.active, .nav-item.active:hover { background: var(--accent-fill); color: #fff; }
   .nav-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-  .nav-item.dim .nav-label { opacity: 0.45; }
+  .nav-item.active:focus-visible { outline-color: var(--text-primary); }
+  .nav-item.dim:not(.active) .nav-label { color: var(--text-secondary); }
   .nav-item.dim .icon-sq { opacity: 0.5; }
   .nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .icon-sq {
@@ -162,12 +185,17 @@
   .row.stacked { flex-direction: column; align-items: stretch; }
   .row-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
   .row-label { font-size: 13px; color: var(--text-primary); }
+  .row.invalid { box-shadow: inset 3px 0 0 var(--err); }
+  .row.invalid .input, .row.invalid .keycap, .row.invalid select { border-color: var(--err); }
   .row-hint { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
   .row-control { flex: none; display: flex; align-items: center; gap: 8px; }
   .row.stacked .row-control { flex: 1 1 100%; flex-wrap: wrap; margin-top: 6px; }
   /* .dim greys out what does not apply while uploads are off; the inputs
      themselves are also really disabled by syncEnabledState(). */
   .dim { opacity: 0.42; }
+  /* Rows the platform owns (gated): grey the label and control but keep the
+     hint, which explains why, at full secondary contrast. */
+  .row.gated .row-label, .row.gated .row-control { opacity: 0.42; }
   .hidden { display: none !important; }
 
   /* toggle switch */
@@ -187,7 +215,7 @@
     appearance: none; -webkit-appearance: none;
     font-family: inherit; font-size: 12.5px;
     color: var(--text-primary); background: var(--bg-control);
-    border: 1px solid var(--hairline); border-radius: 6px;
+    border: 1px solid var(--control-border); border-radius: 6px;
     padding: 4px 24px 4px 9px; min-width: 140px; max-width: 300px;
   }
   .popup select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
@@ -201,39 +229,38 @@
   .input {
     font-family: inherit; font-size: 12.5px;
     color: var(--text-primary); background: var(--bg-control);
-    border: 1px solid var(--hairline); border-radius: 6px; padding: 5px 9px;
+    border: 1px solid var(--control-border); border-radius: 6px; padding: 5px 9px;
   }
   .input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .input.w-sm { width: 74px; }
-  .input.w-md { width: 190px; }
   .input.w-lg { width: 250px; }
+  input[type="color"].input { width: 48px; height: 28px; padding: 2px; }
   textarea.input {
     width: 100%; resize: vertical;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
   }
 
   .keycap {
-    font-family: inherit; font-size: 12px; text-align: center;
+    font-family: inherit; font-size: 12.5px; text-align: center;
     color: var(--text-primary); background: var(--keycap-bg);
-    border: 1px solid var(--hairline); border-bottom-width: 2px;
-    border-radius: 6px; padding: 5px 10px; width: 190px;
+    border: 1px solid var(--control-border); border-bottom-width: 2px;
+    border-radius: 6px; padding: 5px 10px; width: 250px;
   }
   .keycap:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .keycap.recording { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-style: dashed; }
   .keycap + [data-record] { margin-left: 6px; }
 
-  .chip-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-primary); padding: 3px 6px 3px 0; }
+  .chip-check { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-primary); padding: 3px 6px 3px 0; }
   .chip-check input { accent-color: var(--accent); width: 13px; height: 13px; }
 
   .btn { font-family: inherit; font-size: 12.5px; padding: 6px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
   .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
   .btn:disabled { opacity: .5; cursor: default; }
-  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-accent { background: var(--accent-fill); color: #fff; }
   .btn-plain { background: var(--bg-control); border-color: var(--hairline); color: var(--text-primary); }
   .btn-subtle { background: transparent; border-color: transparent; color: var(--text-secondary); }
-  .btn-pill { background: transparent; border: 1px solid var(--hairline); border-radius: 999px; color: var(--text-primary); padding: 5px 13px; font-size: 12px; }
-  .btn-sm { padding: 5px 10px; font-size: 12px; }
-  .btn.danger { background: var(--err); border-color: transparent; color: #fff; }
+  .btn-sm { padding: 5px 10px; font-size: 12.5px; }
+  .btn.danger { background: var(--danger-fill); border-color: transparent; color: #fff; }
 
   /* footer */
   footer {
@@ -255,7 +282,7 @@
 <body>
 <div class="body">
   <nav class="sidebar">
-    <div class="sidebar-list" role="tablist" id="nav"></div>
+    <div class="sidebar-list" role="tablist" aria-orientation="vertical" aria-label="Settings sections" id="nav"></div>
     <div class="sidebar-footer">
       <div class="version" id="ver"></div>
       <div class="config-path" id="cfgpath"></div>
@@ -264,9 +291,9 @@
   <main class="content" id="form"></main>
 </div>
 <footer>
-  <div id="status"></div>
+  <div id="status" role="status" aria-live="polite"></div>
   <button type="button" id="reset" class="btn btn-subtle">Reset to defaults</button>
-  <button type="button" id="discard" class="btn btn-plain">Discard Changes</button>
+  <button type="button" id="discard" class="btn btn-plain">Discard changes</button>
   <button type="button" id="save" class="btn btn-accent">Save</button>
 </footer>
 <script>
@@ -276,11 +303,23 @@
 // names, since config.Config has no json tags). Special types "secret:*" map
 // to the write-only SaveRequest fields. Each section also carries the sidebar
 // glyph (raw inline SVG) and the tint of its rounded icon square.
+// Editor tools: config value -> label shown here and in the editor toolbar.
+const TOOLS = [
+  { v: "crop", l: "Crop" }, { v: "arrow", l: "Arrow" }, { v: "rect", l: "Rectangle" },
+  { v: "ellipse", l: "Ellipse" }, { v: "line", l: "Line" }, { v: "freehand", l: "Freehand" },
+  { v: "text", l: "Text" }, { v: "blur", l: "Blur" }, { v: "pixelate", l: "Pixelate" },
+  { v: "highlight", l: "Highlight" }, { v: "step", l: "Step" },
+];
+// gates: [LoadResult flag, hint] pairs; a field whose flag is false is
+// shown greyed out with that hint instead of accepting an ignored edit.
+const STORE_UPDATES = ["updaterAvailable", "the Microsoft Store installs updates for this copy"];
+
 const SCHEMA = [
   { title: "Appearance", tint: "#8e8e93",
     icon: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#fff"/><path d="M12 4a8 8 0 000 16z" fill="rgba(0,0,0,.35)"/></svg>`,
     fields: [
-    { p: "Theme", l: "Theme", t: "select", opts: ["system", "light", "dark"] },
+    { p: "Theme", l: "Theme", t: "select", opts: [
+      { v: "system", l: "Match the system" }, { v: "light", l: "Light" }, { v: "dark", l: "Dark" }] },
   ]},
   { title: "Startup", tint: "#ffd60a",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9"/><path d="M7.4 6.6a7 7 0 109.2 0"/></svg>`,
@@ -293,7 +332,7 @@ const SCHEMA = [
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16a4 4 0 01.5-7.9A5 5 0 0117 9a3.5 3.5 0 01-.5 7H7z"/><path d="M12 12v6M9.5 14.5L12 12l2.5 2.5"/></svg>`,
     fields: [
     { p: "Upload.Enabled", l: "Upload captures", t: "bool",
-      hint: "off = local-only: no data leaves this machine, server settings optional" },
+      hint: "off = captures stay on this computer and the server settings are not needed" },
     { p: "Upload.Destination", l: "Destination", t: "select",
       // Public host presets are appended at init() from the backend catalog.
       opts: [
@@ -305,8 +344,10 @@ const SCHEMA = [
         { v: "custom", l: "Custom HTTP (any endpoint)" },
       ],
       hint: "fields for the selected destination appear below" },
-    { p: "Upload.AllowInsecureHTTP", l: "Allow insecure http:// server URL", t: "bool",
-      hint: "off = https required for the Nextcloud/WebDAV/Custom endpoint URL (loopback and LAN addresses are always allowed); on sends the credential in cleartext" },
+    { p: "Upload.DirectLink", l: "Copy the direct image link", t: "bool",
+      hint: "on = the link opens the image itself; off = it opens the share page, where the destination has one" },
+    { p: "Upload.AllowInsecureHTTP", l: "Allow insecure http:// server address", t: "bool",
+      hint: "off = the server address must start with https:// (addresses on this computer or your home network are always allowed); on sends your password unencrypted" },
   ],
     // destPanels: one sub-panel per destination, all rendered in the DOM
     // inside a single inset .destpanel container; only the sub-panel that
@@ -315,12 +356,11 @@ const SCHEMA = [
       { key: "nextcloud", label: "Nextcloud settings", fields: [
         { p: "Nextcloud.BaseURL",   l: "Server URL",   t: "text", hint: "https://cloud.example.com" },
         { p: "Nextcloud.Username",  l: "Username",     t: "text" },
-        { p: "Nextcloud.DavUser",   l: "DAV user",     t: "text", hint: "blank = derived from username" },
+        { p: "Nextcloud.DavUser",   l: "Storage user name", t: "text", hint: "only if it differs from the username; blank = worked out from it" },
         { p: "Nextcloud.RemoteDir", l: "Remote folder",t: "text", hint: "blank = files root" },
         { p: "@password",           l: "App password", t: "secret" },
         { p: "Upload.ShareExpireDays", l: "Share expiry (days)", t: "number", hint: "0 = never" },
         { p: "Upload.SharePassword",   l: "Share password", t: "text", hint: "blank = none" },
-        { p: "Upload.DirectLink",      l: "Direct preview link", t: "bool" },
       ]},
       { key: "s3", label: "S3-compatible settings", fields: [
         { p: "S3.Endpoint",  l: "Endpoint", t: "text", hint: "host[:port], no scheme, e.g. s3.us-west-002.backblazeb2.com" },
@@ -329,9 +369,9 @@ const SCHEMA = [
         { p: "S3.AccessKey", l: "Access key", t: "text" },
         { p: "@s3_secret_key", l: "Secret key", t: "secret" },
         { p: "S3.Prefix",       l: "Key prefix",         t: "text", hint: "blank = bucket root" },
-        { p: "S3.URLTemplate",  l: "Public URL template", t: "text", hint: "{bucket} {key} {name}; blank = presigned GET" },
-        { p: "S3.UsePathStyle", l: "Path-style addressing", t: "bool", hint: "required by most non-AWS providers" },
-        { p: "S3.PresignSeconds", l: "Presign TTL (seconds)", t: "number", hint: "used when URL template is blank; default/max 604800" },
+        { p: "S3.URLTemplate",  l: "Public URL template", t: "text", hint: "{bucket} {key} {name}; blank = a private link that expires (below)" },
+        { p: "S3.UsePathStyle", l: "Bucket name in the path", t: "bool", hint: "needed by most providers other than AWS" },
+        { p: "S3.PresignSeconds", l: "Private link lifetime (seconds)", t: "number", hint: "used when the public URL template is blank; up to 604800 (7 days), which is also the default" },
       ]},
       { key: "sftp", label: "SFTP settings", fields: [
         { p: "SFTP.Host", l: "Host", t: "text" },
@@ -355,7 +395,7 @@ const SCHEMA = [
       // "host" serves every public host preset id (see syncDestPanel()).
       { key: "host", label: "Public host", fields: [
         { p: "@host_info",   l: "About this host", t: "info" },
-        { p: "@host_secret", l: "API key / token", t: "secret", hint: "stored in <app root>/host-<id>.secret, one per host" },
+        { p: "@host_secret", l: "API key / token", t: "secret", hint: "kept separately for each host, so switching hosts keeps every key" },
       ]},
       { key: "custom", label: "Custom HTTP settings", fields: [
         { p: "@custom_preset", l: "Start from a host preset", t: "preset", hint: "copies a public host's request into the editable fields below (pick the host directly in Destination if you do not need to change anything); still requires Save" },
@@ -377,26 +417,29 @@ const SCHEMA = [
         { p: "Custom.ResponseDeleteURLTemplate", l: "Response delete URL template", t: "text", hint: "same placeholders; optional" },
       ]},
     ],
-    tailFields: [
-      { p: "Upload.FilenameTemplate", l: "Filename template", t: "text", hint: "{date} {time} {datetime} {rand} {ext}" },
-    ],
   },
   { title: "After capture", tint: "#30d158",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-2.5h5L16 7"/><circle cx="12" cy="13.5" r="3.3"/></svg>`,
     fields: [
-    { p: "AfterCapture.CopyImageToClipboard", l: "Copy image to clipboard", t: "bool" },
+    { p: "AfterCapture.CopyImageToClipboard", l: "Copy image to clipboard", t: "bool",
+      hint: "with uploads and Copy link to clipboard on, the link replaces the image once the upload finishes" },
     { p: "AfterCapture.SaveLocal", l: "Keep a local copy", t: "bool" },
-    { p: "AfterCapture.SaveDir",   l: "Local save folder", t: "dir" },
+    { p: "AfterCapture.SaveDir",   l: "Local save folder", t: "dir", hint: "blank = Pictures/GoShareIt in your home folder" },
+    { p: "Upload.FilenameTemplate", l: "File name", t: "text", hint: "names uploads and local copies; {date} {time} {datetime} {rand} {ext}" },
+    { p: "AfterUpload.Notify", l: "Show notification", t: "bool", hint: "after each capture, whether it was uploaded or kept on this computer" },
   ]},
   { title: "After upload", tint: "#ff9f0a",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 14.5l5-5"/><path d="M8 16l-1.5 1.5a3 3 0 01-4.2-4.2L4 11.6"/><path d="M16 8l1.5-1.5a3 3 0 014.2 4.2L20 12.4"/></svg>`,
     fields: [
-    { p: "AfterUpload.CopyURLToClipboard", l: "Copy link to clipboard", t: "bool" },
-    { p: "AfterUpload.Notify", l: "Show notification", t: "bool" },
+    { p: "AfterUpload.CopyURLToClipboard", l: "Copy link to clipboard", t: "bool",
+      hint: "replaces a copied image on the clipboard" },
   ]},
   { title: "Hotkeys", tint: "#ff375f",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10"/></svg>`,
-    note: "Click Record and press a key combination, or type it. Comma-separate alternatives, e.g. Cmd+Shift+1, Ctrl+PrintScreen. Leave a field blank to disable that hotkey.",
+    // Linux has no way to bind PrintScreen, so its example avoids it.
+    note: (os) => "Click Record and press a key combination, or type it. Comma-separate alternatives, e.g. " +
+      (os === "linux" ? "Ctrl+Shift+1, Ctrl+F9" : os === "darwin" ? "Cmd+Shift+1, Ctrl+PrintScreen" : "Ctrl+Shift+1, Ctrl+PrintScreen") +
+      ". Leave a field blank to turn that hotkey off.",
     fields: [
     { p: "Hotkeys.Region",     l: "Capture region", t: "text" },
     { p: "Hotkeys.FullScreen", l: "Capture full screen", t: "text" },
@@ -405,7 +448,8 @@ const SCHEMA = [
     { p: "Hotkeys.FullScreenEdit", l: "Capture full screen + edit", t: "text" },
     { p: "Hotkeys.WindowEdit",     l: "Capture window + edit", t: "text" },
     { p: "Hotkeys.UploadToggle", l: "Toggle uploads", t: "text", hint: "flip local-only mode on/off" },
-    { p: "Hotkeys.Record",     l: "Toggle recording", t: "text" },
+    { p: "Hotkeys.Record",     l: "Toggle recording", t: "text",
+      gates: [["recordingSupported", "screen recording is not available in this desktop session"]] },
     { p: "Hotkeys.Quit",       l: "Quit", t: "text" },
     { p: "Hotkeys.DisableSnippingPrintScreen", l: "Free the PrintScreen key", t: "bool", os: "windows",
       hint: "turns off Windows' \"Use the Print screen key to open screen capture\" so Snipping Tool stops claiming PrintScreen; sign out and back in if a PrintScreen hotkey still does not fire" },
@@ -414,26 +458,30 @@ const SCHEMA = [
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1 10-10-3-3L5 16z"/><path d="M14 7l3 3"/></svg>`,
     fields: [
     { p: "Editor.Enabled", l: "Open editor after capture", t: "bool" },
-    { p: "Editor.OnModes", l: "For capture modes", t: "checks", opts: ["region", "fullscreen", "window"] },
-    { p: "Editor.Tools",   l: "Tools", t: "checks",
-      opts: ["crop","arrow","rect","ellipse","line","freehand","text","blur","pixelate","highlight","step"] },
-    { p: "Editor.DefaultTool", l: "Default tool", t: "select",
-      opts: ["crop","arrow","rect","ellipse","line","freehand","text","blur","pixelate","highlight","step"] },
-    { p: "Editor.Color",       l: "Color", t: "text", hint: "#rrggbb" },
-    { p: "Editor.StrokeWidth", l: "Stroke width", t: "number", hint: "px, editor default" },
+    { p: "Editor.OnModes", l: "For capture modes", t: "checks",
+      opts: [{ v: "region", l: "Region" }, { v: "fullscreen", l: "Full screen" }, { v: "window", l: "Window" }] },
+    { p: "Editor.Tools",   l: "Tools", t: "checks", opts: TOOLS },
+    // Options follow the checked Tools (syncDefaultTool).
+    { p: "Editor.DefaultTool", l: "Default tool", t: "select", opts: TOOLS },
+    { p: "Editor.Color",       l: "Color", t: "color" },
+    { p: "Editor.StrokeWidth", l: "Stroke width", t: "number", max: 32, hint: "editor default, 1 to 32 px" },
   ]},
   { title: "Updates", tint: "#64d2ff",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0113.7-5.6L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 01-13.7 5.6L4 16"/><path d="M4 20v-4h4"/></svg>`,
     fields: [
-    { p: "Update.Enabled", l: "Check for updates", t: "bool" },
-    { p: "Update.AutoInstall", l: "Install updates automatically", t: "bool", hint: "on launch and at each check; off = notify only" },
-    { p: "Update.ShowChangelog", l: "Show what's new before minor updates", t: "bool", hint: "release notes for every version in between, with Update now / Later; patch updates skip it" },
-    { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number" },
+    { p: "Update.Enabled", l: "Check for updates", t: "bool", gates: [STORE_UPDATES] },
+    { p: "Update.AutoInstall", l: "Install updates automatically", t: "bool", hint: "on launch and at each check; off = notify only", gates: [STORE_UPDATES] },
+    { p: "Update.ShowChangelog", l: "Show what's new before minor updates", t: "bool", hint: "release notes for every version in between, with Update now / Later; patch updates skip it",
+      gates: [STORE_UPDATES, ["changelogSupported", "not available on Linux yet; updates install without it"]] },
+    { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number", gates: [STORE_UPDATES] },
   ]},
   { title: "Logging", tint: "#636366",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`,
+    note: "How much GoShareIt writes to goshareit.log in its settings folder. Leave it on Normal unless you are asked for a detailed log.",
     fields: [
-    { p: "Logging.Level", l: "Level", t: "select", opts: ["trace","debug","info","warn","error"] },
+    { p: "Logging.Level", l: "Log detail", t: "select", opts: [
+      { v: "error", l: "Errors only" }, { v: "warn", l: "Warnings and errors" }, { v: "info", l: "Normal" },
+      { v: "debug", l: "Detailed" }, { v: "trace", l: "Everything" }] },
   ]},
 ];
 
@@ -524,9 +572,15 @@ function renderFieldRow(f) {
   // OS-specific fields stay in the DOM (collect() reads every input) but are
   // hidden on other platforms.
   if (f.os && model.os && f.os !== model.os) row.style.display = "none";
-  // Settings the packaging system owns are shown greyed out rather than
-  // accepted and then silently ignored by the host.
-  const gated = !!(f.packagedOff && model.packaged);
+  // Settings the packaging system or this platform owns are shown greyed
+  // out (with the reason as the hint) rather than accepted and then silently
+  // ignored by the host.
+  let gateHint = "";
+  if (f.packagedOff && model.packaged) gateHint = f.packagedHint || f.hint;
+  for (const [flag, why] of (f.gates || [])) {
+    if (!gateHint && model[flag] === false) gateHint = why;
+  }
+  const gated = !!gateHint;
   let stacked = false;
   let control = "";
   const val = f.p.startsWith("@") ? "" : get(cfg, f.p);
@@ -537,10 +591,13 @@ function renderFieldRow(f) {
     control = `<input type="text" class="${cls}" id="${id}" value="${esc(val ?? "")}">` +
       (hk ? `<button type="button" class="btn btn-plain btn-sm" data-record="${id}" title="Press a key combination to fill this field">Record</button>` : "");
   } else if (f.t === "dir") {
-    control = `<input type="text" class="input w-md" id="${id}" value="${esc(val ?? "")}">` +
+    control = `<input type="text" class="input w-lg" id="${id}" value="${esc(val ?? "")}">` +
       `<button type="button" class="btn btn-plain btn-sm" data-browse="${id}">Browse...</button>`;
+  } else if (f.t === "color") {
+    const c = /^#[0-9a-f]{6}$/i.test(val || "") ? val : "#ff3b30";
+    control = `<input type="color" class="input" id="${id}" value="${esc(c)}">`;
   } else if (f.t === "number") {
-    control = `<input type="number" class="input w-sm" id="${id}" min="0" step="1" value="${Number(val ?? 0)}">`;
+    control = `<input type="number" class="input w-sm" id="${id}" min="0"${f.max ? ` max="${f.max}"` : ""} step="1" value="${Number(val ?? 0)}">`;
   } else if (f.t === "bool") {
     // *bool fields default to true when null. The checkbox is a real input
     // inside the switch, so every id/checked path keeps working.
@@ -566,8 +623,11 @@ function renderFieldRow(f) {
   } else if (f.t === "checks") {
     stacked = true;
     const cur = new Set(val || []);
-    control = f.opts.map(o =>
-      `<label class="chip-check"><input type="checkbox" data-group="${id}" value="${o}" ${cur.has(o) ? "checked" : ""}>${o}</label>`).join("");
+    control = `<div role="group" aria-labelledby="${id}_label">` + f.opts.map(o => {
+      const v = (typeof o === "object") ? o.v : o;
+      const l = (typeof o === "object") ? o.l : o;
+      return `<label class="chip-check"><input type="checkbox" data-group="${id}" value="${esc(v)}" ${cur.has(v) ? "checked" : ""}>${esc(l)}</label>`;
+    }).join("") + `</div>`;
   } else if (f.t === "kv") {
     stacked = true;
     control = `<textarea class="input" id="${id}" rows="3">${esc(kvToText(val))}</textarea>`;
@@ -578,31 +638,36 @@ function renderFieldRow(f) {
     const keys = Object.keys(presets).sort((a, b) => (presets[a].Label || a).localeCompare(presets[b].Label || b));
     control = `<span class="popup"><select id="${id}"><option value="">(choose a host)</option>` +
       keys.map(k => `<option value="${k}">${esc(presets[k].Label || k)}</option>`).join("") + `</select>${CHEVRON}</span>` +
-      `<button type="button" class="btn btn-plain btn-sm" id="btn_apply_preset">Apply preset</button>` +
+      `<button type="button" class="btn btn-plain btn-sm" id="btn_apply_preset" disabled>Apply preset</button>` +
       `<div class="row-hint" id="preset_help"></div>`;
   } else if (f.t === "secret") {
     const envVar = secretEnvVar(f.p);
     if (envVar) {
       // Env-sourced secrets are read-only here; Save() rejects file writes.
       // data-locked keeps syncEnabledState() from re-enabling it.
-      control = `<input type="password" class="input w-md" id="${id}" disabled data-locked="1" placeholder="(managed by env var ${esc(envVar)})">`;
+      control = `<input type="password" class="input w-lg" id="${id}" disabled data-locked="1" placeholder="(set by the environment variable ${esc(envVar)})">`;
     } else {
       const has = model[SECRET_FIELDS[f.p].has];
-      control = `<input type="password" class="input w-md" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
+      control = `<input type="password" class="input w-lg" id="${id}" placeholder="${has ? "(unchanged)" : "not set - enter to configure"}">`;
       if (f.p === "@password") {
         // Browser sign-in (Login Flow v2): the server-side auth - incl.
         // OIDC/SSO - happens in the browser; we receive an app password.
-        control += `<button type="button" class="btn btn-pill" id="btn_login">Sign in with browser</button>`;
+        control += `<button type="button" class="btn btn-plain btn-sm" id="btn_login">Sign in with browser</button>`;
       }
     }
   }
   row.className = stacked ? "row stacked" : "row";
-  const hint = gated ? (f.packagedHint || f.hint) : f.hint;
-  row.innerHTML = `<div class="row-text"><div class="row-label">${f.l}</div>` +
-    (hint ? `<div class="row-hint">${hint}</div>` : "") + `</div>` +
+  const hint = gated ? gateHint : f.hint;
+  // A real <label for> names text boxes, switches, selects and secrets for
+  // screen readers; checks groups point at it via aria-labelledby.
+  const labelTag = (f.t === "checks" || f.t === "info") ? "div" : "label";
+  row.innerHTML = `<div class="row-text"><${labelTag} class="row-label" id="${id}_label"${labelTag === "label" ? ` for="${id}"` : ""}>${esc(f.l)}</${labelTag}>` +
+    (hint ? `<div class="row-hint" id="${id}_hint">${esc(hint)}</div>` : "") + `</div>` +
     `<div class="row-control">${control}</div>`;
+  const ctl = row.querySelector("#" + id);
+  if (ctl && hint) ctl.setAttribute("aria-describedby", id + "_hint");
   if (gated) {
-    row.classList.add("dim");
+    row.classList.add("gated");
     row.querySelectorAll("input, select, textarea, button").forEach((el) => {
       el.disabled = true;
       el.dataset.locked = "1";
@@ -640,10 +705,12 @@ function render() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "nav-item";
+    btn.id = "tab_" + id;
     btn.dataset.pane = id;
     btn.setAttribute("role", "tab");
-    btn.innerHTML = `<span class="icon-sq" style="background:${sec.tint}">${sec.icon}</span>` +
-      `<span class="nav-label">${sec.title}</span>`;
+    btn.setAttribute("aria-controls", id);
+    btn.innerHTML = `<span class="icon-sq" style="background:${sec.tint}" aria-hidden="true">${sec.icon}</span>` +
+      `<span class="nav-label">${esc(sec.title)}</span>`;
     nav.appendChild(btn);
 
     // Every pane stays in the DOM (hidden via .hidden) so collect() can read
@@ -652,7 +719,10 @@ function render() {
     s.className = "pane";
     s.id = id;
     s.dataset.section = sec.title;
-    s.innerHTML = `<h1>${sec.title}</h1>` + (sec.note ? `<p class="pane-note">${sec.note}</p>` : "");
+    s.setAttribute("role", "tabpanel");
+    s.setAttribute("aria-labelledby", "tab_" + id);
+    const note = typeof sec.note === "function" ? sec.note(model.os) : sec.note;
+    s.innerHTML = `<h1>${esc(sec.title)}</h1>` + (note ? `<p class="pane-note">${esc(note)}</p>` : "");
     s.appendChild(card(sec.fields));
     if (sec.destPanels) {
       // One container; each destination gets its own always-rendered card so
@@ -680,17 +750,22 @@ function render() {
   selectPane(activePane);
   syncDestPanel();
   syncEnabledState();
+  syncDefaultTool();
 }
 
 // selectPane shows exactly one pane and marks the matching sidebar item.
-function selectPane(i) {
+// Only the selected tab is in the Tab order (roving tabindex); arrow keys
+// move between tabs (see the #nav keydown handler).
+function selectPane(i, focus) {
   const items = [...document.querySelectorAll(".nav-item")];
   if (i < 0 || i >= items.length) i = 0;
   activePane = i;
   items.forEach((b, n) => {
     b.classList.toggle("active", n === i);
     b.setAttribute("aria-selected", n === i ? "true" : "false");
+    b.tabIndex = n === i ? 0 : -1;
   });
+  if (focus && items[i]) items[i].focus();
   const target = items[i] ? items[i].dataset.pane : "";
   document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("hidden", p.id !== target));
 }
@@ -738,9 +813,10 @@ function syncHostPanel(dest) {
 
 // syncEnabledState greys out everything that does not apply when uploads are
 // off (local-only mode): the destination select, the whole destination
-// panel, the filename template, and After upload (rows plus its sidebar
-// item, which stays clickable). Which destination sub-panel is visible is
-// handled separately by syncDestPanel().
+// panel, and After upload (rows plus its sidebar item, which stays
+// clickable). The file name and the notification setting live under After
+// capture because they apply to local copies too. Which destination
+// sub-panel is visible is handled separately by syncDestPanel().
 function syncEnabledState() {
   const uploadsBox = $(fieldId("Upload.Enabled"));
   if (!uploadsBox) return;
@@ -755,10 +831,6 @@ function syncEnabledState() {
     panel.querySelectorAll("input, select, textarea, button")
       .forEach((el) => { if (!el.dataset.locked) el.disabled = !uploadsOn; });
   }
-  const filenameInput = $(fieldId("Upload.FilenameTemplate"));
-  if (filenameInput) filenameInput.disabled = !uploadsOn;
-  const tail = $("tailgroup");
-  if (tail) tail.classList.toggle("dim", !uploadsOn);
   document.querySelectorAll(`[data-section="After upload"] input, [data-section="After upload"] select, [data-section="After upload"] button`)
     .forEach((el) => { el.disabled = !uploadsOn; });
   document.querySelectorAll(`[data-section="After upload"] .card`)
@@ -766,6 +838,27 @@ function syncEnabledState() {
   const navItem = document.querySelector(`.nav-item[data-pane="${paneId("After upload")}"]`);
   if (navItem) navItem.classList.toggle("dim", !uploadsOn);
   if (uploadsOn) syncDestPanel(); // re-applies per-host input state
+  syncPresetButton();
+}
+
+// syncPresetButton enables "Apply preset" only once a host is chosen.
+function syncPresetButton() {
+  const btn = $("btn_apply_preset");
+  const sel = $(fieldId("@custom_preset"));
+  if (btn && sel) btn.disabled = sel.disabled || !sel.value;
+}
+
+// syncDefaultTool limits the Default tool choices to the checked Tools, and
+// moves the selection to the first checked tool when its tool was unchecked.
+function syncDefaultTool() {
+  const sel = $(fieldId("Editor.DefaultTool"));
+  if (!sel) return;
+  const checked = [...document.querySelectorAll(`input[data-group="${fieldId("Editor.Tools")}"]:checked`)].map((x) => x.value);
+  const allowed = checked.length ? checked : TOOLS.map((t) => t.v); // none checked = the editor shows all
+  const cur = sel.value;
+  sel.innerHTML = TOOLS.filter((t) => allowed.includes(t.v))
+    .map((t) => `<option value="${esc(t.v)}">${esc(t.l)}</option>`).join("");
+  sel.value = allowed.includes(cur) ? cur : allowed[0];
 }
 
 function collect() {
@@ -794,7 +887,9 @@ function collect() {
       } else if (f.t === "number") {
         // Clamp to a non-negative integer: Go int fields reject floats at the
         // JSON bridge, and the config validator rejects negatives.
-        set(cfg, f.p, Math.max(0, Math.round(Number($(id).value) || 0)));
+        let n = Math.max(0, Math.round(Number($(id).value) || 0));
+        if (f.max) n = Math.min(n, f.max);
+        set(cfg, f.p, n);
       } else if (f.t === "kv") {
         set(cfg, f.p, textToKv($(id).value));
       } else {
@@ -858,13 +953,62 @@ document.addEventListener("change", (e) => {
 
 function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
 
-function status(msg, cls) { const el = $("status"); el.textContent = msg; el.className = cls || ""; }
+// status writes the footer message. Errors are announced as alerts, the rest
+// politely. owner tags a message so the flow that wrote it can clear it when
+// it ends (statusOwner), instead of leaving a stale instruction behind.
+let statusOwner = "";
+function status(msg, cls, owner) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = cls || "";
+  el.setAttribute("role", cls === "err" ? "alert" : "status");
+  statusOwner = owner || "";
+}
+function clearStatus(owner) { if (statusOwner === owner) status("", ""); }
+
+// findField returns the schema field for a path ("Nextcloud.BaseURL").
+function findField(path) {
+  for (const sec of SCHEMA) for (const f of allFields(sec)) if (f.p === path) return f;
+  return null;
+}
+
+// focusField switches to the pane holding path's input, focuses it and marks
+// its row until the next edit.
+function focusField(path) {
+  const el = $(fieldId(path));
+  if (!el) return;
+  const pane = el.closest(".pane");
+  const items = [...document.querySelectorAll(".nav-item")];
+  const i = items.findIndex((b) => pane && b.dataset.pane === pane.id);
+  if (i >= 0) selectPane(i);
+  const row = el.closest(".row");
+  if (row) row.classList.add("invalid");
+  el.focus();
+}
+
+// errorText turns a rejected backend call into plain text. A SaveError
+// carries the field and a plain problem ("is required"), shown after the
+// field's own label and pointed at; anything else loses its Go package
+// prefix ("settings: ", "config: ").
+function errorText(e, prefix) {
+  const c = e && e.cause;
+  if (c && typeof c === "object") {
+    const f = c.field ? findField(c.field) : null;
+    if (f && c.problem) {
+      focusField(c.field);
+      return `${prefix}${f.l} ${c.problem}.`;
+    }
+    if (c.message) return c.message;
+  }
+  const msg = String((e && e.message) || e).replace(/^(\w+: )+/, "");
+  return prefix + msg.charAt(0).toUpperCase() + msg.slice(1);
+}
 
 // Wails v3 bound-method shim. Methods are addressed by fully qualified Go
 // name (import path + type + method); the prefix lives here ONLY so a
 // package move cannot silently break scattered call sites.
 const SERVICE_FQN = "github.com/Rake-Pro/GoShareIt/internal/settings.Service";
-const SERVICE_METHODS = ["Load", "Save", "Presets", "PickDirectory", "ResetDefaults", "BrowserLogin", "CloseWindow"];
+const SERVICE_METHODS = ["Load", "Save", "Presets", "PickDirectory", "ResetDefaults", "BrowserLogin", "CancelLogin", "CloseWindow", "SetDirty"];
 function svc() {
   const call = globalThis.wails && globalThis.wails.Call && globalThis.wails.Call.ByName;
   if (!call) return null;
@@ -873,8 +1017,22 @@ function svc() {
   return s;
 }
 
+// Unsaved-edits tracking: baseline is the form as loaded; any difference
+// (including a typed secret or a pending browser sign-in) is "dirty", which
+// the backend uses to hold back the first window close.
+let baseline = "";
+let lastDirty = false;
+function syncDirty() {
+  if (!model) return;
+  const dirty = JSON.stringify(collect()) !== baseline;
+  if (dirty !== lastDirty) {
+    lastDirty = dirty;
+    svc().SetDirty(dirty).catch(() => {});
+  }
+}
+
 async function init() {
-  if (!svc()) { status("Wails runtime not available (browser preview?)", "err"); return; }
+  if (!svc()) { status("Settings could not start. Close this window and open Settings from the tray again.", "err"); return; }
   try {
     presets = await svc().Presets();
     // Public hosts become first-class destinations, grouped after the
@@ -889,8 +1047,13 @@ async function init() {
     model = await svc().Load();
     render();
     applyTheme(model.config.Theme);
+    baseline = JSON.stringify(collect());
+    globalThis.wails.Events.On("settings:unsaved-close", () => {
+      armDiscard();
+      status("You have unsaved changes. Click Save to keep them, or close the window again to discard them.", "err", "discard");
+    });
   } catch (e) {
-    status("Load failed: " + e, "err");
+    status(errorText(e, "Settings could not be loaded: "), "err");
   }
 }
 
@@ -900,6 +1063,13 @@ $("nav").addEventListener("click", (e) => {
   const btn = e.target.closest(".nav-item");
   if (!btn) return;
   selectPane([...document.querySelectorAll(".nav-item")].indexOf(btn));
+});
+$("nav").addEventListener("keydown", (e) => {
+  const n = document.querySelectorAll(".nav-item").length;
+  const next = { ArrowDown: activePane + 1, ArrowUp: activePane - 1, Home: 0, End: n - 1 }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  selectPane((next + n) % n, true);
 });
 
 $("save").addEventListener("click", async () => {
@@ -921,14 +1091,35 @@ $("save").addEventListener("click", async () => {
       });
     }, 600);
   } catch (e) {
-    status(String(e), "err");
+    status(errorText(e, "Not saved: "), "err");
     $("save").disabled = false;
   }
 });
 
-// Discard Changes: close without saving. The helper exits 0 (no ExitSaved),
+// Discard changes: close without saving. The helper exits 0 (no ExitSaved),
 // so the host discards - same as closing the window by hand, but explicit.
+// With unsaved edits it asks once first (two-step, like Reset).
+let discardArmed = 0;
+function armDiscard() {
+  const now = Date.now();
+  discardArmed = now;
+  $("discard").classList.add("danger");
+  $("discard").textContent = "Confirm discard";
+  setTimeout(() => { if (discardArmed === now) disarmDiscard(); }, 6000);
+}
+function disarmDiscard() {
+  discardArmed = 0;
+  $("discard").classList.remove("danger");
+  $("discard").textContent = "Discard changes";
+  clearStatus("discard");
+}
 $("discard").addEventListener("click", () => {
+  syncDirty();
+  if (lastDirty && !discardArmed) {
+    armDiscard();
+    status("Your unsaved changes will be lost. Click Confirm discard to close without saving.", "err", "discard");
+    return;
+  }
   svc().CloseWindow().catch(() => status("Close this window to discard your changes.", ""));
 });
 
@@ -936,6 +1127,14 @@ $("form").addEventListener("change", (e) => {
   if (e.target.id === fieldId("Upload.Enabled")) syncEnabledState();
   if (e.target.id === fieldId("Upload.Destination")) syncDestPanel();
   if (e.target.id === fieldId("Theme")) applyTheme(e.target.value);
+  if (e.target.id === fieldId("@custom_preset")) syncPresetButton();
+  if (e.target.dataset.group === fieldId("Editor.Tools")) syncDefaultTool();
+  syncDirty();
+});
+$("form").addEventListener("input", (e) => {
+  const row = e.target.closest(".row.invalid");
+  if (row) row.classList.remove("invalid");
+  syncDirty();
 });
 
 // Delegated clicks for per-row buttons (rows re-render, this listener does not).
@@ -956,6 +1155,8 @@ function chordToken(e) {
   if ((m = /^(F[1-9]|F1[0-9]|F20)$/.exec(c))) return m[1];
   return CODE_TOKENS[c] || null;
 }
+// chordFromEvent returns { chord } for a usable key combination, or
+// { error } with a plain reason why this one cannot be a global hotkey.
 function chordFromEvent(e) {
   const mac = model.os === "darwin";
   const mods = [];
@@ -964,25 +1165,37 @@ function chordFromEvent(e) {
   if (e.altKey) mods.push(mac ? "Option" : "Alt");
   if (e.shiftKey) mods.push("Shift");
   const key = chordToken(e);
-  if (!key) return null;
+  if (!key) {
+    return { error: mods.length ? "That key cannot be used for a global hotkey. Try a letter, digit or F-key."
+      : "Add a modifier (Ctrl/Cmd/Alt/Shift) or use an F-key" + (model.os === "linux" ? "." : " or PrintScreen.") };
+  }
+  if (key === "PrintScreen" && model.os === "linux") {
+    return { error: "PrintScreen cannot be used as a hotkey on Linux. Pick another key combination." };
+  }
   // Bare letters/digits/punctuation would swallow normal typing system-wide;
   // F-keys and PrintScreen are fine on their own.
-  if (!mods.length && !/^(F\d+|PrintScreen)$/.test(key)) return null;
-  return [...mods, key].join("+");
+  if (!mods.length && !/^(F\d+|PrintScreen)$/.test(key)) {
+    return { error: "Add a modifier (Ctrl/Cmd/Alt/Shift) or use an F-key" + (model.os === "linux" ? "." : " or PrintScreen.") };
+  }
+  return { chord: [...mods, key].join("+") };
 }
+// The button keeps its "Record" label (no layout shift); the dashed keycap
+// and the status line say that recording is on.
 function stopRecording() {
   if (!recording) return;
-  recording.btn.textContent = recording.label;
+  recording.btn.setAttribute("aria-pressed", "false");
   recording.input.classList.remove("recording");
   recording = null;
+  clearStatus("record");
 }
 function startRecording(btn) {
   stopRecording();
   const input = $(btn.dataset.record);
-  recording = { input, btn, label: btn.textContent };
-  btn.textContent = "Press keys... (Esc cancels)";
+  recording = { input, btn };
+  btn.setAttribute("aria-pressed", "true");
   input.classList.add("recording");
   input.focus();
+  status("Press the key combination now. Esc cancels, Backspace clears the hotkey.", "", "record");
 }
 function onRecordKey(e) {
   if (!recording) return;
@@ -993,13 +1206,13 @@ function onRecordKey(e) {
   if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
   if (e.key === "Escape") { stopRecording(); return; }
   if ((e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-    recording.input.value = ""; stopRecording(); return;
+    recording.input.value = ""; stopRecording(); syncDirty(); return;
   }
-  const chord = chordFromEvent(e);
-  if (!chord) { status("Add a modifier (Ctrl/Cmd/Alt/Shift) or use an F-key / PrintScreen", "err"); return; }
-  recording.input.value = chord;
-  status("", "");
+  const res = chordFromEvent(e);
+  if (res.error) { status(res.error, "err", "record"); return; }
+  recording.input.value = res.chord;
   stopRecording();
+  syncDirty();
 }
 document.addEventListener("keydown", onRecordKey, true);
 document.addEventListener("keyup", onRecordKey, true);
@@ -1014,32 +1227,43 @@ $("form").addEventListener("click", async (e) => {
   if (browse) {
     try {
       const dir = await svc().PickDirectory();
-      if (dir) $(browse.dataset.browse).value = dir;
-    } catch (err) { status(String(err), "err"); }
+      if (dir) { $(browse.dataset.browse).value = dir; syncDirty(); }
+    } catch (err) { status(errorText(err, ""), "err"); }
     return;
   }
   if (e.target.id === "btn_apply_preset") {
     const key = $(fieldId("@custom_preset")).value;
     if (!key) return;
     applyPreset(key);
+    syncDirty();
     return;
   }
   if (e.target.id === "btn_login") {
+    const btn = e.target;
+    // While the sign-in waits, the same button cancels it.
+    if (loginRunning) { svc().CancelLogin().catch(() => {}); return; }
     const base = $(fieldId("Nextcloud.BaseURL")).value;
-    e.target.disabled = true;
-    status("Complete the sign-in in your browser (waits up to 5 minutes)...");
+    const insecure = $(fieldId("Upload.AllowInsecureHTTP")).checked;
+    loginRunning = true;
+    btn.textContent = "Cancel sign-in";
+    status("Complete the sign-in in your browser (waits up to 5 minutes)...", "", "login");
     try {
-      const res = await svc().BrowserLogin(base);
+      const res = await svc().BrowserLogin(base, insecure);
       $(fieldId("Nextcloud.Username")).value = res.loginName;
       pendingLoginPassword = res.appPassword;
       status("Signed in as " + res.loginName + " - nothing is stored until you Save.", "ok");
+      syncDirty();
     } catch (err) {
-      status(String(err), "err");
+      const msg = String((err && err.message) || err);
+      if (/cancelled/.test(msg)) status("Sign-in cancelled.", "", "login");
+      else status(errorText(err, "Sign-in failed: "), "err");
     } finally {
-      e.target.disabled = false;
+      loginRunning = false;
+      btn.textContent = "Sign in with browser";
     }
   }
 });
+let loginRunning = false;
 
 // Reset to defaults: two-step confirm, and nothing is applied until Save.
 let resetArmed = 0;
@@ -1048,6 +1272,7 @@ function disarmReset() {
   const b = $("reset");
   b.classList.remove("danger");
   b.textContent = "Reset to defaults";
+  clearStatus("reset");
 }
 $("reset").addEventListener("click", async () => {
   const now = Date.now();
@@ -1055,7 +1280,7 @@ $("reset").addEventListener("click", async () => {
     resetArmed = now;
     $("reset").classList.add("danger");
     $("reset").textContent = "Confirm reset";
-    status("This replaces ALL settings with factory defaults (saved secrets stay on disk). Click again to confirm - nothing is applied until you Save.", "err");
+    status("This replaces ALL settings with factory defaults (saved passwords and keys are kept). Click again to confirm - nothing is applied until you Save.", "err", "reset");
     setTimeout(() => { if (resetArmed === now) disarmReset(); }, 6000);
     return;
   }
@@ -1067,8 +1292,9 @@ $("reset").addEventListener("click", async () => {
     render();
     applyTheme(model.config.Theme);
     status("Defaults restored - review and Save to apply.", "ok");
+    syncDirty();
   } catch (err) {
-    status(String(err), "err");
+    status(errorText(err, ""), "err");
   }
 });
 

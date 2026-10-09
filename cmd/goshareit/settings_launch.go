@@ -37,6 +37,13 @@ func (s *settingsLauncher) open(ctx context.Context) {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
+		// Already open, maybe behind other windows: start the helper again.
+		// It hands over to the open one, which comes to the front, and exits.
+		if helper, err := s.resolveHelper(); err == nil {
+			if err := exec.CommandContext(ctx, helper, "--config", s.configPath).Run(); err != nil {
+				log.Debug().Err(err).Msg("settings: raise open window")
+			}
+		}
 		return
 	}
 	s.running = true

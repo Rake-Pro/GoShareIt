@@ -262,3 +262,19 @@ func TestBuildUploaderHostDestination(t *testing.T) {
 		t.Fatalf("missing-key upload error = %v, want a GIPHY/Settings pointer", err)
 	}
 }
+
+// A destination whose client cannot be built (S3 with a blank endpoint, which
+// a local-only config may carry) must not stop the app: uploaderFor returns a
+// stand-in that fails each upload with a pointer to Settings instead.
+func TestUploaderForBrokenDestination(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Upload.Destination = "s3"
+	if _, err := buildUploader(cfg); err == nil {
+		t.Fatal("buildUploader accepted an S3 config with a blank endpoint; the test premise changed")
+	}
+	u := uploaderFor(cfg)
+	_, err := u.Upload(context.Background(), "x.png", strings.NewReader("x"), 1, "image/png")
+	if err == nil || !strings.Contains(err.Error(), "Settings > Upload") {
+		t.Fatalf("Upload err = %v, want a pointer to Settings", err)
+	}
+}

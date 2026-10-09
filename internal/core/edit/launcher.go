@@ -38,6 +38,10 @@ type Launcher struct {
 	Tools        []string      // enabled tools, passed as --tools csv
 	Theme        string        // "light"|"dark"|"system"/"", passed as --theme; the helper resolves "system"
 	ConfirmLabel string        // rendered on the confirm button, passed as --confirm-label; "" -> helper falls back to "Done"
+	// ConfirmLabelFor, when set, computes the confirm label per launch from
+	// the live upload state (Opts.CanUpload) and wins over ConfirmLabel, so a
+	// tray/hotkey upload toggle is reflected on the button.
+	ConfirmLabelFor func(canUpload bool) string
 }
 
 // Edit implements Editor by invoking the out-of-process editor helper.
@@ -85,8 +89,12 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result, opts Opts) (captu
 	if l.Theme != "" {
 		args = append(args, "--theme", l.Theme)
 	}
-	if l.ConfirmLabel != "" {
-		args = append(args, "--confirm-label", l.ConfirmLabel)
+	label := l.ConfirmLabel
+	if l.ConfirmLabelFor != nil {
+		label = l.ConfirmLabelFor(opts.CanUpload)
+	}
+	if label != "" {
+		args = append(args, "--confirm-label", label)
 	}
 
 	cmd := exec.CommandContext(ctx, helper, args...)
@@ -111,13 +119,14 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result, opts Opts) (captu
 		}
 	}
 
-	// Non-ExitError: helper missing, not executable, killed by ctx, etc. Fail-open.
+	// Non-ExitError: helper missing, not executable, killed by ctx (timeout),
+	// etc. The caller discards the capture on this error (fail-closed).
 	return in, ActionDefault, false, fmt.Errorf("editor: run helper: %w", runErr)
 }
 
 // readEdited reads the edited PNG the helper wrote to outPath. On a read
-// failure it fails open exactly like the confirmed-read-failure path: the
-// original Result, ok=false, action=ActionDefault, plus the error.
+// failure it returns the original Result, ok=false, action=ActionDefault,
+// plus the error, which the caller treats as a failed edit (capture discarded).
 func (l Launcher) readEdited(in capture.Result, outPath string, action Action, ok bool) (capture.Result, Action, bool, error) {
 	edited, err := os.ReadFile(outPath)
 	if err != nil {

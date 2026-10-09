@@ -11,12 +11,13 @@ import (
 )
 
 // StarterConfig is written on first run so the app never fails merely because it
-// has not been configured yet. The user only needs to put their Nextcloud app
-// password in the file referenced by password_file. {confdir} is rendered to the
-// per-OS app root by WriteStarter.
-const StarterConfig = `# GoShareIt configuration. Set base_url/username for your Nextcloud server,
-# then put an app password in the file referenced by password_file (a leading
-# ~ is expanded) - or just use "Sign in with browser" in the settings UI.
+// has not been configured yet. It starts in local-only mode (uploads off), so
+// it loads as-is; uploading needs a destination set up and upload.enabled
+// turned on. {confdir} is rendered to the per-OS app root by WriteStarter.
+const StarterConfig = `# GoShareIt configuration. Uploads start off (local-only). To upload to
+# Nextcloud, set base_url/username, put an app password in the file referenced
+# by password_file (a leading ~ is expanded) - or just use "Sign in with
+# browser" in the settings UI - and set upload.enabled: true.
 
 theme: system   # light | dark | system - applies to the editor + settings UI
 
@@ -30,7 +31,7 @@ nextcloud:
   remote_dir: ""
 
 upload:
-  enabled: true           # false = local-only mode (Nextcloud section optional)
+  enabled: false          # false = local-only mode (Nextcloud section optional)
   destination: nextcloud
   direct_link: true
   filename_template: "goshareit_{datetime}_{rand}.{ext}"
@@ -45,7 +46,7 @@ upload:
 after_capture:
   copy_image_to_clipboard: false
   save_local: false
-  save_dir: ""
+  save_dir: ""            # "" = Pictures/GoShareIt in your home folder
 
 after_upload:
   copy_url_to_clipboard: true
@@ -74,7 +75,7 @@ editor:
   enabled: false          # master switch; false -> current behavior (no editor)
   on_modes: [region]      # which capture modes open the editor (region|fullscreen|window)
   helper_path: ""         # "" -> goshareit-editor next to the host binary
-  timeout_seconds: 0      # 0 -> no timeout
+  timeout_seconds: 0      # 0 -> no timeout; when it expires the capture is discarded
   default_tool: arrow
   stroke_width: 6
   color: "#ff3b30"

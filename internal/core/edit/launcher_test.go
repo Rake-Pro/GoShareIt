@@ -260,3 +260,33 @@ func TestLauncherVideoUnchanged(t *testing.T) {
 		t.Errorf("out.Bytes = %q, want VID", out.Bytes)
 	}
 }
+
+// ConfirmLabelFor is evaluated per launch with the live upload state, so a
+// runtime upload toggle shows on the confirm button.
+func TestLauncherConfirmLabelForUsesLiveUploadState(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.txt")
+	body := "#!/bin/sh\necho \"$@\" > " + argsFile + "\n" + argParse + `printf 'EDITED' > "$out"
+exit 0
+`
+	helper := writeStub(t, dir, "label.sh", body)
+	l := Launcher{HelperPath: helper, ConfirmLabel: "stale", ConfirmLabelFor: func(up bool) string {
+		if up {
+			return "Upload"
+		}
+		return "Copy"
+	}}
+	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
+	for up, want := range map[bool]string{true: "--confirm-label Upload", false: "--confirm-label Copy"} {
+		if _, _, _, err := l.Edit(context.Background(), in, Opts{CanUpload: up}); err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		got, err := os.ReadFile(argsFile)
+		if err != nil {
+			t.Fatalf("read args: %v", err)
+		}
+		if !strings.Contains(string(got), want) {
+			t.Errorf("CanUpload=%v: args = %q, want %q", up, got, want)
+		}
+	}
+}

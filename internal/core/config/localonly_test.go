@@ -108,3 +108,34 @@ func TestSetUploadEnabledFile(t *testing.T) {
 		t.Error("upload not re-enabled")
 	}
 }
+
+// UploadReady checks the selected destination, not just Nextcloud: a
+// local-only config whose S3 or Custom destination is complete can be
+// switched on, and an incomplete one cannot.
+func TestUploadReadyPerDestination(t *testing.T) {
+	dir := t.TempDir()
+	key := filepath.Join(dir, "s3.secret")
+	if err := os.WriteFile(key, []byte("sk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, body string
+		ready      bool
+	}{
+		{"s3 complete", "upload:\n  enabled: false\n  destination: s3\ns3:\n  endpoint: s3.example.com\n  bucket: b\n  access_key: ak\n  secret_key_file: " + key + "\n", true},
+		{"s3 missing bucket", "upload:\n  enabled: false\n  destination: s3\ns3:\n  endpoint: s3.example.com\n  access_key: ak\n  secret_key_file: " + key + "\n", false},
+		{"custom complete", "upload:\n  enabled: false\n  destination: custom\ncustom:\n  url: https://up.example.com\n", true},
+		{"public host", "upload:\n  enabled: false\n  destination: catbox\n", true},
+		{"nextcloud without password", "upload:\n  enabled: false\nnextcloud:\n  base_url: https://cloud.example.com\n  username: u\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(writeCfg(t, tc.body))
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if err := cfg.UploadReady(); (err == nil) != tc.ready {
+				t.Errorf("UploadReady() = %v, want ready=%v", err, tc.ready)
+			}
+		})
+	}
+}

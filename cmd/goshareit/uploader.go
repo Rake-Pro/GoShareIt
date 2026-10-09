@@ -105,6 +105,29 @@ func (m missingSecretUploader) Upload(context.Context, string, io.Reader, int64,
 	return upload.UploadResult{}, fmt.Errorf("%s needs your %s: open Settings > Upload and enter it", m.host, m.secret)
 }
 
+// uploaderFor is buildUploader that never fails: a destination whose client
+// cannot be built gets an unusableUploader, so the app always starts (a
+// local-only config may name a half-set-up destination, and a broken one
+// should fail per upload, with a notification, not at startup).
+func uploaderFor(cfg *config.Config) upload.Uploader {
+	u, err := buildUploader(cfg)
+	if err != nil {
+		log.Warn().Err(err).Bool("uploads_enabled", cfg.UploadEnabled()).Msg("build uploader; uploads will fail until the destination is fixed")
+		return unusableUploader{err: err}
+	}
+	return u
+}
+
+// unusableUploader stands in when the destination's client cannot even be
+// built (e.g. an S3 endpoint that is blank or not a host name). Starting the
+// app must never fail on that: local-only mode does not need it at all, and
+// with uploads on each upload reports the reason instead.
+type unusableUploader struct{ err error }
+
+func (u unusableUploader) Upload(context.Context, string, io.Reader, int64, string) (upload.UploadResult, error) {
+	return upload.UploadResult{}, fmt.Errorf("the upload destination is not set up correctly; check Settings > Upload (%v)", u.err)
+}
+
 // substituteSecret replaces the secret placeholders in each map value, so
 // custom-uploader tokens never live in the YAML. A nil map stays nil.
 func substituteSecret(m map[string]string, secret string) map[string]string {

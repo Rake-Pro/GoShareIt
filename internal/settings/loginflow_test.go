@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -53,7 +54,7 @@ func TestBrowserLoginMintsAndStoresPassword(t *testing.T) {
 		OpenURL:    func(u string) error { opened = u; return nil },
 	}
 
-	login, err := svc.BrowserLogin(srv.URL)
+	login, err := svc.BrowserLogin(srv.URL, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,12 +91,12 @@ func TestBrowserLoginMintsAndStoresPassword(t *testing.T) {
 func TestBrowserLoginRejectsBadURL(t *testing.T) {
 	testHome(t)
 	svc := &Service{ConfigPath: "unused"}
-	if _, err := svc.BrowserLogin("cloud.example.com"); err == nil {
+	if _, err := svc.BrowserLogin("cloud.example.com", false); err == nil {
 		t.Fatal("expected error for URL without scheme")
 	}
 	// The flow returns a minted app password, so it must not run over cleartext
 	// http to a remote host.
-	if _, err := svc.BrowserLogin("http://cloud.example.com"); err == nil {
+	if _, err := svc.BrowserLogin("http://cloud.example.com", false); err == nil {
 		t.Fatal("expected error for plain http server URL")
 	}
 }
@@ -115,5 +116,26 @@ func TestResetDefaults(t *testing.T) {
 	}
 	if res.Config.Nextcloud.PasswordFile == "" {
 		t.Error("factory defaults missing password_file")
+	}
+}
+
+// CancelLogin ends a pending sign-in right away with a "cancelled" error.
+func TestBrowserLoginCancel(t *testing.T) {
+	testHome(t)
+	srv := fakeNextcloud(t, 1<<30)
+	opened := make(chan struct{})
+	svc := &Service{
+		ConfigPath: filepath.Join(t.TempDir(), "config.yaml"),
+		OpenURL:    func(string) error { close(opened); return nil },
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := svc.BrowserLogin(srv.URL, false)
+		errc <- err
+	}()
+	<-opened
+	svc.CancelLogin()
+	if err := <-errc; err == nil || !strings.Contains(err.Error(), "cancelled") {
+		t.Fatalf("BrowserLogin after cancel: err = %v, want cancelled", err)
 	}
 }
