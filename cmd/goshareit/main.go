@@ -94,9 +94,6 @@ func main() {
 	}
 	zerolog.SetGlobalLevel(level)
 	logger := log.Logger
-	if cfg.MigratedEditorTools() {
-		logger.Info().Strs("tools", cfg.Editor.Tools).Msg("editor.tools was the old starter list; added redact and select_text (saved on the next Settings save)")
-	}
 
 	hist, err := history.New(historyPath())
 	if err != nil {

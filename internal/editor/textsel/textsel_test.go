@@ -68,3 +68,56 @@ func TestTextAndRects(t *testing.T) {
 		t.Fatal("Empty")
 	}
 }
+
+func TestCovered(t *testing.T) {
+	word := image.Rect(0, 0, 10, 10)
+	for _, c := range []struct {
+		cover []image.Rectangle
+		want  bool
+	}{
+		{nil, false},
+		{[]image.Rectangle{image.Rect(0, 0, 10, 5)}, true},                          // half: dropped
+		{[]image.Rectangle{image.Rect(0, 0, 10, 2)}, false},                         // a fifth: kept
+		{[]image.Rectangle{image.Rect(0, 0, 5, 5)}, true},                           // exactly a quarter: dropped
+		{[]image.Rectangle{image.Rect(0, 0, 10, 6)}, true},                          // 60%
+		{[]image.Rectangle{image.Rect(-5, -5, 20, 20)}, true},                       // fully
+		{[]image.Rectangle{image.Rect(0, 0, 6, 10), image.Rect(4, 0, 10, 5)}, true}, // union 60+20
+		// Overlapping boxes are counted once: 20% + the same 20% is still 20%
+		// (double counting would reach the quarter and drop the word).
+		{[]image.Rectangle{image.Rect(0, 0, 2, 10), image.Rect(0, 0, 2, 10)}, false},
+		{[]image.Rectangle{image.Rect(20, 20, 30, 30)}, false},
+	} {
+		if got := Covered(word, c.cover); got != c.want {
+			t.Errorf("Covered(%v) = %v, want %v", c.cover, got, c.want)
+		}
+	}
+}
+
+func TestMaskDropsRedactedWords(t *testing.T) {
+	l := sample()
+	full := l.AllText()
+	if full != "The quick fox\njumps over" {
+		t.Fatalf("AllText = %q", full)
+	}
+	// A Redact box over "quick" (and a sliver of "fox") hides "quick" only.
+	redact := []image.Rectangle{image.Rect(48, 8, 112, 24)}
+	m := l.Mask(redact)
+	if got := m.AllText(); got != "The fox\njumps over" {
+		t.Fatalf("masked AllText = %q", got)
+	}
+	if got := m.Text(m.All()); got != "The fox\njumps over" {
+		t.Fatalf("masked selection text = %q", got)
+	}
+	// The covered word can no longer be hit or selected.
+	if r, ok := m.HitWord(image.Pt(60, 15)); ok && m.Text([]Ref{r}) == "quick" {
+		t.Fatalf("hit the redacted word: %v", r)
+	}
+	// A line whose words are all covered disappears.
+	if got := l.Mask([]image.Rectangle{image.Rect(0, 38, 200, 60)}).AllText(); got != "The quick fox" {
+		t.Fatalf("line masked AllText = %q", got)
+	}
+	// Undo removes the box: the text comes back unchanged.
+	if got := l.Mask(nil).AllText(); got != full {
+		t.Fatalf("after undo = %q", got)
+	}
+}

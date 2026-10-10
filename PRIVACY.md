@@ -31,7 +31,7 @@ maintainers have no way to see what you capture or where you send it.
   exists. No identifier is sent beyond what any HTTPS request carries (your
   IP address and a user agent), and GitHub's own privacy policy applies to
   that request. Update checks can be disabled in Settings.
-- **Text recognition** (Select text, Copy text, Quick redact in the editor,
+- **Text recognition** (text selection, Copy text, Quick redact in the editor,
   and Capture Text from the tray or its hotkey) runs entirely on your
   machine: Apple Vision on macOS, Windows OCR on Windows, and the
   `tesseract` command you installed on Linux (as a local subprocess fed over

@@ -22,6 +22,7 @@ import (
 	"gioui.org/widget/material"
 
 	"github.com/Rake-Pro/GoShareIt/internal/editor/annotate"
+	"github.com/Rake-Pro/GoShareIt/internal/editor/flow"
 )
 
 func (e *editor) layout(gtx layout.Context) layout.Dimensions {
@@ -40,17 +41,14 @@ func (e *editor) layout(gtx layout.Context) layout.Dimensions {
 // handleWidgets reacts to toolbar button clicks.
 func (e *editor) handleWidgets(gtx layout.Context) {
 	for t, b := range e.toolBtns {
-		// A greyed-out tool is laid out with gtx.Disabled, so it never
-		// reports a click; selectTool also refuses it with the reason.
 		if b.Clicked(gtx) {
 			e.selectTool(gtx, t)
 		}
 	}
+	// Greyed-out buttons are laid out with gtx.Disabled and never report a
+	// click.
 	if e.copyTextB.Clicked(gtx) {
-		e.copySelection(gtx)
-	}
-	if e.copyAllB.Clicked(gtx) {
-		e.copyAllText(gtx)
+		e.copyTextAction(gtx)
 	}
 	if e.redactSelB.Clicked(gtx) {
 		e.redactSelection(gtx)
@@ -103,13 +101,12 @@ func (e *editor) handleWidgets(gtx layout.Context) {
 	}
 }
 
-// layoutToolbar renders two rows: a horizontally scrollable row of tool
-// buttons + color swatches (whose width varies with the configured tool set),
-// and a fixed action row (stroke, text field, undo/redo/cancel/confirm). The
-// split guarantees Confirm/Cancel stay visible at any window width - a single
-// flex row used to push them out of view on narrower screens. The whole row
-// gets an explicit themed background fill spanning the full window width, so
-// the window's default (light) surface never shows through.
+// layoutToolbar renders the toolbar: the tool buttons and colour swatches,
+// then the controls and the actions, then the hint row. Every row wraps
+// (flow layout) instead of scrolling or clipping, so every button stays
+// fully visible down to the minimum window width. The whole toolbar gets an
+// explicit themed background fill spanning the full window width, so the
+// window's default (light) surface never shows through.
 func (e *editor) layoutToolbar(gtx layout.Context) layout.Dimensions {
 	macro := op.Record(gtx.Ops)
 	dims := e.layoutToolbarContent(gtx)
@@ -120,106 +117,198 @@ func (e *editor) layoutToolbar(gtx layout.Context) layout.Dimensions {
 	return layout.Dimensions{Size: bgSize}
 }
 
+// toolbarGroupGap separates the controls from the actions on a shared row.
+const toolbarGroupGap = 12
+
 func (e *editor) layoutToolbarContent(gtx layout.Context) layout.Dimensions {
-	th := e.th
 	inset := layout.UniformInset(unit.Dp(8))
 	return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		// Row 1: tools + swatches, scrollable. Wide windows show each
-		// tool's shortcut key in its label; narrow ones show it in the hint
-		// row for the active tool.
-		wide := gtx.Constraints.Max.X >= gtx.Dp(unit.Dp(900))
-		items := make([]layout.Widget, 0, len(e.tools)+len(e.palette))
+		// Tool labels carry their key ("Arrow (A)") only when every tool
+		// fits on one row that way; otherwise the hint row names the active
+		// tool's key.
+		withKeys := make([]int, len(e.tools))
+		for i, t := range e.tools {
+			label := toolLabel(t)
+			if k := toolKeyName(t); k != "" {
+				label += " (" + k + ")"
+			}
+			withKeys[i] = e.measureButton(gtx, label)
+		}
+		e.keysShown = flow.Fits(withKeys, gtx.Constraints.Max.X, 0)
+
+		// Tools, then the swatches as one block: they share the last tool
+		// row when they fit and wrap to a row of their own otherwise.
+		items := make([]layout.Widget, 0, len(e.tools)+1)
 		for _, t := range e.tools {
-			t := t
 			items = append(items, func(gtx layout.Context) layout.Dimensions {
-				return e.layoutToolButton(gtx, t, wide)
+				return e.layoutToolButton(gtx, t)
 			})
 		}
-		for i := range e.palette {
-			i := i
-			items = append(items, func(gtx layout.Context) layout.Dimensions {
-				return e.layoutSwatch(gtx, i)
-			})
-		}
-		if !slices.Contains(e.palette, e.col) {
-			// The configured color is not one of the swatches: show it as an
-			// extra, already-selected chip so the current color is visible.
-			items = append(items, e.layoutCurrentColor)
-		}
-
-		// Row 2: stroke controls | text input | undo/redo | [copy/save/upload]
-		// | cancel/confirm, visually grouped with spacers.
-		dec := e.subtleButton(&e.strokeDec, "-")
-		inc := e.subtleButton(&e.strokeInc, "+")
-		cancel := e.subtleButton(&e.cancelB, "Cancel")
-		ok := e.accentButton(&e.confirm, e.confirmLabel)
-
-		row2Children := []layout.FlexChild{
-			rigidBtn(dec),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Body1(th, itoa(e.stroke)+" px")
-				lbl.Color = e.theme.fg
-				return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
-			}),
-			rigidBtn(inc),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-			layout.Rigid(e.layoutZoomReadout),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-			layout.Flexed(1, e.layoutRow2Middle),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return e.layoutMaybeButton(gtx, &e.undoBtn, "Undo", e.hist.CanUndo())
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return e.layoutMaybeButton(gtx, &e.redoBtn, "Redo", e.hist.CanRedo())
-			}),
-		}
-		if e.actions {
-			copyBtn := e.subtleButton(&e.copyB, "Copy")
-			saveBtn := e.subtleButton(&e.saveB, "Save")
-			row2Children = append(row2Children,
-				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-				rigidBtn(copyBtn),
-				rigidBtn(saveBtn),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return e.layoutUploadButton(gtx)
-				}),
-			)
-		}
-		row2Children = append(row2Children,
-			layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-			rigidBtn(cancel),
-			rigidBtn(ok),
-		)
+		items = append(items, e.layoutSwatches)
 
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return e.toolRow.Layout(gtx, len(items), func(gtx layout.Context, i int) layout.Dimensions {
-					return items[i](gtx)
-				})
+				return layoutWrap(gtx, items...)
 			}),
+			layout.Rigid(e.layoutActionBar),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, row2Children...)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return e.layoutHintRow(gtx, wide)
+				return e.layoutHintRow(gtx)
 			}),
 		)
 	})
 }
 
-// layoutToolButton renders one row-1 tool button: accent when active,
-// subtle otherwise, and greyed out (with its reason in the hint row on
-// hover) when the tool cannot be used now.
-func (e *editor) layoutToolButton(gtx layout.Context, t Tool, wide bool) layout.Dimensions {
+// measureButton is the width a toolbar button with label takes (inset
+// included), measured with the real theme font.
+func (e *editor) measureButton(gtx layout.Context, label string) int {
+	return measure(gtx.Disabled(), func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(unit.Dp(4)).Layout(gtx, e.subtleButton(&e.measureB, label).Layout)
+	}).size.X
+}
+
+// layoutActionBar is the second toolbar part: the controls on the left
+// (stroke, zoom, the Text tool's field, Quick redact with Redact, Undo,
+// Redo, the text buttons) and the actions on the right (Copy, Save, Upload,
+// Cancel and Confirm). They share a row when they fit; otherwise the
+// controls wrap on their own rows and the actions go below, still
+// right-aligned, with Cancel and Confirm kept together.
+func (e *editor) layoutActionBar(gtx layout.Context) layout.Dimensions {
+	maxW := gtx.Constraints.Max.X
+	groupGap := gtx.Dp(toolbarGroupGap)
+	ocrOn := e.ocr.mode != OCRHidden
+
+	head := measureAll(gtx, []layout.Widget{e.layoutStroke, e.layoutZoomReadout})
+	tailW := []layout.Widget{
+		func(gtx layout.Context) layout.Dimensions {
+			return e.layoutMaybeButton(gtx, &e.undoBtn, "Undo", e.hist.CanUndo())
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			return e.layoutMaybeButton(gtx, &e.redoBtn, "Redo", e.hist.CanRedo())
+		},
+	}
+	if ocrOn {
+		tailW = append(tailW, e.layoutCopyText)
+	}
+	tail := measureAll(gtx, tailW)
+	var right []layout.Widget
+	if e.actions {
+		right = append(right,
+			func(gtx layout.Context) layout.Dimensions {
+				return layout.UniformInset(unit.Dp(4)).Layout(gtx, e.subtleButton(&e.copyB, "Copy").Layout)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				return layout.UniformInset(unit.Dp(4)).Layout(gtx, e.subtleButton(&e.saveB, "Save").Layout)
+			},
+			e.layoutUploadButton,
+		)
+	}
+	right = append(right, e.layoutCancelConfirm)
+	rm := measureAll(gtx, right)
+	rs := sizesOf(rm)
+
+	// The text field takes the spare width of a shared row (at least 140
+	// dp, at most 320 dp); without that much room it is 240 dp and the
+	// groups wrap.
+	fieldW := func(left []image.Point) int {
+		used := flow.Width(widthsOf(left), 0) + groupGap + flow.Width(widthsOf(rs), 0)
+		return flow.Stretch(used, maxW, gtx.Dp(140), gtx.Dp(320), gtx.Dp(240))
+	}
+	base := append(sizesOf(head), sizesOf(tail)...)
+
+	// The active tool's own control: the text field and Quick redact go
+	// after zoom, Redact selection at the end.
+	var mid, end []measured
+	switch {
+	case e.tool == ToolText:
+		w := fieldW(base)
+		mid = []measured{measure(gtx, func(gtx layout.Context) layout.Dimensions {
+			return e.layoutTextField(gtx, w)
+		})}
+	case e.tool == ToolRedact && ocrOn:
+		mid = []measured{measure(gtx, e.layoutQuickRedact)}
+	case e.tool == ToolSelect && ocrOn:
+		end = []measured{measure(gtx, e.layoutRedactSelection)}
+	}
+	lm := slices.Concat(head, mid, tail, end)
+	pos, total := flow.Bar(sizesOf(lm), rs, maxW, 0, groupGap, 0)
+
+	// Reserve the height the tallest tool variant needs at this width, so a
+	// tool switch never changes the toolbar height (and the canvas never
+	// re-fits). Variant extras are sized like a button of the row.
+	btnH := tail[0].size.Y
+	with := func(at int, w int) []image.Point {
+		return slices.Insert(slices.Clone(base), at, image.Pt(w, btnH))
+	}
+	variants := [][]image.Point{base}
+	if e.hasTool(ToolText) {
+		variants = append(variants, with(len(head), fieldW(base)))
+	}
+	if ocrOn {
+		variants = append(variants,
+			with(len(head), e.measureButton(gtx, "Quick redact")),
+			with(len(base), e.measureButton(gtx, "Redact selection")),
+		)
+	}
+	total.Y = max(total.Y, flow.MaxHeight(variants, rs, maxW, 0, groupGap, 0))
+	return place(gtx, append(lm, rm...), pos, total)
+}
+
+func widthsOf(sizes []image.Point) []int {
+	out := make([]int, len(sizes))
+	for i, sz := range sizes {
+		out[i] = sz.X
+	}
+	return out
+}
+
+// layoutStroke is the stroke width control: - , the width, +. The width
+// label is as wide as the widest value, so "9 px" to "10 px" never reflows
+// the toolbar.
+func (e *editor) layoutStroke(gtx layout.Context) layout.Dimensions {
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		rigidBtn(e.subtleButton(&e.strokeDec, "-")),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			widest := material.Body1(e.th, itoa(maxStroke)+" px")
+			gtx.Constraints.Min.X = measure(gtx, widest.Layout).size.X
+			lbl := material.Body1(e.th, itoa(e.stroke)+" px")
+			lbl.Color = e.theme.fg
+			return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Center.Layout(gtx, lbl.Layout)
+			})
+		}),
+		rigidBtn(e.subtleButton(&e.strokeInc, "+")),
+	)
+}
+
+// layoutCancelConfirm keeps Cancel and the accent Confirm together, so they
+// wrap as one and are always both visible.
+func (e *editor) layoutCancelConfirm(gtx layout.Context) layout.Dimensions {
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		rigidBtn(e.subtleButton(&e.cancelB, "Cancel")),
+		rigidBtn(e.accentButton(&e.confirm, e.confirmLabel)),
+	)
+}
+
+// layoutSwatches is the colour swatch block (newEditor adds a configured
+// colour that is not a default swatch).
+func (e *editor) layoutSwatches(gtx layout.Context) layout.Dimensions {
+	children := make([]layout.FlexChild, 0, len(e.palette)+1)
+	for i := range e.palette {
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return e.layoutSwatch(gtx, i)
+		}))
+	}
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
+}
+
+// layoutToolButton renders one tool button: accent when active, subtle
+// otherwise, with its key in the label when keysShown.
+func (e *editor) layoutToolButton(gtx layout.Context, t Tool) layout.Dimensions {
 	label := toolLabel(t)
-	if k := toolKeyName(t); wide && k != "" {
+	if k := toolKeyName(t); e.keysShown && k != "" {
 		label += " (" + k + ")"
 	}
 	btn := e.toolBtns[t]
-	if ok, why := e.toolEnabled(t); !ok {
-		return e.layoutGreyed(gtx, btn, label, e.toolHover[t], why, e.tool == t)
-	}
 	style := e.subtleButton(btn, label)
 	if e.tool == t {
 		style = e.accentButton(btn, label)
@@ -227,92 +316,82 @@ func (e *editor) layoutToolButton(gtx layout.Context, t Tool, wide bool) layout.
 	return layout.UniformInset(unit.Dp(4)).Layout(gtx, style.Layout)
 }
 
-// layoutGreyed renders an inert, dimmed button (gtx.Disabled) with a hover
-// tracker on top, so the hint row can say why it is greyed out.
-func (e *editor) layoutGreyed(gtx layout.Context, btn *widget.Clickable, label string, hov *gesture.Hover, why string, active bool) layout.Dimensions {
-	if hov.Update(gtx.Source) {
+// layoutGreyed renders an inert, dimmed button (gtx.Disabled) with a
+// pointer tracker on top, so the hint row says why it is greyed out while
+// the pointer is over it, and for a moment after a press on it.
+func (e *editor) layoutGreyed(gtx layout.Context, btn *widget.Clickable, label string, why string, tr *gesture.Click) layout.Dimensions {
+	for {
+		ev, ok := tr.Update(gtx.Source)
+		if !ok {
+			break
+		}
+		if ev.Kind == gesture.KindPress {
+			e.setHint(gtx, why)
+		}
+	}
+	if tr.Hovered() {
 		e.hoverWhy = why
 	}
-	bg := mutedColor(e.theme.surfaceBg)
-	if active {
-		bg = mutedColor(e.theme.accent)
-	}
-	b := e.styledButton(btn, label, bg, mutedColor(e.theme.fg))
+	b := e.styledButton(btn, label, mutedColor(e.theme.surfaceBg), mutedColor(e.theme.fg))
 	dims := layout.UniformInset(unit.Dp(4)).Layout(gtx.Disabled(), b.Layout)
 	area := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
-	hov.Add(gtx.Ops)
+	tr.Add(gtx.Ops)
 	area.Pop()
 	return dims
 }
 
 // layoutZoomReadout is the clickable zoom percentage; a click toggles
-// between fit and 100%. A fixed minimum width keeps the row from jittering.
+// between fit and 100%. It is as wide as a five-digit percentage, so
+// zooming never reflows the toolbar.
 func (e *editor) layoutZoomReadout(gtx layout.Context) layout.Dimensions {
-	gtx.Constraints.Min.X = gtx.Dp(unit.Dp(56))
+	gtx.Constraints.Min.X = max(gtx.Dp(unit.Dp(56)), e.measureButton(gtx, "88888%")-gtx.Dp(unit.Dp(8)))
 	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return e.subtleButton(&e.zoomBtn, itoa(e.scalePercent())+"%").Layout(gtx)
 	})
 }
 
-// layoutRow2Middle fills the flexible middle of toolbar row 2: the text
-// actions in Select text, Quick redact with the Redact tool, else the
-// annotation text field.
-func (e *editor) layoutRow2Middle(gtx layout.Context) layout.Dimensions {
-	quick := func(gtx layout.Context) layout.Dimensions {
-		if ok, why := e.quickRedactEnabled(); !ok {
-			return e.layoutGreyed(gtx, &e.quickRedactB, "Quick redact", &e.quickHover, why, false)
-		}
-		return layout.UniformInset(unit.Dp(4)).Layout(gtx, e.subtleButton(&e.quickRedactB, "Quick redact").Layout)
+// layoutCopyText is the Copy text button: the selection, or all recognized
+// text. It is as wide as its widest label, so "Reading text..." turning
+// into "Copy text" never reflows the toolbar.
+func (e *editor) layoutCopyText(gtx layout.Context) layout.Dimensions {
+	// The inset passes the minimum width through to the button, so take
+	// the 4 dp on each side off here.
+	gtx.Constraints.Min.X = max(e.measureButton(gtx, "Copy text"), e.measureButton(gtx, "Reading text...")) - gtx.Dp(unit.Dp(8))
+	label, ok, why := e.copyTextState()
+	if !ok {
+		return e.layoutGreyed(gtx, &e.copyTextB, label, why, &e.copyTextWhy)
 	}
-	switch {
-	case e.tool == ToolSelectText:
-		hasResult := e.ocr.result != nil && e.ocr.result.WordCount() > 0
-		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return e.layoutMaybeButton(gtx, &e.copyTextB, "Copy text", e.hasTextSelection())
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return e.layoutMaybeButton(gtx, &e.copyAllB, "Copy all", hasResult)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return e.layoutMaybeButton(gtx, &e.redactSelB, "Redact selection", e.hasTextSelection())
-			}),
-			layout.Rigid(quick),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Body2(e.th, e.selectionStatus())
-				lbl.Color = mutedColor(e.theme.fg)
-				lbl.MaxLines = 1
-				return layout.UniformInset(unit.Dp(6)).Layout(gtx, lbl.Layout)
-			}),
-		)
-	case e.tool == ToolRedact && e.ocr.mode != OCRHidden:
-		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, layout.Rigid(quick))
-	}
-	return e.layoutTextField(gtx)
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, e.subtleButton(&e.copyTextB, label).Layout)
 }
 
-// selectionStatus is the short status label next to the text actions.
-func (e *editor) selectionStatus() string {
-	switch {
-	case e.ocr.running:
-		return "Recognizing..."
-	case e.ocr.result == nil:
-		return ""
-	case e.ocr.result.WordCount() == 0:
-		return "No text found"
-	case e.hasTextSelection():
-		return countLabel(len(e.sel.refs), "word selected", "words selected")
+// layoutRedactSelection covers the selected text (Select tool).
+func (e *editor) layoutRedactSelection(gtx layout.Context) layout.Dimensions {
+	if ok, why := e.redactSelState(); !ok {
+		return e.layoutGreyed(gtx, &e.redactSelB, "Redact selection", why, &e.redactSelWhy)
 	}
-	return countLabel(e.ocr.result.WordCount(), "word", "words")
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, e.subtleButton(&e.redactSelB, "Redact selection").Layout)
+}
+
+// layoutQuickRedact hides the configured kinds of text (Redact tool).
+func (e *editor) layoutQuickRedact(gtx layout.Context) layout.Dimensions {
+	if ok, why := e.quickRedactEnabled(); !ok {
+		return e.layoutGreyed(gtx, &e.quickRedactB, "Quick redact", why, &e.quickWhy)
+	}
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, e.subtleButton(&e.quickRedactB, "Quick redact").Layout)
 }
 
 // hintRowHeight keeps the canvas from jumping when a hint appears.
 const hintRowHeight = 22
 
-// layoutHintRow renders row 3: one line of guidance, by priority (see
-// hintText).
-func (e *editor) layoutHintRow(gtx layout.Context, wide bool) layout.Dimensions {
-	msg, strong := e.hintText(gtx, wide)
+// layoutHintRow renders the last toolbar row: one line of guidance, by
+// priority (see hintText). The tool hint also names the pan and zoom
+// gestures when that still fits on the line.
+func (e *editor) layoutHintRow(gtx layout.Context) layout.Dimensions {
+	msg, strong := e.hintText(gtx, true)
+	room := gtx.Constraints.Max.X - gtx.Dp(unit.Dp(12))
+	if measure(gtx, material.Body2(e.th, msg).Layout).size.X > room {
+		msg, strong = e.hintText(gtx, false)
+	}
 	h := gtx.Dp(unit.Dp(hintRowHeight))
 	gtx.Constraints.Min.Y, gtx.Constraints.Max.Y = h, h
 	return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -327,10 +406,11 @@ func (e *editor) layoutHintRow(gtx layout.Context, wide bool) layout.Dimensions 
 }
 
 // hintText picks the hint row message: the discard prompt, then a
-// transient message ("Copied 12 characters"), then the reason of a greyed
-// button under the pointer, then the recognition status, then the active
-// tool's hint. strong marks messages that need attention.
-func (e *editor) hintText(gtx layout.Context, wide bool) (string, bool) {
+// transient message ("Copied 12 characters", "12 lines of text found"),
+// then the reason of a greyed button under the pointer, then the active
+// tool's hint (prefixed with the tool's key when the tool buttons do not
+// show it). strong marks messages that need attention.
+func (e *editor) hintText(gtx layout.Context, roomy bool) (string, bool) {
 	if e.discardArmed && len(e.shapes) > 0 {
 		if len(e.shapes) == 1 {
 			return "Discard 1 annotation? Press Esc or Cancel again to discard this capture.", true
@@ -343,16 +423,11 @@ func (e *editor) hintText(gtx layout.Context, wide bool) (string, bool) {
 	if e.hoverWhy != "" {
 		return e.hoverWhy, false
 	}
-	if e.tool == ToolSelectText {
-		if ok, why := e.ocrAvailable(); !ok {
-			return why, false
-		}
-	}
 	msg := e.toolHint()
-	if k := toolKeyName(e.tool); !wide && k != "" {
+	if k := toolKeyName(e.tool); !e.keysShown && k != "" {
 		msg = toolLabel(e.tool) + " (" + k + "): " + msg
 	}
-	if wide {
+	if roomy {
 		msg += ". Hold Space or middle-drag to pan, scroll to zoom."
 	}
 	return msg, false
@@ -370,13 +445,18 @@ func shortcutMod() string {
 func (e *editor) toolHint() string {
 	switch e.tool {
 	case ToolSelect:
-		if e.selected >= 0 {
-			return "Drag to move, arrows nudge (Shift: 10 px), Delete removes, Esc deselects"
+		switch {
+		case e.hasTextSelection():
+			return countLabel(len(e.sel.refs), "word", "words") + " selected: " + shortcutMod() + "+C copies, Esc clears"
+		case e.selected >= 0:
+			return "Drag to move, arrows nudge, Delete removes, Esc deselects"
+		case e.hasText():
+			return "Click a shape to select it, or drag over text to select it"
 		}
 		return "Click a shape to select it; colour and stroke then restyle it"
 	case ToolCrop:
 		if e.crop != nil {
-			return "Drag a handle to resize, inside to move, outside for a new crop; Enter applies"
+			return "Drag handles to resize, inside to move, outside to recrop; Enter applies"
 		}
 		return "Drag to crop; Enter applies"
 	case ToolArrow:
@@ -393,17 +473,12 @@ func (e *editor) toolHint() string {
 		return "Drag"
 	case ToolFreehand:
 		return "Draw"
-	case ToolSelectText:
-		if e.ocr.result != nil && e.ocr.result.WordCount() == 0 {
-			return "No text was found in this image"
-		}
-		return "Drag over words to select, " + shortcutMod() + "+C copies, double-click selects a line"
 	}
 	return ""
 }
 
-// cursorFor picks the canvas cursor: grab while panning, an I-beam for text,
-// a crosshair for drawing.
+// cursorFor picks the canvas cursor: grab while panning, an I-beam for the
+// Text tool and over recognized text in Select, a crosshair for drawing.
 func (e *editor) cursorFor() pointer.Cursor {
 	switch {
 	case e.panning:
@@ -411,8 +486,6 @@ func (e *editor) cursorFor() pointer.Cursor {
 	case e.spaceDown:
 		return pointer.CursorGrab
 	case e.tool == ToolText:
-		return pointer.CursorText
-	case e.tool == ToolSelectText && e.hovering && e.overWord(e.hover):
 		return pointer.CursorText
 	case e.tool == ToolSelect:
 		return e.selectCursor()
@@ -433,19 +506,6 @@ func (e *editor) layoutMaybeButton(gtx layout.Context, btn *widget.Clickable, la
 		b = e.styledButton(btn, label, mutedColor(e.theme.surfaceBg), mutedColor(e.theme.fg))
 	}
 	return layout.UniformInset(unit.Dp(4)).Layout(gtx, b.Layout)
-}
-
-// layoutCurrentColor draws a non-clickable chip of the current color with the
-// selection ring, for a configured color that has no palette swatch.
-func (e *editor) layoutCurrentColor(gtx layout.Context) layout.Dimensions {
-	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		sz := gtx.Dp(unit.Dp(22))
-		d := image.Pt(sz, sz)
-		rr := clip.RRect{Rect: image.Rectangle{Max: d}, SE: 4, SW: 4, NE: 4, NW: 4}
-		paint.FillShape(gtx.Ops, e.col, rr.Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, e.theme.fg, clip.Stroke{Path: rr.Path(gtx.Ops), Width: 2}.Op())
-		return layout.Dimensions{Size: d}
-	})
 }
 
 // layoutUploadButton renders the Upload action button. When the editor was
@@ -491,14 +551,20 @@ func rigidBtn(b material.ButtonStyle) layout.FlexChild {
 	})
 }
 
-// layoutTextField renders the annotation text input with a subtle themed
-// background pill so it reads as an input rather than bare text.
-func (e *editor) layoutTextField(gtx layout.Context) layout.Dimensions {
-	ed := material.Editor(e.th, &e.textIn, "Type text, then click the image")
+// layoutTextField renders the annotation text input, w pixels wide
+// (inset included), with a subtle themed background pill so it reads as an
+// input rather than bare text.
+func (e *editor) layoutTextField(gtx layout.Context, w int) layout.Dimensions {
+	ed := material.Editor(e.th, &e.textIn, "Type text here")
 	ed.Color = e.theme.fg
 	ed.HintColor = mutedColor(e.theme.fg)
-	return layoutPill(gtx, e.theme.surfaceBg, func(gtx layout.Context) layout.Dimensions {
-		return layout.UniformInset(unit.Dp(6)).Layout(gtx, ed.Layout)
+	gtx.Constraints.Max.X = w
+	gtx.Constraints.Min.X = w - gtx.Dp(unit.Dp(8))
+	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layoutPill(gtx, e.theme.surfaceBg, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X -= gtx.Dp(unit.Dp(12))
+			return layout.UniformInset(unit.Dp(6)).Layout(gtx, ed.Layout)
+		})
 	})
 }
 
@@ -603,10 +669,8 @@ func (e *editor) layoutCanvas(gtx layout.Context) layout.Dimensions {
 		}
 	}
 	if e.tool == ToolSelect {
-		e.drawSelection(gtx.Ops, gtx.Dp(unit.Dp(6)))
-	}
-	if e.tool == ToolSelectText {
 		e.drawTextOverlay(gtx.Ops)
+		e.drawSelection(gtx.Ops, gtx.Dp(unit.Dp(6)))
 	}
 	if e.dragging {
 		e.drawShape(gtx.Ops, e.previewShape())
@@ -829,8 +893,6 @@ func toolLabel(t Tool) string {
 		return "Freehand"
 	case ToolRedact:
 		return "Redact"
-	case ToolSelectText:
-		return "Select text"
 	}
 	return "" // unknown tool
 }

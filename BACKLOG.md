@@ -16,8 +16,9 @@ updater check (with a PAT, correctly reports up-to-date).
   coordinate accuracy (Retina scale / Y-flip), updater apply/relaunch loop,
   edit-variant and alternative/punctuation hotkeys. Annotation editor is
   PARTIALLY verified (opens, arrow + blur draw and apply on Confirm); rest
-  of the tool set and text entry still owed, plus the toolbar-overflow bug
-  under Features.
+  of the tool set and text entry still owed. The toolbar-overflow bug is
+  fixed in Unreleased (wrapping toolbar, see CHANGELOG); its on-device check
+  is listed below.
 - Windows: annotation editor UI, recording (ffmpeg), toast notifications,
   region overlay coordinates (now also the path for still region capture),
   settings UI and editor beyond first-run, updater apply loop, PrintScreen
@@ -62,9 +63,9 @@ updater check (with a PAT, correctly reports up-to-date).
   Windows machine: the bindings are hand-checked vtable code); tesseract on
   X11 and Wayland, including installing it while the host runs and the
   host's clipboard re-assert of copied text after the editor closes; the
-  greyed Select text reason matching Settings; drag-select, double-click
-  line, Ctrl/Cmd+C text vs image, Copy all, Redact selection, Quick redact
-  and its single undo step, an opaque Redact in the saved PNG; zoom keys and
+  greyed Copy text reason matching Settings; drag-select, double-click
+  line, Ctrl/Cmd+C text vs image, Copy text with no selection (all text),
+  Redact selection, Quick redact and its single undo step, an opaque Redact in the saved PNG; zoom keys and
   a pixel-exact 100% on HiDPI; single-key tools not firing while typing;
   anti-aliased arrows/lines/text at stroke 1, 6 and 32.
 - Capture Text and the v0.4.1 editor round (Unreleased; compiled and
@@ -84,6 +85,21 @@ updater check (with a PAT, correctly reports up-to-date).
   selection, then cancel), undo/redo across moves, deletes and crop edits;
   crop handles: eight squares, resize cursors, hit areas the same size on a
   HiDPI display at any zoom, Enter confirms with a crop mid-drag.
+- Editor toolbar and Live Text round (Unreleased; compiled and unit-tested,
+  never run on a device): at the default 1000 dp window and at the 640 dp
+  minimum, no button or swatch is cut off and nothing scrolls; tool labels
+  lose their "(V)" keys only when they would not fit on one row; the actions
+  wrap right-aligned with Cancel and Confirm visible; the Text tool's field
+  stretches into a shared row; Select: I-beam over text, drag-select,
+  double-click line, a drag on a shape over text moves the shape, Cmd/Ctrl+C
+  text vs image, Cmd/Ctrl+A, Esc clearing the selection first; Copy text
+  ("Reading text..." while running, greyed with the reason when OCR is off,
+  the "N lines of text found" hint once, naming V outside Select); Redact
+  present with a customised `editor.tools`; the toolbar height staying put
+  on V/A/T at 900 dp; text under a Redact box not selectable or copied, and
+  back after Undo; auto_run off with default_tool select gives the I-beam
+  without a tool switch. The I-beam covers each line box plus 8 image px,
+  gaps between words included (accepted as Live Text-like).
 
 ## Features
 

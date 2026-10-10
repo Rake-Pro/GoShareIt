@@ -82,8 +82,7 @@ editor:
   default_tool: arrow
   stroke_width: 6
   color: "#ff3b30"
-  tools: [crop, arrow, rect, text, blur, highlight, step, redact, select_text]
-  tools_revision: 1       # tool-list migrations already applied; leave as is
+  tools: [crop, arrow, rect, text, blur, highlight, step]   # Select and Redact are always shown
 
 update:
   enabled: true           # self-update from GitHub Releases

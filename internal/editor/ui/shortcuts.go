@@ -15,8 +15,7 @@ import (
 var toolKeys = map[key.Name]Tool{
 	"C": ToolCrop, "A": ToolArrow, "R": ToolRect, "E": ToolEllip, "T": ToolText,
 	"B": ToolBlur, "P": ToolPixelate, "H": ToolHighlight, "N": ToolStep,
-	"L": ToolLine, "F": ToolFreehand, "X": ToolRedact, "S": ToolSelectText,
-	"V": ToolSelect,
+	"L": ToolLine, "F": ToolFreehand, "X": ToolRedact, "V": ToolSelect,
 }
 
 // nudgeKeys are the arrow keys that move the selected shape.
@@ -130,18 +129,15 @@ func (e *editor) hasTool(t Tool) bool {
 	return false
 }
 
-// selectTool switches to t the way a toolbar click does. A greyed-out tool
-// is refused with its reason in the hint row; Select text starts a deferred
-// recognition (auto-run off); Text focuses the annotation field.
+// selectTool switches to t the way a toolbar click does. Select starts a
+// deferred recognition (auto-run off) for its text selection, and leaving
+// it clears the text selection; Text focuses the annotation field.
 func (e *editor) selectTool(gtx layout.Context, t Tool) {
-	if ok, why := e.toolEnabled(t); !ok {
-		e.setHint(gtx, why)
-		return
-	}
 	e.discardArmed = false
 	e.cancelGesture()
-	if e.tool == ToolSelectText && t != ToolSelectText {
+	if t != ToolSelect {
 		e.clearSelection()
+		e.hoverText = false
 	}
 	if t != ToolSelect {
 		e.deselect()
@@ -151,12 +147,12 @@ func (e *editor) selectTool(gtx layout.Context, t Tool) {
 	case ToolText:
 		gtx.Execute(key.FocusCmd{Tag: &e.textIn})
 	default:
-		// The field is not shown in Select text / Redact; leaving it focused
+		// The field is only shown with the Text tool; leaving it focused
 		// would swallow every shortcut.
 		if gtx.Focused(&e.textIn) {
 			gtx.Execute(key.FocusCmd{})
 		}
-		if t == ToolSelectText {
+		if t == ToolSelect {
 			e.startOCR()
 		}
 	}

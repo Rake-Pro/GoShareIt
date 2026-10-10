@@ -58,8 +58,20 @@ func (e *editor) overSelection(ip image.Point) bool {
 }
 
 // pressSelect selects the shape under ip (or keeps the selection when the
-// press is on it) and starts a move; a press on nothing deselects.
+// press is on it) and starts a move. A press on recognized text, with no
+// shape there, starts a text selection instead (a shape wins when both
+// apply); a press on nothing deselects.
 func (e *editor) pressSelect(ip image.Point) {
+	if !e.overSelection(ip) && e.hitShape(ip) < 0 {
+		if _, ok := e.textAt(ip); ok {
+			if e.selected >= 0 {
+				e.deselect()
+			}
+			e.selPress(ip)
+			return
+		}
+	}
+	e.clearSelection()
 	if !e.overSelection(ip) {
 		i := e.hitShape(ip)
 		if i != e.selected {
@@ -223,15 +235,20 @@ func handleCursor(h cropbox.Handle) pointer.Cursor {
 }
 
 // selectCursor is the Select tool's cursor: grabbing while moving, a move
-// cursor over the selection, a hand over another shape.
+// cursor over the selection, a hand over another shape, an I-beam over
+// recognized text and while selecting it.
 func (e *editor) selectCursor() pointer.Cursor {
 	switch {
 	case e.moving:
 		return pointer.CursorGrabbing
+	case e.sel.dragging:
+		return pointer.CursorText
 	case e.hovering && e.overSelection(e.hover):
 		return pointer.CursorAllScroll
 	case e.hovering && e.hoverShape >= 0:
 		return pointer.CursorPointer
+	case e.hovering && e.hoverText:
+		return pointer.CursorText
 	}
 	return pointer.CursorDefault
 }

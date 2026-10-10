@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -56,13 +57,23 @@ type ocrState struct {
 	cancel  context.CancelFunc
 
 	result *ocr.Result
-	layout textsel.Layout
+	full   textsel.Layout // every recognized word
 	err    error
+
+	// masked is full without the words under Redact boxes (see words);
+	// cover is the Redact rectangles it was built for.
+	masked textsel.Layout
+	cover  []image.Rectangle
+	maskOK bool
 }
 
-// selState is the Select text selection in reading order.
+// selState is the text selection (in the Select tool) in reading order.
+// A press on text only anchors it; the selection starts once the pointer
+// has moved, so a plain click never leaves a word selected.
 type selState struct {
 	dragging      bool
+	from          image.Point // image point of the press
+	moved         bool
 	anchor, focus textsel.Ref
 	refs          []textsel.Ref
 	lastPress     time.Time
@@ -115,8 +126,9 @@ func (e *editor) startOCR() {
 	}()
 }
 
-// pollOCR picks up a finished recognition without blocking.
-func (e *editor) pollOCR() {
+// pollOCR picks up a finished recognition without blocking, and says once
+// in the hint row what was found.
+func (e *editor) pollOCR(gtx layout.Context) {
 	select {
 	case o := <-e.ocr.pending:
 		e.ocr.running = false
@@ -125,9 +137,52 @@ func (e *editor) pollOCR() {
 			return
 		}
 		e.ocr.result = &o.res
-		e.ocr.layout = textsel.New(o.res)
+		e.ocr.full = textsel.New(o.res)
+		e.ocr.maskOK = false
+		e.setHintFor(gtx, e.foundText(), 4*time.Second)
 	default:
 	}
+}
+
+// foundText is the one-time message when recognition finishes. Dragging
+// over text selects it only in Select, so other tools point there.
+func (e *editor) foundText() string {
+	n := 0
+	for _, ln := range e.words().Lines {
+		if len(ln.Words) > 0 {
+			n++
+		}
+	}
+	if n == 0 {
+		return e.noTextReason()
+	}
+	found := countLabel(n, "line", "lines") + " of text found."
+	if e.tool != ToolSelect {
+		return found + " Press V to select text."
+	}
+	return found + " Drag over text to select, " + shortcutMod() + "+C copies."
+}
+
+// words is the recognized text that can be selected and copied: every word
+// except those mostly under a Redact box (textsel.Mask), so redacted text
+// never reaches the clipboard. It is rebuilt whenever the Redact boxes
+// change (drawn, moved, deleted, undone or redone); a text selection made
+// against the old words is cleared then.
+func (e *editor) words() textsel.Layout {
+	var cover []image.Rectangle
+	for _, sh := range e.shapes {
+		if sh.kind == kRedact {
+			cover = append(cover, sh.rects...)
+		}
+	}
+	if e.ocr.maskOK && slices.Equal(cover, e.ocr.cover) {
+		return e.ocr.masked
+	}
+	if e.ocr.maskOK {
+		e.clearSelection()
+	}
+	e.ocr.cover, e.ocr.masked, e.ocr.maskOK = cover, e.ocr.full.Mask(cover), true
+	return e.ocr.masked
 }
 
 // ocrAvailable reports whether the text tools can act now, and why not.
@@ -149,19 +204,61 @@ func (e *editor) ocrAvailable() (bool, string) {
 	return true, ""
 }
 
-// toolEnabled reports whether tool t can be selected, and why not.
-func (e *editor) toolEnabled(t Tool) (bool, string) {
-	if t != ToolSelectText {
-		return true, ""
+// hasText reports whether there is recognized text outside Redact boxes.
+func (e *editor) hasText() bool { return e.ocr.result != nil && !e.words().Empty() }
+
+// noTextReason says why there is no text to select or copy.
+func (e *editor) noTextReason() string {
+	if e.ocr.result != nil && e.ocr.result.WordCount() > 0 {
+		return "All recognized text is under Redact boxes."
 	}
-	if e.ocr.mode == OCROn && !e.ocr.started {
-		return true, "" // auto-run off: the first click starts recognition
+	return "No text was found in this image."
+}
+
+// copyTextState is the Copy text button's label, whether it can act now,
+// and why not. With auto-run off it is enabled before recognition: the
+// first click starts it.
+func (e *editor) copyTextState() (label string, ok bool, why string) {
+	switch {
+	case e.ocr.mode == OCROn && !e.ocr.started:
+		return "Copy text", true, ""
+	case e.ocr.running:
+		return "Reading text...", false, "Reading the text in the image..."
 	}
-	ok, why := e.ocrAvailable()
-	if !ok && e.ocr.mode != OCROn {
-		why = "Select text is not available: " + why
+	if ok, why := e.ocrAvailable(); !ok {
+		if e.ocr.mode != OCROn {
+			why = "Copy text is not available: " + why
+		}
+		return "Copy text", false, why
 	}
-	return ok, why
+	if !e.hasText() {
+		return "Copy text", false, e.noTextReason()
+	}
+	return "Copy text", true, ""
+}
+
+// copyTextAction is the Copy text button: the selected text when there is a
+// selection, otherwise all recognized text.
+func (e *editor) copyTextAction(gtx layout.Context) {
+	if e.hasTextSelection() {
+		e.copySelection(gtx)
+		return
+	}
+	e.copyAllText(gtx)
+}
+
+// redactSelState reports whether Redact selection can act now, and why not.
+func (e *editor) redactSelState() (bool, string) {
+	if ok, why := e.ocrAvailable(); !ok {
+		if e.ocr.mode != OCROn {
+			why = "Redact selection is not available: " + why
+		}
+		return false, why
+	}
+	if !e.hasTextSelection() {
+		return false, "Drag over text in the image to select it, then Redact selection covers it."
+	}
+	return true, ""
 }
 
 // quickRedactEnabled reports whether Quick redact can act now, and why not.
@@ -179,7 +276,14 @@ func (e *editor) quickRedactEnabled() (bool, string) {
 	return ok, why
 }
 
-func (e *editor) hasTextSelection() bool { return len(e.sel.refs) > 0 }
+// hasTextSelection reports whether text is selected. It syncs the Redact
+// mask first, so a selection made before the boxes changed does not count.
+func (e *editor) hasTextSelection() bool {
+	if e.ocr.result != nil {
+		e.words()
+	}
+	return len(e.sel.refs) > 0
+}
 
 func (e *editor) clearSelection() {
 	e.sel.refs = nil
@@ -187,48 +291,73 @@ func (e *editor) clearSelection() {
 }
 
 func (e *editor) selectedText() string {
-	return e.ocr.layout.Text(e.sel.refs)
+	return e.words().Text(e.sel.refs)
 }
 
-func (e *editor) selPress(ip image.Point) {
+// textAt returns the recognized word at ip, or near it (textsel.HitWord).
+func (e *editor) textAt(ip image.Point) (textsel.Ref, bool) {
 	if e.ocr.result == nil {
-		return
+		return textsel.Ref{}, false
 	}
-	ref, ok := e.ocr.layout.HitWord(ip)
+	return e.words().HitWord(ip)
+}
+
+// selPress starts a text selection at ip, which is on text (see textAt). A
+// second press on the same word within doubleClick selects its line.
+func (e *editor) selPress(ip image.Point) {
+	ref, ok := e.textAt(ip)
 	if !ok {
 		e.clearSelection()
 		return
 	}
 	now := time.Now()
 	if now.Sub(e.sel.lastPress) < doubleClick && ref == e.sel.lastRef {
-		e.sel.refs = e.ocr.layout.LineRefs(ref.Line)
+		e.sel.refs = e.words().LineRefs(ref.Line)
 		e.sel.dragging = false
 		e.sel.lastPress = time.Time{}
 		return
 	}
 	e.sel.lastPress, e.sel.lastRef = now, ref
-	e.sel.dragging = true
+	e.sel.dragging, e.sel.moved = true, false
+	e.sel.from = ip
 	e.sel.anchor, e.sel.focus = ref, ref
-	e.sel.refs = []textsel.Ref{ref}
+	e.sel.refs = nil
 }
 
 func (e *editor) selDrag(ip image.Point) {
 	if !e.sel.dragging {
 		return
 	}
-	if ref, ok := e.ocr.layout.HitWord(ip); ok {
-		e.sel.focus = ref
-		e.sel.refs = e.ocr.layout.Range(e.sel.anchor, e.sel.focus)
+	if !e.sel.moved {
+		d := ip.Sub(e.sel.from)
+		if t := int(e.hitTol() + 0.5); max(d.X, -d.X, d.Y, -d.Y) < max(t, 1) {
+			return
+		}
+		e.sel.moved = true
 	}
+	if ref, ok := e.words().HitWord(ip); ok {
+		e.sel.focus = ref
+	}
+	e.sel.refs = e.words().Range(e.sel.anchor, e.sel.focus)
 }
 
 func (e *editor) selRelease() { e.sel.dragging = false }
 
-// selectAllText selects every recognized word (Ctrl/Cmd+A in Select text).
-func (e *editor) selectAllText() {
-	if e.ocr.result != nil {
-		e.sel.refs = e.ocr.layout.All()
+// selectAllText selects every recognized word (Ctrl/Cmd+A in Select), or
+// says in the hint row why it cannot.
+func (e *editor) selectAllText(gtx layout.Context) {
+	if why := e.textActionBlocked(gtx); why != "" {
+		e.setHint(gtx, why)
+		return
 	}
+	if !e.hasText() {
+		e.setHint(gtx, e.noTextReason())
+		return
+	}
+	if e.selected >= 0 {
+		e.deselect()
+	}
+	e.sel.refs = e.words().All()
 }
 
 // copyText puts txt on the clipboard and, for the Linux host handoff, into
@@ -258,11 +387,11 @@ func (e *editor) copyAllText(gtx layout.Context) {
 		e.setHint(gtx, why)
 		return
 	}
-	if e.ocr.result.WordCount() == 0 {
-		e.setHint(gtx, "No text was found in this image.")
+	if !e.hasText() {
+		e.setHint(gtx, e.noTextReason())
 		return
 	}
-	e.copyText(gtx, e.ocr.result.Text())
+	e.copyText(gtx, e.words().AllText())
 }
 
 // textActionBlocked returns why a text action cannot run now ("" when it
@@ -291,7 +420,7 @@ const redactPad = 2
 // redactSelection covers the selected words with one opaque Redact shape
 // (one undo step) and clears the selection.
 func (e *editor) redactSelection(gtx layout.Context) {
-	rects := e.ocr.layout.Rects(e.sel.refs)
+	rects := e.words().Rects(e.sel.refs)
 	if len(rects) == 0 {
 		return
 	}
@@ -381,45 +510,43 @@ func kindList(kinds []ocr.Kind) string {
 
 // setHint shows a transient message in the hint row for 1.5 s.
 func (e *editor) setHint(gtx layout.Context, msg string) {
-	e.hint = hintState{text: msg, until: gtx.Now.Add(1500 * time.Millisecond)}
+	e.setHintFor(gtx, msg, 1500*time.Millisecond)
+}
+
+// setHintFor shows a transient message in the hint row for d.
+func (e *editor) setHintFor(gtx layout.Context, msg string, d time.Duration) {
+	e.hint = hintState{text: msg, until: gtx.Now.Add(d)}
 	gtx.Execute(op.InvalidateCmd{At: e.hint.until})
 }
 
-// drawTextOverlay marks every recognized word (the "show text" affordance)
-// and fills the selected ones more strongly.
+// drawTextOverlay fills the selected words. While the pointer is over text
+// or a text selection is being dragged, every recognized word is also
+// outlined faintly (the "show text" affordance).
 func (e *editor) drawTextOverlay(ops *op.Ops) {
 	if e.ocr.result == nil {
 		return
 	}
+	showAll := e.hoverText || e.sel.dragging
 	selected := map[textsel.Ref]bool{}
 	for _, r := range e.sel.refs {
 		selected[r] = true
 	}
 	acc := e.theme.accent
-	for li, l := range e.ocr.layout.Lines {
+	for li, l := range e.words().Lines {
 		for wi, w := range l.Words {
+			sel := selected[textsel.Ref{Line: li, Word: wi}]
+			if !sel && !showAll {
+				continue
+			}
 			a, b := e.screen(w.Rect.Min), e.screen(w.Rect.Max)
-			alpha := uint8(0x28)
-			if selected[textsel.Ref{Line: li, Word: wi}] {
+			alpha := uint8(0x18)
+			if sel {
 				alpha = 0x80
 			}
 			fillRect(ops, a, b, color.NRGBA{acc.R, acc.G, acc.B, alpha})
-			strokeRect(ops, a, b, 1, color.NRGBA{acc.R, acc.G, acc.B, 0xc0})
-		}
-	}
-}
-
-// overWord reports whether the image point ip is over a recognized word.
-func (e *editor) overWord(ip image.Point) bool {
-	if e.ocr.result == nil {
-		return false
-	}
-	for _, l := range e.ocr.layout.Lines {
-		for _, w := range l.Words {
-			if ip.In(w.Rect) {
-				return true
+			if showAll {
+				strokeRect(ops, a, b, 1, color.NRGBA{acc.R, acc.G, acc.B, 0x90})
 			}
 		}
 	}
-	return false
 }
