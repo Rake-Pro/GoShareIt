@@ -3,7 +3,8 @@
 A cross-platform screenshot and screen-recording tool for macOS and Windows,
 with a Linux build in beta.
 Capture a region, window, or full screen; optionally annotate it (crop, arrow,
-text, blur, and more) in a light/dark/system-themed editor; upload to
+text, blur, and more) in a light/dark/system-themed editor, or copy the text
+in a region straight to the clipboard (on-device text recognition); upload to
 Nextcloud (default), S3-compatible storage, SFTP, WebDAV, or a custom HTTP
 endpoint (with imgur/catbox/0x0.st presets), with a public
 share link or direct URL copied to your clipboard, or run entirely in
@@ -79,7 +80,9 @@ settings helpers as siblings, and the in-app updater replaces them in place.
 Runtime packages (Debian/Ubuntu names; the host and settings UI are GTK 3 +
 WebKitGTK apps): `libgtk-3-0`, `libwebkit2gtk-4.1-0`, `xdg-desktop-portal`
 plus your desktop's portal backend (`xdg-desktop-portal-gnome`, `-kde`,
-`-wlr`, ...), and `ffmpeg` for video recording.
+`-wlr`, ...), `ffmpeg` for video recording, and optionally `tesseract-ocr`
+plus a language pack (`tesseract-ocr-eng`) for text recognition in the
+editor (see [Text recognition](#text-recognition-ocr)).
 
 | | X11 session | Wayland session |
 |---|---|---|
@@ -100,7 +103,8 @@ Wayland data-control protocol or X11 selections, and "Start at login" writes
 The core (`internal/core/...`) is **pure Go**. It builds and tests on any
 platform with `CGO_ENABLED=0`, never uses cgo, and never imports a `platform/`
 package. The only processes it spawns are its own sibling helper binaries
-(editor, region overlay) and the platform updater (`ditto`/`open` on macOS).
+(editor, region overlay), the platform updater (`ditto`/`open` on macOS) and,
+on Linux, the optional `tesseract` command for text recognition.
 All other OS-specific behavior is expressed as interface seams that the core
 depends on:
 
@@ -112,15 +116,23 @@ depends on:
 | `Notifier` / `Confirmer` | `internal/core/notify` | desktop notifications, blocking confirm dialogs |
 | `Tray` | `internal/core/tray` | menu-bar / system-tray |
 | `hotkey.Manager` | `internal/core/hotkey` | global hotkeys |
+| `ocr.Engine` | `internal/core/ocr` | on-device text recognition; `internal/core/ocr/engines` picks the platform engine |
 
 Concrete OS implementations live under `platform/`:
 
 | Package | Builds on | Backs |
 |---------|-----------|-------|
 | `platform/wailsapp` | darwin + windows + linux (cgo) | tray, global hotkeys, notifications, confirm dialogs (one Wails v3 application, one main loop) |
-| `platform/darwin` | darwin (cgo) | screen capture, AVFoundation recording, clipboard, Screen Recording TCC preflight |
-| `platform/windows` | windows | screen capture, ffmpeg recording, clipboard, PrintScreen hotkey chords + registry tweak, Smart App Control notice |
-| `platform/linux` | linux (pure Go) | screen capture (X11 direct / XDG Screenshot portal on Wayland), ffmpeg `x11grab` recording, clipboard |
+| `platform/darwin` | darwin (cgo) | screen capture, AVFoundation recording, clipboard, Screen Recording TCC preflight; `platform/darwin/vision`: Apple Vision text recognition |
+| `platform/windows` | windows | screen capture, ffmpeg recording, clipboard, PrintScreen hotkey chords + registry tweak, Smart App Control notice; `platform/windows/winocr`: Windows.Media.Ocr text recognition (CGO off) |
+| `platform/linux` | linux (pure Go) | screen capture (X11 direct / XDG Screenshot portal on Wayland), ffmpeg `x11grab` recording, clipboard; text recognition is the portable `internal/core/ocr/tesseract` engine |
+
+`platform/windows/winocr/internal/winrt` is generated WinRT binding code
+(winrt-go-gen output from github.com/saltosystems/winrt-go, MIT, notice in
+`platform/windows/winocr/LICENSE.winrt-go`) committed in-repo, the same
+pattern go-toast uses for Windows notifications; the generator is not a
+module dependency. Regenerate with `sh scripts/winrt-gen.sh` (pinned
+generator commit) and review the diff.
 
 They are injected through `core.Providers` by per-GOOS
 `cmd/goshareit/wire_<goos>.go` files. `main.go` is OS-agnostic and calls
@@ -216,6 +228,63 @@ the same presets.
 Not available: Tenor has no public upload API, and Gfycat shut down.
 Deletion links, when a host returns one, are written to `history.jsonl`
 (`delete_url`) and logged at upload time.
+
+## Text recognition (OCR)
+
+The editor can find text in a capture: select and copy it, copy all of it,
+or cover it with an opaque Redact box. Recognition runs on this computer
+only (see [PRIVACY.md](PRIVACY.md)); when no engine is available the text
+tools are greyed out with the reason and the fix.
+
+| Platform | Engine | Requirement |
+|---|---|---|
+| macOS 13+ | Apple Vision (on-device) | none |
+| Windows 10/11 | Windows OCR (`Windows.Media.Ocr`) | an OCR language pack: Settings > Time & language > Language & region > your language > Language options > Optical character recognition; restart GoShareIt after installing |
+| Linux (beta) | the `tesseract` command, run locally over stdin/stdout | `sudo apt install tesseract-ocr tesseract-ocr-eng` (Debian/Ubuntu) or `sudo dnf install tesseract tesseract-langpack-eng` (Fedora); Tesseract 4.0 or newer; picked up on the next capture, no restart |
+
+- Settings > Text recognition shows the engine, its languages, or why it is
+  not available, and holds the `ocr:` options (see `config.example.yaml`).
+- Recognition starts in the background when the editor opens
+  (`ocr.auto_run`); drawing, zooming and the action buttons never wait for it.
+- Quick redact hides the emails and phone numbers it found (configurable:
+  `ocr.quick_redact`). It can miss text; check the result. Blur and Pixelate
+  are not safe for text; use Redact.
+- **Capture Text** (tray item, hotkey `hotkeys.text`): pick a region and its
+  text goes straight to the clipboard, no editor; a notification says how
+  many characters were copied. The tray item is greyed out with the reason
+  while recognition is unavailable (on Linux it enables itself within 30 s
+  of installing tesseract). Nothing is saved, uploaded or added to the
+  history.
+
+| Hotkey (`hotkeys.text`) | macOS | Windows | Linux |
+|---|---|---|---|
+| Capture Text (new installs; existing configs: set it in Settings > Hotkeys) | Cmd+Shift+8 | Ctrl+Shift+8 | Ctrl+Shift+8 |
+
+| In the editor | Does |
+|---|---|
+| Select text (`S`), then drag over words | selects in reading order; double-click selects a line |
+| Ctrl/Cmd+C | copies the selected text (the editor stays open); with no text selection it copies the image and closes, as before |
+| Ctrl/Cmd+Shift+C | copies all recognized text |
+| Ctrl/Cmd+A | selects all words (Select text) |
+| Ctrl/Cmd+Shift+R | Quick redact (one undo step) |
+| Esc | clears a text selection, then cancels as before |
+| Redact (`X`) | drag an opaque box; uses the current colour, black recommended |
+
+Other editor keys (not while typing annotation text):
+
+| Key | Does |
+|---|---|
+| `V` `C` `A` `R` `E` `T` `B` `P` `H` `N` `L` `F` `X` `S` | Select, Crop, Arrow, Rectangle, Ellipse, Text, Blur, Pixelate, Highlight, Step, Line, Freehand, Redact, Select text |
+| Select (`V`): click a shape, drag it | selects and moves a placed annotation (thin strokes have a few pixels of slack) |
+| Delete / Backspace | removes the selected shape |
+| Arrow keys / Shift+arrow keys | nudge the selected shape 1 px / 10 px (a run of nudges is one undo step) |
+| Esc | abandons a drag in progress, then deselects, then cancels as before |
+| Crop (`C`) handles | drag a corner or edge to resize, inside to move, outside for a new crop; Enter confirms the editor |
+| `[` / `]` | stroke width -1 / +1 (also restyles the selected shape) |
+| `1` to `7` | colour swatch (also recolours the selected shape) |
+| Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y | undo / redo, including moves, deletes, restyles and crop changes |
+| Ctrl/Cmd+0 / Ctrl/Cmd+1 | zoom to fit / 100% (the zoom readout in the toolbar toggles the same) |
+| Ctrl/Cmd+= / Ctrl/Cmd+- | zoom in / out |
 
 ## Validated upload flow
 

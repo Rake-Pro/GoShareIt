@@ -54,6 +54,36 @@ updater check (with a PAT, correctly reports up-to-date).
   (Nextcloud/S3/SFTP/WebDAV/Custom select + presets) and the new theme
   setting (light/dark/system) in both the settings window and the
   annotation editor.
+- Text recognition and the v0.4.0 editor round (Unreleased; compiled and
+  unit-tested, never run on a device): Apple Vision recognition (the
+  macos-build CI job runs a synthetic-image test; the signed, notarized
+  bundle must still launch with no new TCC prompt); Windows OCR with and
+  without an OCR language pack (`go test ./platform/windows/winocr/` on a
+  Windows machine: the bindings are hand-checked vtable code); tesseract on
+  X11 and Wayland, including installing it while the host runs and the
+  host's clipboard re-assert of copied text after the editor closes; the
+  greyed Select text reason matching Settings; drag-select, double-click
+  line, Ctrl/Cmd+C text vs image, Copy all, Redact selection, Quick redact
+  and its single undo step, an opaque Redact in the saved PNG; zoom keys and
+  a pixel-exact 100% on HiDPI; single-key tools not firing while typing;
+  anti-aliased arrows/lines/text at stroke 1, 6 and 32.
+- Capture Text and the v0.4.1 editor round (Unreleased; compiled and
+  unit-tested, never run on a device): the tray item reading "checking..."
+  only briefly at start, then greyed with the reason in its title (and as a
+  tooltip on macOS/Linux) while recognition is unavailable, enabling itself
+  on Linux within 30 s of installing tesseract; the Settings hotkey field
+  editable while unavailable and greyed only with text recognition off; on
+  Windows an overlay failure reported instead of the snip fallback;
+  the default `{mod}+Shift+8` hotkey registering on each OS; region ->
+  "Text copied (N characters)" notification and the text pasting in another
+  app, also on Wayland after a while (the host holds the selection); Esc in
+  the overlay stays quiet; a hotkey press while unavailable notifies the
+  reason. Editor: Select (`V`) picks thin strokes and filled shapes, drag
+  moves, Delete/Backspace removes (macOS Delete key), arrow and Shift+arrow
+  nudges, swatch and `[`/`]` restyle the selection, Esc order (drag, then
+  selection, then cancel), undo/redo across moves, deletes and crop edits;
+  crop handles: eight squares, resize cursors, hit areas the same size on a
+  HiDPI display at any zoom, Enter confirms with a crop mid-drag.
 
 ## Features
 

@@ -9,6 +9,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/gifrec"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr/engines"
 	"github.com/Rake-Pro/GoShareIt/platform/darwin"
 	"github.com/Rake-Pro/GoShareIt/platform/wailsapp"
 )
@@ -43,5 +44,6 @@ func buildProviders(cfg *config.Config) (core.Providers, error) {
 		Confirmer: ui.Confirmer(),
 		Tray:      ui.Tray(),
 		Hotkeys:   ui.Hotkeys(),
+		OCR:       engines.New(engines.Config{Langs: cfg.OCR.Languages}),
 	}, nil
 }

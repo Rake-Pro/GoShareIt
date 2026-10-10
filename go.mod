@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	gioui.org v0.10.3
+	github.com/go-ole/go-ole v1.3.0
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/jezek/xgb v1.3.1
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
@@ -27,7 +28,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/gen2brain/shm v0.2.2 // indirect
-	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect

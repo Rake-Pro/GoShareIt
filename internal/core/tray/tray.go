@@ -9,7 +9,8 @@ type MenuItem struct {
 	Title     string
 	OnClick   func()
 	Separator bool
-	Disabled  bool // initial state: true => greyed out (still present) at startup
+	Disabled  bool   // initial state: true => greyed out (still present) at startup
+	Tooltip   string // hover text where the platform shows one (why an item is greyed)
 }
 
 // MenuSpec describes the tray menu to display.

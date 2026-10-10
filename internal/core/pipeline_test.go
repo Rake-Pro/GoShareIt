@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/edit"
 	"github.com/Rake-Pro/GoShareIt/internal/core/fake"
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr/ocrtest"
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
 
@@ -28,10 +31,12 @@ type fakeEditor struct {
 	action edit.Action
 	err    error
 	calls  int
+	opts   edit.Opts // last Opts received
 }
 
-func (e *fakeEditor) Edit(_ context.Context, in capture.Result, _ edit.Opts) (capture.Result, edit.Action, bool, error) {
+func (e *fakeEditor) Edit(_ context.Context, in capture.Result, opts edit.Opts) (capture.Result, edit.Action, bool, error) {
 	e.calls++
+	e.opts = opts
 	if e.err != nil {
 		return in, edit.ActionDefault, false, e.err
 	}
@@ -813,4 +818,92 @@ func TestPipelineGuardReleasedBeforeUpload(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+}
+
+// ocrApp builds an app with an editor and a scripted OCR engine.
+func ocrApp(t *testing.T, eng *ocrtest.Fake, reprobe bool) (*App, *fakeEditor) {
+	t.Helper()
+	hist, err := history.New(filepath.Join(t.TempDir(), "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ed := &fakeEditor{out: capture.Result{Bytes: []byte("EDITEDPNG"), Mime: "image/png", Kind: capture.KindImage}, ok: true}
+	cfg := baseCfg()
+	off := false
+	cfg.Upload.Enabled = &off
+	p := Providers{Capturer: fake.NewCapturer(), Uploader: fake.NewUploader(), Clipboard: &fake.Clipboard{}, Editor: ed, OCR: eng}
+	app, err := New(cfg, p, zerolog.Nop(), hist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.reprobeOCR = reprobe
+	return app, ed
+}
+
+func TestPipelinePassesOCRStatusToEditor(t *testing.T) {
+	eng := &ocrtest.Fake{Status: ocr.Status{Available: true, Engine: ocr.EngineTesseract, Langs: []string{"en"}}}
+	app, ed := ocrApp(t, eng, true)
+	if st := app.OCRStatus(); st.Available || st.Reason != "Text recognition is still starting." {
+		t.Fatalf("status before probe = %+v", st)
+	}
+	app.ProbeOCR(context.Background())
+	if _, err := app.RunCaptureEdit(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if !ed.opts.OCR.Available || ed.opts.OCR.Engine != ocr.EngineTesseract {
+		t.Fatalf("editor got OCR %+v", ed.opts.OCR)
+	}
+	if n := eng.ProbeCalls.Load(); n != 1 {
+		t.Fatalf("probe calls = %d, want 1 (no re-probe while available)", n)
+	}
+}
+
+func TestPipelineReprobesUnavailableOCR(t *testing.T) {
+	eng := &ocrtest.Fake{Status: ocr.Status{Reason: "Tesseract is not installed."}}
+	app, ed := ocrApp(t, eng, true)
+	app.ProbeOCR(context.Background())
+	// Installed while the host runs: the next editor launch sees it.
+	eng.Status = ocr.Status{Available: true, Engine: ocr.EngineTesseract}
+	if _, err := app.RunCaptureEdit(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if n := eng.ProbeCalls.Load(); n != 2 {
+		t.Fatalf("probe calls = %d, want 2", n)
+	}
+	if !ed.opts.OCR.Available || !app.OCRStatus().Available {
+		t.Fatalf("editor OCR = %+v, cached = %+v", ed.opts.OCR, app.OCRStatus())
+	}
+
+	// Without the re-probe rule (macOS, Windows) the cached reason stands.
+	eng2 := &ocrtest.Fake{Status: ocr.Status{Reason: "No OCR language is installed on Windows."}}
+	app2, ed2 := ocrApp(t, eng2, false)
+	app2.ProbeOCR(context.Background())
+	if _, err := app2.RunCaptureEdit(context.Background(), capture.FullScreen); err != nil {
+		t.Fatal(err)
+	}
+	if n := eng2.ProbeCalls.Load(); n != 1 || ed2.opts.OCR.Available {
+		t.Fatalf("probe calls = %d, editor OCR = %+v", n, ed2.opts.OCR)
+	}
+}
+
+func TestProbeOCRTimesOut(t *testing.T) {
+	app, _ := ocrApp(t, &ocrtest.Fake{}, false)
+	app.ocr = blockingProbe{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if st := app.ProbeOCR(ctx); st.Available || st.Reason != "Text recognition did not answer in time." {
+		t.Fatalf("status = %+v", st)
+	}
+	if app.OCREngine() == nil {
+		t.Fatal("OCREngine is nil")
+	}
+}
+
+// blockingProbe never answers until ctx ends.
+type blockingProbe struct{ ocr.Unavailable }
+
+func (blockingProbe) Probe(ctx context.Context) ocr.Status {
+	<-ctx.Done()
+	time.Sleep(10 * time.Millisecond)
+	return ocr.Status{Available: true}
 }

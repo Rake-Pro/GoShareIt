@@ -309,7 +309,17 @@ const TOOLS = [
   { v: "ellipse", l: "Ellipse" }, { v: "line", l: "Line" }, { v: "freehand", l: "Freehand" },
   { v: "text", l: "Text" }, { v: "blur", l: "Blur" }, { v: "pixelate", l: "Pixelate" },
   { v: "highlight", l: "Highlight" }, { v: "step", l: "Step" },
+  { v: "redact", l: "Redact" }, { v: "select_text", l: "Select text" },
 ];
+// Text recognition: the Quick redact kinds, and a gate whose hint is read
+// from LoadResult.ocrReason (the "@" prefix) so it shows the live reason.
+const QUICK_REDACT = [
+  { v: "email", l: "Emails" }, { v: "phone", l: "Phone numbers" }, { v: "token", l: "API keys and tokens" },
+  { v: "url", l: "URLs" }, { v: "ip", l: "IP addresses" },
+];
+const OCR_GATE = ["ocrAvailable", "@ocrReason"];
+const CAPTURE_TEXT_HINT = "copies the text in a region, no editor";
+const OCR_ENGINES = { "apple-vision": "Apple Vision", "windows-media-ocr": "Windows OCR", "tesseract-cli": "Tesseract" };
 // gates: [LoadResult flag, hint] pairs; a field whose flag is false is
 // shown greyed out with that hint instead of accepting an ignored edit.
 const STORE_UPDATES = ["updaterAvailable", "the Microsoft Store installs updates for this copy"];
@@ -450,6 +460,9 @@ const SCHEMA = [
     { p: "Hotkeys.UploadToggle", l: "Toggle uploads", t: "text", hint: "flip local-only mode on/off" },
     { p: "Hotkeys.Record",     l: "Toggle recording", t: "text",
       gates: [["recordingSupported", "screen recording is not available in this desktop session"]] },
+    // Greyed only while text recognition is turned off (the host then does
+    // not bind it); see syncTextHotkey.
+    { p: "Hotkeys.Text",       l: "Capture text", t: "text", hint: CAPTURE_TEXT_HINT },
     { p: "Hotkeys.Quit",       l: "Quit", t: "text" },
     { p: "Hotkeys.DisableSnippingPrintScreen", l: "Free the PrintScreen key", t: "bool", os: "windows",
       hint: "turns off Windows' \"Use the Print screen key to open screen capture\" so Snipping Tool stops claiming PrintScreen; sign out and back in if a PrintScreen hotkey still does not fire" },
@@ -465,6 +478,19 @@ const SCHEMA = [
     { p: "Editor.DefaultTool", l: "Default tool", t: "select", opts: TOOLS },
     { p: "Editor.Color",       l: "Color", t: "color" },
     { p: "Editor.StrokeWidth", l: "Stroke width", t: "number", max: 32, hint: "editor default, 1 to 32 px" },
+  ]},
+  { title: "Text recognition", tint: "#bf5af2",
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5h3M17 5h3v3M20 16v3h-3M7 19H4v-3"/><path d="M9 9h6M12 9v7"/></svg>`,
+    note: "Select and copy text in a capture, and hide emails and phone numbers with Quick redact. Recognition runs on this computer only; recognized text goes nowhere but your clipboard.",
+    fields: [
+    { p: "@ocr_status", l: "Status", t: "status" },
+    { p: "OCR.Enabled", l: "Recognize text in the editor", t: "bool", hint: "adds Select text and Quick redact to the editor" },
+    { p: "OCR.AutoRun", l: "Recognize automatically when the editor opens", t: "bool",
+      hint: "off = recognition starts on the first click of Select text", gates: [OCR_GATE] },
+    { p: "OCR.Languages", l: "Languages", t: "csv", hint: "language tags such as en, de; leave empty for the system default", gates: [OCR_GATE] },
+    { p: "OCR.QuickRedact", l: "Quick redact hides", t: "checks", opts: QUICK_REDACT, gates: [OCR_GATE] },
+    { p: "OCR.TesseractPath", l: "Tesseract command", t: "text", os: "linux",
+      hint: "blank = search PATH; install with: sudo apt install tesseract-ocr tesseract-ocr-eng" },
   ]},
   { title: "Updates", tint: "#64d2ff",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0113.7-5.6L20 8"/><path d="M20 4v4h-4"/><path d="M20 12a8 8 0 01-13.7 5.6L4 16"/><path d="M4 20v-4h4"/></svg>`,
@@ -578,7 +604,9 @@ function renderFieldRow(f) {
   let gateHint = "";
   if (f.packagedOff && model.packaged) gateHint = f.packagedHint || f.hint;
   for (const [flag, why] of (f.gates || [])) {
-    if (!gateHint && model[flag] === false) gateHint = why;
+    // A why starting with "@" names the LoadResult field holding the live
+    // reason (e.g. the text-recognition probe).
+    if (!gateHint && model[flag] === false) gateHint = why.startsWith("@") ? (model[why.slice(1)] || "not available") : why;
   }
   const gated = !!gateHint;
   let stacked = false;
@@ -590,6 +618,11 @@ function renderFieldRow(f) {
     const cls = hk ? "keycap" : "input w-lg";
     control = `<input type="text" class="${cls}" id="${id}" value="${esc(val ?? "")}">` +
       (hk ? `<button type="button" class="btn btn-plain btn-sm" data-record="${id}" title="Press a key combination to fill this field">Record</button>` : "");
+  } else if (f.t === "csv") {
+    control = `<input type="text" class="input w-lg" id="${id}" value="${esc((val || []).join(", "))}">`;
+  } else if (f.t === "status") {
+    stacked = true;
+    control = `<div class="row-hint" id="${id}">${esc(ocrStatusText())}</div>`;
   } else if (f.t === "dir") {
     control = `<input type="text" class="input w-lg" id="${id}" value="${esc(val ?? "")}">` +
       `<button type="button" class="btn btn-plain btn-sm" data-browse="${id}">Browse...</button>`;
@@ -601,7 +634,7 @@ function renderFieldRow(f) {
   } else if (f.t === "bool") {
     // *bool fields default to true when null. The checkbox is a real input
     // inside the switch, so every id/checked path keeps working.
-    const defaultTrue = f.p === "Update.Enabled" || f.p === "Upload.Enabled";
+    const defaultTrue = ["Update.Enabled", "Upload.Enabled", "OCR.Enabled", "OCR.AutoRun"].includes(f.p);
     const on = defaultTrue ? (val !== false) : !!val;
     control = `<label class="switch"><input type="checkbox" id="${id}" ${on ? "checked" : ""}>` +
       `<span class="track"><span class="thumb"></span></span></label>`;
@@ -660,7 +693,7 @@ function renderFieldRow(f) {
   const hint = gated ? gateHint : f.hint;
   // A real <label for> names text boxes, switches, selects and secrets for
   // screen readers; checks groups point at it via aria-labelledby.
-  const labelTag = (f.t === "checks" || f.t === "info") ? "div" : "label";
+  const labelTag = (f.t === "checks" || f.t === "info" || f.t === "status") ? "div" : "label";
   row.innerHTML = `<div class="row-text"><${labelTag} class="row-label" id="${id}_label"${labelTag === "label" ? ` for="${id}"` : ""}>${esc(f.l)}</${labelTag}>` +
     (hint ? `<div class="row-hint" id="${id}_hint">${esc(hint)}</div>` : "") + `</div>` +
     `<div class="row-control">${control}</div>`;
@@ -751,6 +784,7 @@ function render() {
   syncDestPanel();
   syncEnabledState();
   syncDefaultTool();
+  syncTextHotkey();
 }
 
 // selectPane shows exactly one pane and marks the matching sidebar item.
@@ -841,11 +875,41 @@ function syncEnabledState() {
   syncPresetButton();
 }
 
+// syncTextHotkey greys the Capture text hotkey only while text recognition
+// is turned off, when the host does not bind it. Merely unavailable (no
+// engine yet) keeps it editable, because the host still holds the chord;
+// the hint then says why it does not work yet.
+function syncTextHotkey() {
+  const id = fieldId("Hotkeys.Text");
+  const row = document.querySelector(`[data-row="${id}"]`);
+  const box = $(fieldId("OCR.Enabled"));
+  if (!row || !box) return;
+  const off = !box.checked;
+  row.classList.toggle("gated", off);
+  row.querySelectorAll("input, button").forEach((el) => { el.disabled = off; });
+  const hint = $(id + "_hint");
+  if (!hint) return;
+  if (off) hint.textContent = "text recognition is turned off (see Text recognition)";
+  else if (!model.ocrAvailable) hint.textContent = CAPTURE_TEXT_HINT + "; not working yet: " + (model.ocrReason || "no text recognition engine was found.");
+  else hint.textContent = CAPTURE_TEXT_HINT;
+}
+
 // syncPresetButton enables "Apply preset" only once a host is chosen.
 function syncPresetButton() {
   const btn = $("btn_apply_preset");
   const sel = $(fieldId("@custom_preset"));
   if (btn && sel) btn.disabled = sel.disabled || !sel.value;
+}
+
+// ocrStatusText is the Text recognition status line from the Load probe:
+// the engine with its version and languages, or why it is not available.
+function ocrStatusText() {
+  if (!model.ocrAvailable) return "Not available: " + (model.ocrReason || "no text recognition engine was found.");
+  let s = OCR_ENGINES[model.ocrEngine] || model.ocrEngine || "Available";
+  if (model.ocrVersion) s += " " + model.ocrVersion;
+  const langs = model.ocrLangs || [];
+  if (langs.length) s += " (" + (langs.length > 12 ? langs.slice(0, 12).join(", ") + ", ..." : langs.join(", ")) + ")";
+  return s;
 }
 
 // syncDefaultTool limits the Default tool choices to the checked Tools, and
@@ -868,7 +932,7 @@ function collect() {
   for (const sec of SCHEMA) {
     for (const f of allFields(sec)) {
       const id = fieldId(f.p);
-      if (f.t === "preset" || f.t === "info") continue; // UI-only, not part of the config
+      if (f.t === "preset" || f.t === "info" || f.t === "status") continue; // UI-only, not part of the config
       if (f.t === "secret") {
         const v = $(id).value;
         if (f.p === "@password") {
@@ -892,6 +956,8 @@ function collect() {
         set(cfg, f.p, n);
       } else if (f.t === "kv") {
         set(cfg, f.p, textToKv($(id).value));
+      } else if (f.t === "csv") {
+        set(cfg, f.p, $(id).value.split(",").map((x) => x.trim()).filter((x) => x));
       } else {
         set(cfg, f.p, $(id).value);
       }
@@ -1125,6 +1191,7 @@ $("discard").addEventListener("click", () => {
 
 $("form").addEventListener("change", (e) => {
   if (e.target.id === fieldId("Upload.Enabled")) syncEnabledState();
+  if (e.target.id === fieldId("OCR.Enabled")) syncTextHotkey();
   if (e.target.id === fieldId("Upload.Destination")) syncDestPanel();
   if (e.target.id === fieldId("Theme")) applyTheme(e.target.value);
   if (e.target.id === fieldId("@custom_preset")) syncPresetButton();

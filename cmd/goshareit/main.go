@@ -29,6 +29,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
 	"github.com/Rake-Pro/GoShareIt/internal/core/instance"
 	"github.com/Rake-Pro/GoShareIt/internal/core/notify"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
 	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
 	"github.com/Rake-Pro/GoShareIt/internal/core/update"
@@ -93,6 +94,9 @@ func main() {
 	}
 	zerolog.SetGlobalLevel(level)
 	logger := log.Logger
+	if cfg.MigratedEditorTools() {
+		logger.Info().Strs("tools", cfg.Editor.Tools).Msg("editor.tools was the old starter list; added redact and select_text (saved on the next Settings save)")
+	}
 
 	hist, err := history.New(historyPath())
 	if err != nil {
@@ -120,6 +124,14 @@ func main() {
 		ConfirmLabelFor: func(canUpload bool) string {
 			return composeConfirmLabel(cfg, canUpload)
 		},
+		OCREnabled:  cfg.OCREnabled(),
+		OCRAutoRun:  cfg.OCRAutoRun(),
+		OCRLangs:    cfg.OCR.Languages,
+		QuickRedact: cfg.OCR.QuickRedact,
+		OCRTimeout:  time.Duration(cfg.OCR.TimeoutSeconds) * time.Second,
+		OnText:      textHandoff(providers.Clipboard),
+
+		TesseractPath: config.ExpandHome(cfg.OCR.TesseractPath),
 	}
 
 	app, err := core.New(cfg, providers, logger, hist)
@@ -364,6 +376,48 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		}
 	}
 
+	// Capture Text: region -> recognized text on the clipboard, no editor.
+	// Text recognition availability is probed in the background at start (a
+	// subprocess on Linux, re-probed there while unavailable); the tray item
+	// is greyed out with the reason until it is available.
+	applyText := func(st ocr.Status) {
+		if tr == nil {
+			return
+		}
+		title, enabled, why := textItemState(st, label("Capture Text", cfg.Hotkeys.Text))
+		tr.SetItemTitle(textItemID, title)
+		tr.SetItemEnabled(textItemID, enabled)
+		if tt, ok := tr.(interface{ SetItemTooltip(id, tip string) }); ok {
+			tt.SetItemTooltip(textItemID, why)
+		}
+	}
+	firstProbe := make(chan struct{})
+	go watchOCR(ctx, app, applyText, firstProbe)
+	captureText := func(trigger string) func() {
+		return func() {
+			out, err := app.CaptureText(ctx)
+			var unavailable *core.TextUnavailableError
+			switch {
+			case errors.As(err, &unavailable):
+				// Pressed while greyed out (a hotkey cannot be): say why,
+				// nothing was captured.
+				log.Info().Str("trigger", trigger).Str("reason", unavailable.Status.Reason).Msg("capture text unavailable")
+				applyText(unavailable.Status)
+				notifyUser("Capture Text is not available", unavailable.Status.Explain())
+			case err != nil:
+				log.Error().Err(err).Str("trigger", trigger).Msg("capture text failed")
+				if ctx.Err() == nil {
+					_, body := friendlyError(err)
+					notifyUser("Capture Text failed", body)
+				}
+			default:
+				if title, body, ok := textNotification(out); ok {
+					notifyUser(title, body)
+				}
+			}
+		}
+	}
+
 	runShotEdit := func(mode capture.Mode) func() {
 		return func() {
 			if _, err := app.RunCaptureEdit(ctx, mode); err != nil {
@@ -421,6 +475,13 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 			{"upload-toggle", cfg.Hotkeys.UploadToggle, uploadToggle},
 			{"quit", cfg.Hotkeys.Quit, quit},
 		}
+		// Turned off in Settings: do not hold a global chord for it.
+		if cfg.OCREnabled() && cfg.Hotkeys.Text != "" {
+			bindings = append(bindings, struct {
+				id, keys string
+				fn       func()
+			}{"text", cfg.Hotkeys.Text, captureText("hotkey")})
+		}
 		if app.RecordingSupported() && cfg.Hotkeys.Record != "" {
 			bindings = append(bindings, struct {
 				id, keys string
@@ -470,6 +531,30 @@ func run(ctx context.Context, app *core.App, updates *updateController, settings
 		items = append(items, tray.MenuItem{ID: "window", Title: label("Capture Window", cfg.Hotkeys.Window), OnClick: runShot(captureMode("window"))})
 	}
 	items = append(items, tray.MenuItem{ID: "region-edit", Title: label("Capture Region and Edit", cfg.Hotkeys.RegionEdit), OnClick: runShotEdit(captureMode("region"))})
+	// The tray (and with it the global hotkeys) starts at once: until the
+	// first probe lands the item reads "checking" and is greyed out;
+	// watchOCR then sets its real state.
+	textTitle, textEnabled, textWhy := textItemChecking()
+	select {
+	case <-firstProbe:
+		textTitle, textEnabled, textWhy = textItemState(app.TextStatus(), label("Capture Text", cfg.Hotkeys.Text))
+	default:
+		// The result can land while the menu is still being built, before
+		// the item exists to take it; apply it once more a moment later.
+		go func() {
+			select {
+			case <-firstProbe:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case <-time.After(2 * time.Second):
+				applyText(app.TextStatus())
+			case <-ctx.Done():
+			}
+		}()
+	}
+	items = append(items, tray.MenuItem{ID: textItemID, Title: textTitle, OnClick: captureText("tray"), Disabled: !textEnabled, Tooltip: textWhy})
 	// Recording: separate Start (video), Start GIF, and a shared Stop. Stop starts
 	// greyed out; while recording, both Start items grey and Stop enables. Each
 	// Start item appears only if its mode is supported on this build.

@@ -158,6 +158,11 @@ hotkeys:
   # Ctrl+Shift+R: browsers use that chord for hard reload, and the global hotkey
   # swallows it while silently toggling a recording.
   record: "Cmd+Shift+2"
+  # Capture Text: pick a region, recognize its text on this computer and copy
+  # it to the clipboard, without the editor (greyed out in the tray while text
+  # recognition is unavailable; see ocr: below). Avoid Cmd+Shift+T /
+  # Ctrl+Shift+T: browsers reopen a closed tab with it.
+  text: "Cmd+Shift+8"
   # Unbound by default: Cmd+Shift+Q is the macOS logout chord and the global
   # hotkey would swallow it (Quit is always available in the tray menu).
   quit: ""
@@ -170,7 +175,21 @@ editor:
   default_tool: arrow
   stroke_width: 6       # px; 3 is near-invisible on retina-resolution captures
   color: "#ff3b30"
-  tools: [crop, arrow, rect, text, blur, highlight, step]
+  # The Select tool (move, delete, restyle placed shapes) is always shown first.
+  tools: [crop, arrow, rect, text, blur, highlight, step, redact, select_text]
+
+# On-device text recognition in the editor (Select text, Copy text, Quick
+# redact) and for Capture Text (hotkeys.text). Apple Vision on macOS, Windows
+# OCR on Windows, the tesseract command on Linux when it is installed;
+# nothing leaves the machine.
+ocr:
+  enabled: true           # text recognition (editor Select text, Quick redact; Capture Text); all on-device
+  auto_run: true          # recognize as soon as the editor opens (false = on first click of Select text)
+  languages: []           # BCP-47 tags, e.g. [en, de]; empty = system default (Vision auto-detect,
+                          # Windows profile languages, tesseract eng or the first installed pack)
+  quick_redact: [email, phone]   # what the Quick redact button hides: email, phone, token, url, ip
+  tesseract_path: ""      # Linux: path to the tesseract command; "" searches PATH
+  timeout_seconds: 20     # per recognition
 
 update:
   enabled: true           # self-update from GitHub Releases

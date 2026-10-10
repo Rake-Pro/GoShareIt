@@ -17,10 +17,21 @@
 //
 // Invocation:
 //
-//	goshareit-editor --in <input.png> --out <output.png> \
+//	goshareit-editor --in <input.png> --out <output.png> [--text-out <text.txt>] \
 //	    [--tool <name>] [--color <#rrggbb>] [--stroke <int>] [--tools <csv>] \
 //	    [--theme light|dark|system] [--confirm-label <text>] \
-//	    [--actions] [--upload-enabled=true|false]
+//	    [--actions] [--upload-enabled=true|false] \
+//	    [--ocr=on|off|hidden] [--ocr-reason <text>] [--ocr-auto=true|false] \
+//	    [--ocr-langs <csv>] [--ocr-quick-redact <csv>] [--ocr-timeout <seconds>] \
+//	    [--ocr-tesseract <path>]
+//
+// Text recognition: --ocr=on builds the platform engine and enables Select
+// text and Quick redact; off shows them greyed out with --ocr-reason; hidden
+// (the default, so an old host keeps today's UI) leaves Select text out.
+// Copying text never ends the editor and needs no exit code: the text goes
+// to the clipboard and is also written to --text-out (0600, overwritten on
+// each copy) so the host can re-assert it after exit (Linux selections die
+// with their owner).
 //
 // It is build-tagged for darwin, windows and linux with cgo because Gio needs
 // cgo on macOS and Linux and a GPU backend everywhere; the CGO-disabled Linux
@@ -36,10 +47,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gioui.org/app"
 	"github.com/rs/zerolog/log"
 
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr/engines"
 	"github.com/Rake-Pro/GoShareIt/internal/core/update"
 	"github.com/Rake-Pro/GoShareIt/internal/editor/region"
 	"github.com/Rake-Pro/GoShareIt/internal/editor/ui"
@@ -52,7 +66,7 @@ func main() {
 	regionMode := flag.Bool("region", false, "run the interactive screen-region selector instead of the editor")
 	updateJob := flag.String("update", "", "run the update window for the given job file instead of the editor")
 	changelogJob := flag.String("changelog", "", "show the what's-new window for the given job file; exit 0 = update now, 64 = later")
-	tool := flag.String("tool", "", "initial tool (crop|arrow|rect|ellipse|line|freehand|text|blur|pixelate|highlight|step)")
+	tool := flag.String("tool", "", "initial tool (crop|arrow|rect|ellipse|line|freehand|text|blur|pixelate|highlight|step|redact|select_text)")
 	colorHex := flag.String("color", "", "initial color as #rrggbb")
 	stroke := flag.Int("stroke", 0, "initial stroke width")
 	toolsCSV := flag.String("tools", "", "comma-separated tool whitelist")
@@ -60,6 +74,14 @@ func main() {
 	confirmLabel := flag.String("confirm-label", "", "label rendered on the confirm button (\"\" -> Done)")
 	actions := flag.Bool("actions", false, "show the explicit Copy/Save/Upload action buttons")
 	uploadEnabled := flag.Bool("upload-enabled", true, "whether uploads are currently enabled (greys out Upload when false)")
+	textOut := flag.String("text-out", "", "file that also receives text copied in the editor, for the host")
+	ocrMode := flag.String("ocr", ui.OCRHidden, "text recognition: on|off|hidden")
+	ocrReason := flag.String("ocr-reason", "", "why text recognition is unavailable (with --ocr=off)")
+	ocrAuto := flag.Bool("ocr-auto", true, "recognize text as soon as the window opens (false = on first use)")
+	ocrLangs := flag.String("ocr-langs", "", "comma-separated BCP-47 recognition languages; empty = engine default")
+	ocrQuick := flag.String("ocr-quick-redact", "email,phone", "comma-separated kinds Quick redact hides: email, phone, token, url, ip")
+	ocrTimeout := flag.Int("ocr-timeout", 20, "seconds one recognition may take")
+	ocrTesseract := flag.String("ocr-tesseract", "", "Linux: path to the tesseract command; empty = search PATH")
 	flag.Parse()
 
 	if *updateJob != "" {
@@ -93,6 +115,21 @@ func main() {
 		ConfirmLabel: *confirmLabel,
 		Actions:      *actions,
 		CanUpload:    *uploadEnabled,
+
+		OCRMode:    strings.ToLower(strings.TrimSpace(*ocrMode)),
+		OCR:        ocr.Status{Reason: *ocrReason},
+		OCRAuto:    *ocrAuto,
+		OCRLangs:   splitCSV(*ocrLangs),
+		OCRTimeout: time.Duration(*ocrTimeout) * time.Second,
+		TextOut:    *textOut,
+	}
+	for _, k := range splitCSV(*ocrQuick) {
+		if kind, ok := ocr.ParseKind(k); ok {
+			opts.QuickRedact = append(opts.QuickRedact, kind)
+		}
+	}
+	if opts.OCRMode == ui.OCROn {
+		opts.OCREngine = engines.New(engines.Config{Langs: opts.OCRLangs, TesseractPath: *ocrTesseract})
 	}
 	if c, ok := parseHexColor(*colorHex); ok {
 		opts.Color = c
@@ -259,6 +296,17 @@ func resolveTheme(v string) string {
 		}
 		return "light"
 	}
+}
+
+// splitCSV splits a comma-separated flag value, dropping empty entries.
+func splitCSV(s string) []string {
+	var out []string
+	for _, v := range strings.Split(s, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // parseHexColor parses #rrggbb (with or without leading #) into an opaque NRGBA.

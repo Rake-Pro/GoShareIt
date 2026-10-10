@@ -57,6 +57,16 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Vet Windows (CGO off)
+        # go vet ./... above only sees linux; the generated WinRT bindings in
+        # platform/windows/winocr are unsafe vtable code that vet's unsafeptr
+        # check should see too.
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: go vet ./platform/windows/... ./cmd/...
+
       - name: Test
         run: go test ./...
 
@@ -68,7 +78,8 @@ jobs:
   # macOS cgo build matrix. This compiles the full app (cmd/goshareit) with cgo
   # for both Apple Silicon and Intel, proving the darwin shells build: the
   # AVFoundation recorder and the Screen Recording TCC preflight in
-  # platform/darwin, golang.design/x/clipboard, and the Wails v3 tray /
+  # platform/darwin, the Apple Vision text recognition in
+  # platform/darwin/vision, golang.design/x/clipboard, and the Wails v3 tray /
   # global-shortcut / notification / dialog backends in platform/wailsapp.
   # This is the ONLY place the darwin halves of those packages are compiled.
   # ---------------------------------------------------------------------------
@@ -97,6 +108,20 @@ jobs:
           go build -tags production -o /tmp/goshareit-${{ matrix.goarch }} ./cmd/goshareit
           go build -o /tmp/goshareit-editor-${{ matrix.goarch }} ./cmd/goshareit-editor
           go build -tags production -o /tmp/goshareit-settings-${{ matrix.goarch }} ./cmd/goshareit-settings
+
+      # Real Apple Vision text recognition over a rendered test string. Only
+      # on the native arm64 leg: the amd64 leg cross-compiles and its test
+      # binary would need Rosetta on the runner.
+      # continue-on-error until this step has passed once on macos-latest:
+      # whether the hosted runner can run Vision at all is unverified. The
+      # test already skips when Vision is unavailable or errors; once a run
+      # is green, delete continue-on-error so a wrong result fails the job.
+      - name: Test Vision (cgo on)
+        if: matrix.goarch == 'arm64'
+        continue-on-error: true
+        env:
+          CGO_ENABLED: "1"
+        run: go test -count=1 -v ./platform/darwin/vision/...
 
       # Signing is intentionally NOT performed in CI by default. It only runs
       # when the signing secrets are configured, so forks/PRs build cleanly.

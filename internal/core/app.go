@@ -6,7 +6,10 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"runtime"
+	"slices"
 	"sync/atomic"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -17,6 +20,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/history"
 	"github.com/Rake-Pro/GoShareIt/internal/core/hotkey"
 	"github.com/Rake-Pro/GoShareIt/internal/core/notify"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
 	"github.com/Rake-Pro/GoShareIt/internal/core/tray"
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
@@ -33,6 +37,7 @@ type Providers struct {
 	Tray      tray.Tray
 	Hotkeys   hotkey.Manager
 	Editor    edit.Editor // optional; nil -> no edit step
+	OCR       ocr.Engine  // optional; nil = ocr.Unavailable
 }
 
 // App is the portable orchestrator.
@@ -60,6 +65,14 @@ type App struct {
 	tray      tray.Tray
 	hotkeys   hotkey.Manager
 	editor    edit.Editor // may be nil: no edit step
+
+	// ocr is the text-recognition engine; ocrStatus caches its last probe
+	// (nil until ProbeOCR stores one). reprobeOCR re-probes before an editor
+	// launch while the cached status is unavailable (Linux: tesseract can be
+	// installed while the host runs).
+	ocr        ocr.Engine
+	ocrStatus  atomic.Pointer[ocr.Status]
+	reprobeOCR bool
 }
 
 // New constructs an App from config, providers, a logger and a history store.
@@ -86,9 +99,74 @@ func New(cfg *config.Config, p Providers, log zerolog.Logger, hist *history.Hist
 		tray:      p.Tray,
 		hotkeys:   p.Hotkeys,
 		editor:    p.Editor,
+		ocr:       p.OCR,
+
+		reprobeOCR: runtime.GOOS == "linux",
+	}
+	if a.ocr == nil {
+		a.ocr = ocr.Unavailable{Why: "Text recognition is not available in this build."}
 	}
 	a.uploadEnabled.Store(cfg.UploadEnabled())
 	return a, nil
+}
+
+// ocrProbeTimeout bounds one availability probe.
+const ocrProbeTimeout = 3 * time.Second
+
+// ProbeOCR asks the engine whether text recognition is available and caches
+// the answer for OCRStatus and the editor. The host runs it once at start in
+// a goroutine; a probe that does not finish in 3 s is stored as unavailable.
+func (a *App) ProbeOCR(ctx context.Context) ocr.Status {
+	ctx, cancel := context.WithTimeout(ctx, ocrProbeTimeout)
+	defer cancel()
+	done := make(chan ocr.Status, 1)
+	go func() { done <- a.ocr.Probe(ctx) }()
+	var st ocr.Status
+	select {
+	case st = <-done:
+	case <-ctx.Done():
+		st = ocr.Status{Reason: "Text recognition did not answer in time."}
+	}
+	prev := a.ocrStatus.Swap(&st)
+	// Info for the first result and for changes; the Linux re-probe before
+	// each edit capture would otherwise log the same line every time.
+	ev := a.log.Info()
+	if prev != nil && sameStatus(*prev, st) {
+		ev = a.log.Debug()
+	}
+	ev.Bool("available", st.Available).Str("engine", st.Engine).Str("version", st.Version).
+		Strs("langs", st.Langs).Str("reason", st.Reason).Msg("ocr probe")
+	return st
+}
+
+func sameStatus(a, b ocr.Status) bool {
+	return a.Available == b.Available && a.Engine == b.Engine && a.Version == b.Version &&
+		a.Reason == b.Reason && a.Hint == b.Hint && slices.Equal(a.Langs, b.Langs)
+}
+
+// OCRStatus returns the cached probe result; before the first probe has
+// finished it reports text recognition as still starting.
+func (a *App) OCRStatus() ocr.Status {
+	if st := a.ocrStatus.Load(); st != nil {
+		return *st
+	}
+	return ocr.Status{Reason: "Text recognition is still starting."}
+}
+
+// OCREngine exposes the text-recognition engine (never nil).
+func (a *App) OCREngine() ocr.Engine { return a.ocr }
+
+// ocrStatusForEditor is the status handed to the editor. Where reprobeOCR
+// is set (Linux) and the cached status is unavailable, it probes again
+// first, so a user who just installed tesseract gets the tool on the next
+// capture without a restart; the tesseract engine makes that a LookPath
+// unless the command appeared.
+func (a *App) ocrStatusForEditor(ctx context.Context) ocr.Status {
+	st := a.OCRStatus()
+	if st.Available || !a.reprobeOCR || a.ocrStatus.Load() == nil {
+		return st
+	}
+	return a.ProbeOCR(ctx)
 }
 
 // UploadEnabled reports the live upload switch.

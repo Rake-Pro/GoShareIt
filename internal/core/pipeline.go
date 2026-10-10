@@ -52,7 +52,9 @@ func (a *App) runPipeline(ctx context.Context, req capture.Request) (upload.Uplo
 	// unedited original go on to the clipboard, disk or an upload.
 	action := edit.ActionDefault
 	if req.Edit && res.Kind == capture.KindImage && a.editor != nil {
-		edited, a2, ok, eerr := a.editor.Edit(ctx, res, edit.Opts{CanUpload: a.UploadEnabled()})
+		opts := edit.Opts{CanUpload: a.UploadEnabled(), OCR: a.ocrStatusForEditor(ctx)}
+		a.log.Debug().Bool("ocr", opts.OCR.Available).Str("ocr_reason", opts.OCR.Reason).Msg("launching editor")
+		edited, a2, ok, eerr := a.editor.Edit(ctx, res, opts)
 		switch {
 		case eerr != nil:
 			return upload.UploadResult{}, fmt.Errorf("editor: the capture was discarded: %w", eerr)

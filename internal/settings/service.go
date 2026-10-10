@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +22,8 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr/engines"
 	"github.com/Rake-Pro/GoShareIt/internal/core/upload"
 )
 
@@ -48,6 +51,16 @@ type Service struct {
 	// Option/Alt resolved per OS), which the duplicate check compares. nil
 	// skips validation; duplicates are then compared on the spelled chord.
 	CheckHotkey func(chord string) (string, error)
+	// OCREngine builds the text-recognition engine whose probe fills the
+	// "Text recognition" status line; nil = engines.New, the same factory
+	// the host and the editor use.
+	OCREngine func(engines.Config) ocr.Engine
+
+	// ocrEng is reused across Loads while its config is unchanged: on
+	// Windows every engine owns a worker OS thread for the process lifetime.
+	ocrMu  sync.Mutex
+	ocrEng ocr.Engine
+	ocrCfg engines.Config
 
 	saved atomic.Bool // set once Save succeeds; drives the ExitSaved exit code
 
@@ -113,6 +126,13 @@ type LoadResult struct {
 	UpdaterAvailable   bool `json:"updaterAvailable"`
 	ChangelogSupported bool `json:"changelogSupported"`
 	RecordingSupported bool `json:"recordingSupported"`
+	// Text recognition probe for the status line; OCRReason (reason and
+	// hint) is also the live gate text on the OCR fields when unavailable.
+	OCRAvailable bool     `json:"ocrAvailable"`
+	OCREngine    string   `json:"ocrEngine"`
+	OCRVersion   string   `json:"ocrVersion"`
+	OCRLangs     []string `json:"ocrLangs"`
+	OCRReason    string   `json:"ocrReason"`
 }
 
 // SaveRequest carries the edited config plus optional new secret values
@@ -164,6 +184,7 @@ func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 	for id := range upload.CustomPresets() {
 		hostSecrets[id] = secretPresent(cfg.HostSecretSource(id))
 	}
+	st := s.probeOCR(cfg)
 	return &LoadResult{
 		Config:            cfg,
 		ConfigPath:        s.ConfigPath,
@@ -183,6 +204,44 @@ func (s *Service) loadResult(cfg *config.Config) *LoadResult {
 		UpdaterAvailable:   !s.Packaged,
 		ChangelogSupported: runtime.GOOS != "linux",
 		RecordingSupported: runtime.GOOS != "linux" || !waylandSession(),
+
+		OCRAvailable: st.Available,
+		OCREngine:    st.Engine,
+		OCRVersion:   st.Version,
+		OCRLangs:     st.Langs,
+		OCRReason:    st.Explain(),
+	}
+}
+
+// ocrEngine returns the cached engine for c, building a new one only when
+// the engine config changed.
+func (s *Service) ocrEngine(c engines.Config) ocr.Engine {
+	s.ocrMu.Lock()
+	defer s.ocrMu.Unlock()
+	if s.ocrEng != nil && slices.Equal(s.ocrCfg.Langs, c.Langs) && s.ocrCfg.TesseractPath == c.TesseractPath {
+		return s.ocrEng
+	}
+	newEngine := s.OCREngine
+	if newEngine == nil {
+		newEngine = engines.New
+	}
+	s.ocrEng, s.ocrCfg = newEngine(c), c
+	return s.ocrEng
+}
+
+// probeOCR asks the configured engine whether text recognition works here,
+// bounded to 3 s like the host's probe.
+func (s *Service) probeOCR(cfg *config.Config) ocr.Status {
+	eng := s.ocrEngine(engines.Config{Langs: cfg.OCR.Languages, TesseractPath: config.ExpandHome(cfg.OCR.TesseractPath)})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan ocr.Status, 1)
+	go func() { done <- eng.Probe(ctx) }()
+	select {
+	case st := <-done:
+		return st
+	case <-ctx.Done():
+		return ocr.Status{Reason: "Text recognition did not answer in time."}
 	}
 }
 
@@ -273,8 +332,14 @@ func (s *Service) keepUploadToggle(cfg *config.Config) {
 }
 
 // checkHotkeys refuses a chord the host could not bind and a chord used by two
-// hotkeys, naming the field so the page can point at it.
-func (s *Service) checkHotkeys(h *config.HotkeysConfig) error {
+// hotkeys, naming the field so the page can point at it. The Capture Text
+// chord counts only while text recognition is on (textOn), the only time the
+// host binds it; the page greys that field otherwise.
+func (s *Service) checkHotkeys(h *config.HotkeysConfig, textOn bool) error {
+	text := h.Text
+	if !textOn {
+		text = ""
+	}
 	fields := []struct{ field, value string }{
 		{"Hotkeys.Region", h.Region},
 		{"Hotkeys.FullScreen", h.FullScreen},
@@ -284,6 +349,7 @@ func (s *Service) checkHotkeys(h *config.HotkeysConfig) error {
 		{"Hotkeys.WindowEdit", h.WindowEdit},
 		{"Hotkeys.UploadToggle", h.UploadToggle},
 		{"Hotkeys.Record", h.Record},
+		{"Hotkeys.Text", text},
 		{"Hotkeys.Quit", h.Quit},
 	}
 	seen := map[string]bool{}
@@ -409,7 +475,7 @@ func (s *Service) Save(req *SaveRequest) error {
 	cfg := req.Config
 	applyEditingDefaults(cfg)
 	s.keepUploadToggle(cfg)
-	if err := s.checkHotkeys(&cfg.Hotkeys); err != nil {
+	if err := s.checkHotkeys(&cfg.Hotkeys, cfg.OCREnabled()); err != nil {
 		return err
 	}
 
@@ -676,6 +742,14 @@ func applyEditingDefaults(cfg *config.Config) {
 	if cfg.Upload.Enabled == nil {
 		t := true
 		cfg.Upload.Enabled = &t
+	}
+	if cfg.OCR.Enabled == nil {
+		t := true
+		cfg.OCR.Enabled = &t
+	}
+	if cfg.OCR.AutoRun == nil {
+		t := true
+		cfg.OCR.AutoRun = &t
 	}
 	if cfg.S3.SecretKeyFile == "" && cfg.S3.SecretKeyEnv == "" {
 		cfg.S3.SecretKeyFile = tilde("s3-secret-key.secret")

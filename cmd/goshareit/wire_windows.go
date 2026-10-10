@@ -7,6 +7,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
 	"github.com/Rake-Pro/GoShareIt/internal/core/gifrec"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr/engines"
 	"github.com/Rake-Pro/GoShareIt/internal/core/region"
 	"github.com/Rake-Pro/GoShareIt/platform/wailsapp"
 	"github.com/Rake-Pro/GoShareIt/platform/windows"
@@ -56,5 +57,6 @@ func buildProviders(cfg *config.Config) (core.Providers, error) {
 		// global shortcut.
 		Hotkeys:  newPrintScreenSplit(ui.Hotkeys(), windows.NewPrintScreenHotkeys()),
 		Recorder: recorder,
+		OCR:      engines.New(engines.Config{Langs: cfg.OCR.Languages}),
 	}, nil
 }

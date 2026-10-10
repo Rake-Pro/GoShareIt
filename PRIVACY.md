@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective 2026-08-22. Applies to the GoShareIt desktop application for macOS,
+Effective 2026-10-10. Applies to the GoShareIt desktop application for macOS,
 Windows, and Linux, and to the GoShareIt project as a whole.
 
 ## Summary
@@ -31,6 +31,17 @@ maintainers have no way to see what you capture or where you send it.
   exists. No identifier is sent beyond what any HTTPS request carries (your
   IP address and a user agent), and GitHub's own privacy policy applies to
   that request. Update checks can be disabled in Settings.
+- **Text recognition** (Select text, Copy text, Quick redact in the editor,
+  and Capture Text from the tray or its hotkey) runs entirely on your
+  machine: Apple Vision on macOS, Windows OCR on Windows, and the
+  `tesseract` command you installed on Linux (as a local subprocess fed over
+  stdin/stdout). Recognized text goes only to your
+  clipboard when you copy it (Capture Text copies it right away; the region
+  it captured is not saved). While the editor is open, the last text you
+  copied is also held in a private temporary file (readable only by you) so
+  the app can keep it on the clipboard after the editor closes; that file is
+  deleted when the editor closes. Recognized text is not kept anywhere else,
+  not added to the capture history, and never sent anywhere.
 - **Logs** are written locally (`goshareit.log` in the app root) for your
   own troubleshooting and are never transmitted.
 

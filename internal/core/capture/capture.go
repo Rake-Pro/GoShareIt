@@ -60,6 +60,10 @@ type Request struct {
 	SaveLocal       bool
 	SaveDir         string
 	Edit            bool
+	// KeepClipboard forbids using the clipboard as a transport (the Windows
+	// snip fallback returns its image that way). Capture Text sets it, so a
+	// run that copies no text leaves the clipboard as it was.
+	KeepClipboard bool
 }
 
 // Result is the output of a capture operation. Bytes holds the encoded media

@@ -5,10 +5,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
 )
 
 func TestNoopEditorPassthrough(t *testing.T) {
@@ -288,5 +292,81 @@ exit 0
 		if !strings.Contains(string(got), want) {
 			t.Errorf("CanUpload=%v: args = %q, want %q", up, got, want)
 		}
+	}
+}
+
+// launchArgs runs l against a stub helper that records its arguments and
+// returns them.
+func launchArgs(t *testing.T, l Launcher, opts Opts) string {
+	t.Helper()
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.txt")
+	body := "#!/bin/sh\necho \"$@\" > " + argsFile + "\n" + argParse + `printf 'EDITED' > "$out"
+exit 0
+`
+	l.HelperPath = writeStub(t, dir, "flags.sh", body)
+	in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
+	if _, _, _, err := l.Edit(context.Background(), in, opts); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	return string(got)
+}
+
+func TestLauncherOCRFlags(t *testing.T) {
+	avail := Opts{OCR: ocr.Status{Available: true, Engine: ocr.EngineTesseract}}
+	args := launchArgs(t, Launcher{}, avail)
+	if !strings.Contains(args, "--ocr=hidden") || strings.Contains(args, "--ocr-auto") {
+		t.Errorf("disabled: args = %q, want --ocr=hidden only", args)
+	}
+	if !strings.Contains(args, "--text-out ") {
+		t.Errorf("args = %q, want --text-out", args)
+	}
+
+	l := Launcher{OCREnabled: true, OCRAutoRun: true, OCRLangs: []string{"en", "de"}, QuickRedact: []string{"email", "ip"}, OCRTimeout: 20 * time.Second, TesseractPath: "/opt/tess"}
+	args = launchArgs(t, l, avail)
+	for _, want := range []string{"--ocr=on", "--ocr-auto=true", "--ocr-langs en,de", "--ocr-quick-redact email,ip", "--ocr-timeout 20", "--ocr-tesseract /opt/tess"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("enabled: args = %q, want %q", args, want)
+		}
+	}
+
+	off := Opts{OCR: ocr.Status{Reason: "Tesseract is not installed.", Hint: "Install it."}}
+	args = launchArgs(t, Launcher{OCREnabled: true, OCRAutoRun: true}, off)
+	if !strings.Contains(args, "--ocr=off --ocr-reason Tesseract is not installed. Install it.") || strings.Contains(args, "--ocr-auto") {
+		t.Errorf("unavailable: args = %q", args)
+	}
+}
+
+func TestLauncherHandsOffCopiedText(t *testing.T) {
+	cases := []struct {
+		name  string
+		write string // shell line run by the helper; "" writes nothing
+		code  int
+		want  []string
+	}{
+		{"text copied, confirm", `printf 'hello world' > "$text"`, 0, []string{"hello world"}},
+		{"text copied, cancel", `printf 'kept' > "$text"`, 64, []string{"kept"}},
+		{"empty file", `: > "$text"`, 0, nil},
+		{"no file", "", 0, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			body := "#!/bin/sh\ntext=\"\"\nout=\"\"\nwhile [ $# -gt 0 ]; do case \"$1\" in --text-out) text=\"$2\"; shift 2;; --out) out=\"$2\"; shift 2;; *) shift;; esac; done\n" +
+				c.write + "\nprintf 'EDITED' > \"$out\"\nexit " + strconv.Itoa(c.code) + "\n"
+			var got []string
+			l := Launcher{HelperPath: writeStub(t, dir, "text.sh", body), OnText: func(s string) { got = append(got, s) }}
+			in := capture.Result{Bytes: []byte("ORIGINAL"), Mime: "image/png", Kind: capture.KindImage}
+			if _, _, _, err := l.Edit(context.Background(), in, Opts{}); err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			if !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("OnText calls = %q, want %q", got, c.want)
+			}
+		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
 )
 
 // Action identifies how the user confirmed out of the editor, overriding the
@@ -28,6 +29,9 @@ type Opts struct {
 	// can grey out its Upload action button instead of offering an action
 	// that would silently fall back.
 	CanUpload bool
+	// OCR is the host's cached probe result. The editor greys out its text
+	// tools when Available is false and shows Reason on hover.
+	OCR ocr.Status
 }
 
 // Editor presents the captured image for annotation and returns the result.
