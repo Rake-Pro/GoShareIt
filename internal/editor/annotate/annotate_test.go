@@ -345,3 +345,87 @@ func TestBlurRedactsFineDetail(t *testing.T) {
 		t.Fatalf("blur left legible detail: variance before=%.1f after=%.1f (want <1%%)", before, after)
 	}
 }
+
+func TestRedactIsOpaqueAndBounded(t *testing.T) {
+	base := halfSplit(60, 40)
+	rects := []image.Rectangle{image.Rect(5, 5, 20, 15), image.Rect(40, 20, 70, 50)} // second clips at the edge
+	// A translucent colour is still painted fully opaque.
+	out, _ := Render(base, nil, []Shape{Redact{Rects: rects, Color: color.NRGBA{0x10, 0x20, 0x30, 0x40}}})
+	for y := 0; y < 40; y++ {
+		for x := 0; x < 60; x++ {
+			p := image.Pt(x, y)
+			r, g, b, a := out.At(x, y).RGBA()
+			inside := p.In(rects[0]) || p.In(rects[1])
+			if inside && (r>>8 != 0x10 || g>>8 != 0x20 || b>>8 != 0x30 || a != 0xffff) {
+				t.Fatalf("pixel %v = %d,%d,%d,%d, want opaque redact colour", p, r>>8, g>>8, b>>8, a>>8)
+			}
+			br, _, _, _ := base.At(x, y).RGBA()
+			if !inside && r != br {
+				t.Fatalf("pixel %v outside the boxes changed", p)
+			}
+		}
+	}
+}
+
+func TestAntiAliasedStrokeCoverage(t *testing.T) {
+	base := blank(60, 40)
+	red := color.RGBA{255, 0, 0, 255}
+	out, _ := Render(base, nil, []Shape{Line{From: image.Pt(10, 20), To: image.Pt(50, 20), Color: red, Stroke: 4}})
+	// The stroke centre is fully covered.
+	if r, g, b, _ := out.At(30, 20).RGBA(); r>>8 != 255 || g>>8 != 0 || b>>8 != 0 {
+		t.Fatalf("centre = %d,%d,%d, want pure red", r>>8, g>>8, b>>8)
+	}
+	// Two pixels out the edge sits mid-pixel: partial coverage, not a hard step.
+	found := false
+	for y := 17; y <= 23; y++ {
+		_, g, _, _ := out.At(30, y).RGBA()
+		if g>>8 > 0x10 && g>>8 < 0xf0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected an anti-aliased edge pixel")
+	}
+	if anyChangedInRect(out, image.Rect(28, 0, 32, 15)) {
+		t.Fatal("stroke spilled far beyond its width")
+	}
+}
+
+func TestArrowHeadIsFilled(t *testing.T) {
+	base := blank(120, 60)
+	blue := color.RGBA{0, 0, 255, 255}
+	out, _ := Render(base, nil, []Shape{Arrow{From: image.Pt(10, 30), To: image.Pt(110, 30), Color: blue, Stroke: 2}})
+	// Inside the head, beside the shaft: filled, which two stroked barbs
+	// would leave white.
+	if r, _, _, _ := out.At(100, 33).RGBA(); r>>8 > 0x40 {
+		t.Fatalf("head interior r = %d, want filled", r>>8)
+	}
+}
+
+func TestDefaultFaceCachedAndTextSizeGrows(t *testing.T) {
+	if DefaultFace(2) != DefaultFace(2) {
+		t.Fatal("DefaultFace not cached")
+	}
+	prev := image.Point{}
+	for _, s := range []int{1, 2, 6, 32} {
+		sz := TextSize("Hello", s)
+		if sz.X <= prev.X || sz.Y <= prev.Y {
+			t.Fatalf("TextSize(stroke %d) = %v, not larger than %v", s, sz, prev)
+		}
+		prev = sz
+	}
+	if TextSize("", 3).X != 0 {
+		t.Fatal("empty text has width")
+	}
+}
+
+func TestEllipseRingKeepsCentre(t *testing.T) {
+	base := blank(100, 100)
+	out, _ := Render(base, nil, []Shape{Ellipse{Rect: image.Rect(10, 10, 90, 90), Color: color.RGBA{0, 0, 0, 255}, Stroke: 10}})
+	if anyChangedInRect(out, image.Rect(30, 30, 70, 70)) {
+		t.Fatal("thick ellipse filled its centre")
+	}
+	if r, _, _, _ := out.At(50, 10).RGBA(); r>>8 != 0 {
+		t.Fatalf("ring top r = %d, want black", r>>8)
+	}
+}

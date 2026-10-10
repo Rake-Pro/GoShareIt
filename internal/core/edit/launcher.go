@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Rake-Pro/GoShareIt/internal/core/capture"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
 )
 
 // Helper exit codes: the sentinels the editor helper returns via its exit
@@ -42,6 +43,24 @@ type Launcher struct {
 	// the live upload state (Opts.CanUpload) and wins over ConfirmLabel, so a
 	// tray/hotkey upload toggle is reflected on the button.
 	ConfirmLabelFor func(canUpload bool) string
+
+	// Text recognition (config ocr.*). OCREnabled=false hides the text tools
+	// entirely (--ocr=hidden); otherwise Opts.OCR decides between on and off
+	// (greyed out with the reason).
+	OCREnabled  bool
+	OCRAutoRun  bool          // passed as --ocr-auto
+	OCRLangs    []string      // passed as --ocr-langs csv
+	QuickRedact []string      // passed as --ocr-quick-redact csv; nil = editor default
+	OCRTimeout  time.Duration // per recognition, passed as --ocr-timeout; 0 = editor default
+	// TesseractPath is config ocr.tesseract_path (Linux), passed as
+	// --ocr-tesseract so the editor runs the command the host probed.
+	TesseractPath string
+	// OnText is called after the helper exits when the user copied text in
+	// the editor (the helper wrote --text-out). The host wires it to the
+	// clipboard on Linux, where a short-lived process cannot own the
+	// selection; it is a no-op elsewhere. It runs before Edit returns, so a
+	// later image copy in the pipeline replaces the text, in time order.
+	OnText func(text string)
 }
 
 // Edit implements Editor by invoking the out-of-process editor helper.
@@ -63,6 +82,7 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result, opts Opts) (captu
 
 	inPath := filepath.Join(dir, "in.png")
 	outPath := filepath.Join(dir, "out.png")
+	textPath := filepath.Join(dir, "text.txt")
 	if err := os.WriteFile(inPath, in.Bytes, 0o600); err != nil {
 		return in, ActionDefault, false, fmt.Errorf("editor: write input: %w", err)
 	}
@@ -73,7 +93,8 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result, opts Opts) (captu
 		defer cancel()
 	}
 
-	args := []string{"--in", inPath, "--out", outPath, "--actions", "--upload-enabled=" + strconv.FormatBool(opts.CanUpload)}
+	args := []string{"--in", inPath, "--out", outPath, "--text-out", textPath, "--actions", "--upload-enabled=" + strconv.FormatBool(opts.CanUpload)}
+	args = append(args, l.ocrArgs(opts.OCR)...)
 	if l.Tool != "" {
 		args = append(args, "--tool", l.Tool)
 	}
@@ -99,6 +120,7 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result, opts Opts) (captu
 
 	cmd := exec.CommandContext(ctx, helper, args...)
 	runErr := cmd.Run()
+	l.handOffText(textPath)
 	if runErr == nil {
 		return l.readEdited(in, outPath, ActionDefault, true)
 	}
@@ -122,6 +144,46 @@ func (l Launcher) Edit(ctx context.Context, in capture.Result, opts Opts) (captu
 	// Non-ExitError: helper missing, not executable, killed by ctx (timeout),
 	// etc. The caller discards the capture on this error (fail-closed).
 	return in, ActionDefault, false, fmt.Errorf("editor: run helper: %w", runErr)
+}
+
+// ocrArgs renders the text-recognition flags: --ocr=hidden when the user
+// turned recognition off, --ocr=off plus the reason when the host's probe
+// found no engine, else --ocr=on with the tuning flags.
+func (l Launcher) ocrArgs(st ocr.Status) []string {
+	if !l.OCREnabled {
+		return []string{"--ocr=hidden"}
+	}
+	if !st.Available {
+		return []string{"--ocr=off", "--ocr-reason", st.Explain()}
+	}
+	args := []string{"--ocr=on", "--ocr-auto=" + strconv.FormatBool(l.OCRAutoRun)}
+	if len(l.OCRLangs) > 0 {
+		args = append(args, "--ocr-langs", strings.Join(l.OCRLangs, ","))
+	}
+	if l.QuickRedact != nil {
+		// An explicit empty list is passed too: it means "hide nothing".
+		args = append(args, "--ocr-quick-redact", strings.Join(l.QuickRedact, ","))
+	}
+	if l.OCRTimeout > 0 {
+		args = append(args, "--ocr-timeout", strconv.Itoa(int(l.OCRTimeout/time.Second)))
+	}
+	if l.TesseractPath != "" {
+		args = append(args, "--ocr-tesseract", l.TesseractPath)
+	}
+	return args
+}
+
+// handOffText passes text the user copied in the editor to OnText. The
+// helper rewrites the file on every copy, so it holds the last one.
+func (l Launcher) handOffText(path string) {
+	if l.OnText == nil {
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return
+	}
+	l.OnText(string(b))
 }
 
 // readEdited reads the edited PNG the helper wrote to outPath. On a read

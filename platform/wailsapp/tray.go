@@ -60,6 +60,9 @@ func (t *Tray) Run(ctx context.Context, spec tray.MenuSpec) error {
 		if item.Disabled {
 			menuItem.SetEnabled(false)
 		}
+		if item.Tooltip != "" {
+			menuItem.SetTooltip(item.Tooltip)
+		}
 		if item.OnClick != nil {
 			onClick := item.OnClick
 			// Wails already runs every menu callback on its own goroutine, so
@@ -98,6 +101,15 @@ func (t *Tray) SetItemEnabled(id string, enabled bool) {
 func (t *Tray) SetItemTitle(id, title string) {
 	if menuItem := t.item(id); menuItem != nil {
 		t.p.onMainThread(func() { menuItem.SetLabel(title) })
+	}
+}
+
+// SetItemTooltip sets a menu item's hover text by ID ("" clears it). macOS
+// and Linux show it; Windows tray menus have no item tooltips. No-op if
+// absent.
+func (t *Tray) SetItemTooltip(id, tip string) {
+	if menuItem := t.item(id); menuItem != nil {
+		t.p.onMainThread(func() { menuItem.SetTooltip(tip) })
 	}
 }
 

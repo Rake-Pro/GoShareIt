@@ -7,7 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/Rake-Pro/GoShareIt/internal/core/config"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr/engines"
+	"github.com/Rake-Pro/GoShareIt/internal/core/ocr/ocrtest"
 )
 
 func testHome(t *testing.T) string {
@@ -324,6 +329,7 @@ func TestSaveRejectsBadAndDuplicateHotkeys(t *testing.T) {
 		{"unbindable", func(h *config.HotkeysConfig) { h.Window = "Ctrl+PrintScreen" }, "Hotkeys.Window"},
 		{"duplicate", func(h *config.HotkeysConfig) { h.Region = "Ctrl+Shift+5"; h.Quit = "shift+ctrl+5" }, "Hotkeys.Quit"},
 		{"alias duplicate", func(h *config.HotkeysConfig) { h.Region = "Cmd+Shift+5"; h.Window = "Control+Shift+5" }, "Hotkeys.Window"},
+		{"capture text duplicate", func(h *config.HotkeysConfig) { h.Record = "Ctrl+Shift+8"; h.Text = "Cmd+Shift+8" }, "Hotkeys.Text"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := svc.Load()
@@ -416,5 +422,86 @@ func TestSaveKeepsTrayUploadToggle(t *testing.T) {
 	}
 	if !got.UploadEnabled() {
 		t.Error("Save from the open window undid the tray upload toggle")
+	}
+}
+
+func TestLoadReportsOCRStatus(t *testing.T) {
+	testHome(t)
+	var got engines.Config
+	svc := &Service{
+		ConfigPath: filepath.Join(t.TempDir(), "config.yaml"),
+		OCREngine: func(c engines.Config) ocr.Engine {
+			got = c
+			return &ocrtest.Fake{Status: ocr.Status{Available: true, Engine: ocr.EngineTesseract, Version: "5.3.4", Langs: []string{"en", "de"}}}
+		},
+	}
+	res, err := svc.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OCRAvailable || res.OCREngine != ocr.EngineTesseract || res.OCRVersion != "5.3.4" || len(res.OCRLangs) != 2 || res.OCRReason != "" {
+		t.Fatalf("ocr fields = %+v", res)
+	}
+	if res.Config.OCR.Enabled == nil || !*res.Config.OCR.Enabled || res.Config.OCR.AutoRun == nil || !*res.Config.OCR.AutoRun {
+		t.Fatal("ocr.enabled / ocr.auto_run should be explicit true for the form")
+	}
+	if got.TesseractPath != "" {
+		t.Fatalf("engine config = %+v", got)
+	}
+	// An unchanged engine config reuses the engine (Windows: one worker
+	// thread per engine).
+	builds := 0
+	svc.OCREngine = func(engines.Config) ocr.Engine { builds++; return ocr.Unavailable{} }
+	for i := 0; i < 2; i++ {
+		if _, err := svc.Load(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if builds != 0 {
+		t.Fatalf("engine rebuilt %d times for an unchanged config", builds)
+	}
+	svc.ocrEng = nil
+
+	svc.OCREngine = func(engines.Config) ocr.Engine {
+		return ocr.Unavailable{Why: "Tesseract is not installed.", Hint: "Install it."}
+	}
+	res, err = svc.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.OCRAvailable || res.OCRReason != "Tesseract is not installed. Install it." {
+		t.Fatalf("unavailable ocr fields = %+v", res)
+	}
+}
+
+// The starter config's default hotkeys, Capture Text included, are distinct
+// on every platform under the same duplicate check Save applies.
+func TestStarterHotkeysDistinctOnEveryOS(t *testing.T) {
+	svc := &Service{}
+	for _, goos := range []string{"darwin", "windows", "linux"} {
+		var cfg config.Config
+		if err := yaml.Unmarshal([]byte(config.StarterYAMLFor(goos)), &cfg); err != nil {
+			t.Fatalf("%s: %v", goos, err)
+		}
+		if cfg.Hotkeys.Text == "" {
+			t.Fatalf("%s: no default Capture Text hotkey", goos)
+		}
+		if err := svc.checkHotkeys(&cfg.Hotkeys, true); err != nil {
+			t.Errorf("%s: %v", goos, err)
+		}
+	}
+}
+
+// With text recognition turned off the host does not bind the Capture Text
+// chord, so it no longer counts as a duplicate; while on it does.
+func TestCaptureTextHotkeyCountsOnlyWhenOCROn(t *testing.T) {
+	svc := &Service{}
+	h := config.HotkeysConfig{Record: "Ctrl+Shift+8", Text: "Ctrl+Shift+8"}
+	var se *SaveError
+	if err := svc.checkHotkeys(&h, true); !errors.As(err, &se) || se.Field != "Hotkeys.Text" {
+		t.Fatalf("ocr on: err = %v", err)
+	}
+	if err := svc.checkHotkeys(&h, false); err != nil {
+		t.Fatalf("ocr off: err = %v", err)
 	}
 }

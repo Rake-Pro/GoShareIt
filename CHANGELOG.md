@@ -11,6 +11,57 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   GO-2026-6611, GO-2026-6617).
 
 ### Added
+- Text recognition in the editor, on-device on every platform. A new
+  "Select text" tool (key `S`) shows where text was found; drag over words to
+  select them in reading order, double-click for a line, then Copy text
+  (Ctrl/Cmd+C, the editor stays open) or Copy all (Ctrl/Cmd+Shift+C).
+  Recognition starts in the background when the editor opens and never
+  blocks drawing. macOS uses Apple Vision; Windows uses Windows OCR (needs an
+  OCR language pack, the Settings page says where to get it); Linux uses the
+  `tesseract` command when it is installed (the tool is greyed out with the
+  install command otherwise, and appears on the next capture once installed,
+  no restart). Nothing is sent anywhere or stored (see PRIVACY.md).
+- Redact tool (key `X`): an opaque box, the safe way to hide text (Blur and
+  Pixelate can be reversed). "Redact selection" covers the selected words;
+  "Quick redact" (Ctrl/Cmd+Shift+R) covers the emails and phone numbers it
+  found in one undo step. It can miss text, so check the result.
+- Settings > Text recognition: the engine and its languages (or why it is
+  not available), recognize automatically, languages, what Quick redact
+  hides, and the tesseract command on Linux. New `ocr:` block in the config
+  (`enabled`, `auto_run`, `languages`, `quick_redact`, `tesseract_path`,
+  `timeout_seconds`).
+- Upgrades: a config whose `editor.tools` is still the old starter list
+  (crop, arrow, rect, text, blur, highlight, step) gets Redact and Select text
+  added once (recorded as `editor.tools_revision: 1`, logged at start). A
+  customised list is left alone; tick the new tools in Settings > Editor >
+  Tools.
+- Editor zoom controls: Ctrl/Cmd+0 fits the image, Ctrl/Cmd+1 shows it at
+  100%, Ctrl/Cmd+= and Ctrl/Cmd+- zoom in and out, and a zoom readout in the
+  toolbar toggles between fit and 100%.
+- Single-key tool shortcuts in the editor (C, A, R, E, T, B, P, H, N, L, F,
+  X, S), `[` and `]` for the stroke width and `1` to `7` for the colours; wide
+  windows show each key on its tool button.
+- Capture Text: a tray item and a hotkey (`hotkeys.text`, Cmd+Shift+8 on
+  macOS and Ctrl+Shift+8 on Windows and Linux for new installs; set it in
+  Settings > Hotkeys on an existing config) that copy the text in a region
+  straight to the clipboard, without the editor, and say how many characters
+  were copied. While text recognition is unavailable the tray item is greyed
+  out with the reason; on Linux it turns on by itself shortly after
+  tesseract is installed. Nothing is saved, uploaded or added to the history.
+- Editor Select tool (key `V`, always first in the toolbar): click a placed
+  annotation to select it, drag to move it, Delete or Backspace removes it,
+  the arrow keys nudge it by 1 px (Shift: 10 px), and a swatch, `1` to `7`
+  or `[`/`]` changes its colour or stroke. Esc deselects. Undo and redo now
+  cover moves, deletes and restyles too. A new step badge takes the number
+  after the highest one placed, so deleting one leaves a gap, not a
+  duplicate.
+- Crop handles: the crop rectangle has eight handles; drag one to resize,
+  drag inside to move the crop, drag outside to start a new one. Each change
+  is one undo step; Enter still confirms the editor.
+- A hint row under the editor toolbar says what the active tool does, why a
+  greyed-out button is unavailable, and what was just copied or redacted;
+  the canvas cursor follows the tool (I-beam for text, grab while panning).
+
 - Linux desktop support (beta). The Linux build is no longer the fake-backed
   host: `platform/linux` captures the screen directly on X11
   (xinerama bounds, the focused window with its frame, freeze-frame region
@@ -113,6 +164,9 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   clicked. The link still lands on the clipboard as before.
 
 ### Changed
+- Editor strokes are anti-aliased and arrows have a filled head; annotation
+  text uses Go Regular (anti-aliased) instead of the scaled bitmap font, so
+  saved captures match the on-canvas preview.
 - The tray, global hotkeys, desktop notifications and confirm dialogs moved
   onto Wails v3, which the settings UI already used. One application now owns
   one main loop for all four instead of `fyne.io/systray` plus

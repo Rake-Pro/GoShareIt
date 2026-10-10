@@ -67,6 +67,9 @@ hotkeys:
   # Not Shift+R: browsers use {mod}+Shift+R for hard reload, and the global
   # hotkey would swallow it while silently toggling a screen recording.
   record: "{mod}+Shift+2"
+  # Capture Text: pick a region, copy the text in it (recognized on this
+  # computer, no editor). Not Shift+T: browsers reopen a closed tab with it.
+  text: "{mod}+Shift+8"
   # No default: Cmd+Shift+Q is the macOS logout chord and the global hotkey
   # would swallow it. Quit lives in the tray menu; set a chord here to taste.
   quit: ""
@@ -79,7 +82,8 @@ editor:
   default_tool: arrow
   stroke_width: 6
   color: "#ff3b30"
-  tools: [crop, arrow, rect, text, blur, highlight, step]
+  tools: [crop, arrow, rect, text, blur, highlight, step, redact, select_text]
+  tools_revision: 1       # tool-list migrations already applied; leave as is
 
 update:
   enabled: true           # self-update from GitHub Releases
@@ -116,9 +120,13 @@ func Dir() (string, error) {
 // map Cmd->Ctrl anyway, but the config should show what the user actually
 // presses), region gets the platform-conventional chord on windows, and
 // {confdir} becomes the per-OS app root.
-func StarterYAML() string {
+func StarterYAML() string { return StarterYAMLFor(runtime.GOOS) }
+
+// StarterYAMLFor renders the starter template for goos; tests use it to
+// check every platform's default hotkeys from one machine.
+func StarterYAMLFor(goos string) string {
 	mod, region := "Cmd", "Cmd+Shift+1"
-	switch runtime.GOOS {
+	switch goos {
 	case "windows":
 		mod, region = "Ctrl", "Win+Ctrl+PrintScreen"
 	case "linux":

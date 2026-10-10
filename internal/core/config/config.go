@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -45,6 +46,7 @@ type Config struct {
 	AfterUpload  AfterUploadConfig     `yaml:"after_upload"`
 	Hotkeys      HotkeysConfig         `yaml:"hotkeys"`
 	Editor       EditorConfig          `yaml:"editor"`
+	OCR          OCRConfig             `yaml:"ocr"`
 	Update       UpdateConfig          `yaml:"update"`
 	Logging      LoggingConfig         `yaml:"logging"`
 
@@ -58,6 +60,8 @@ type Config struct {
 	webdavPassword    string `yaml:"-"`
 	customSecret      string `yaml:"-"`
 	hostSecret        string `yaml:"-"`
+
+	migratedTools bool // set by applyDefaults; see MigratedEditorTools
 }
 
 // validUploadDestinations enumerates the upload.destination values backed by
@@ -236,6 +240,7 @@ type HotkeysConfig struct {
 	WindowEdit     string `yaml:"window_edit"`
 	UploadToggle   string `yaml:"upload_toggle"`
 	Record         string `yaml:"record"`
+	Text           string `yaml:"text"` // Capture Text: region -> recognized text on the clipboard, no editor
 	Quit           string `yaml:"quit"`
 	// DisableSnippingPrintScreen (Windows only) turns off the Windows 11
 	// "Use the Print screen key to open screen capture" setting at startup so
@@ -290,7 +295,88 @@ type EditorConfig struct {
 	StrokeWidth    int      `yaml:"stroke_width"`
 	Color          string   `yaml:"color"`
 	Tools          []string `yaml:"tools"`
+	// ToolsRevision records which tool-list migrations ran (see
+	// migrateEditorTools), so a list the user later trims is never touched
+	// again. Not shown in Settings; written back on the next Settings save.
+	ToolsRevision int `yaml:"tools_revision,omitempty"`
 }
+
+// legacyStarterTools is the editor.tools list every starter config wrote
+// before v0.4.0 added redact and select_text.
+var legacyStarterTools = []string{"crop", "arrow", "rect", "text", "blur", "highlight", "step"}
+
+// editorToolsRevision is the current tool-list migration revision.
+const editorToolsRevision = 1
+
+// migrateEditorTools is a one-time upgrade: a stored editor.tools that is
+// exactly the old starter list (same set, no extras) gets the v0.4.0 tools
+// redact and select_text appended; any customised list is left alone. It
+// reports whether it changed the list.
+func (c *Config) migrateEditorTools() bool {
+	if c.Editor.ToolsRevision >= editorToolsRevision {
+		return false
+	}
+	c.Editor.ToolsRevision = editorToolsRevision
+	if !sameSet(c.Editor.Tools, legacyStarterTools) {
+		return false
+	}
+	c.Editor.Tools = append(append([]string(nil), c.Editor.Tools...), "redact", "select_text")
+	return true
+}
+
+// MigratedEditorTools reports whether loading this config appended the
+// v0.4.0 tools to an old starter tool list (the caller logs it).
+func (c *Config) MigratedEditorTools() bool { return c.migratedTools }
+
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]bool, len(a))
+	for _, v := range a {
+		seen[v] = true
+	}
+	if len(seen) != len(b) {
+		return false
+	}
+	for _, v := range b {
+		if !seen[v] {
+			return false
+		}
+	}
+	return true
+}
+
+// OCRConfig controls on-device text recognition in the editor (Select text,
+// Copy text, Quick redact). Everything runs locally: Apple Vision on macOS,
+// Windows OCR on Windows, the tesseract command on Linux when it is
+// installed. Enabled and AutoRun default to true; a platform without an
+// engine simply greys the tools out.
+type OCRConfig struct {
+	Enabled   *bool    `yaml:"enabled"`   // nil/true = on
+	AutoRun   *bool    `yaml:"auto_run"`  // nil/true = recognize when the editor opens
+	Languages []string `yaml:"languages"` // BCP-47 tags; empty = system default
+	// QuickRedact lists what the Quick redact button hides: email, phone,
+	// token, url, ip. Absent = [email, phone]; an explicit empty list hides
+	// nothing (the button is then greyed out).
+	QuickRedact    []string `yaml:"quick_redact"`
+	TesseractPath  string   `yaml:"tesseract_path"`  // Linux: "" = search PATH
+	TimeoutSeconds int      `yaml:"timeout_seconds"` // per recognition; 0 -> 20
+}
+
+// OCREnabled reports whether the editor offers text recognition (default
+// true).
+func (c *Config) OCREnabled() bool { return c.OCR.Enabled == nil || *c.OCR.Enabled }
+
+// OCRAutoRun reports whether recognition starts as soon as the editor opens
+// (default true); false waits for the first click of Select text.
+func (c *Config) OCRAutoRun() bool { return c.OCR.AutoRun == nil || *c.OCR.AutoRun }
+
+// ocrKinds and reLangTag back the ocr validation.
+var (
+	ocrKinds  = map[string]bool{"email": true, "phone": true, "token": true, "url": true, "ip": true}
+	reLangTag = regexp.MustCompile(`^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$`)
+)
 
 // UpdateConfig controls self-update from GitHub Releases. Enabled and
 // AutoInstall both default to true.
@@ -485,6 +571,15 @@ func (c *Config) applyDefaults() {
 	if c.Editor.StrokeWidth <= 0 {
 		// 6px default: 3px is near-invisible on retina-resolution captures.
 		c.Editor.StrokeWidth = 6
+	}
+	if c.migrateEditorTools() {
+		c.migratedTools = true
+	}
+	if c.OCR.QuickRedact == nil {
+		c.OCR.QuickRedact = []string{"email", "phone"}
+	}
+	if c.OCR.TimeoutSeconds <= 0 {
+		c.OCR.TimeoutSeconds = 20
 	}
 }
 
@@ -744,6 +839,16 @@ func (c *Config) validate() error {
 	}
 	if c.Upload.ShareExpireDays < 0 {
 		return fieldErr("upload.share_expire_days", "cannot be negative", "config: upload.share_expire_days must be >= 0")
+	}
+	for _, k := range c.OCR.QuickRedact {
+		if !ocrKinds[k] {
+			return fieldErr("ocr.quick_redact", "must be email, phone, token, url or ip", "config: ocr.quick_redact entry %q must be one of email, phone, token, url, ip", k)
+		}
+	}
+	for _, tag := range c.OCR.Languages {
+		if !reLangTag.MatchString(tag) {
+			return fieldErr("ocr.languages", "must be language tags such as en or de-DE, separated by commas", "config: ocr.languages entry %q is not a BCP-47 language tag", tag)
+		}
 	}
 	if !validUploadDestinations[c.Upload.Destination] && !IsHostDestination(c.Upload.Destination) {
 		return fieldErr("upload.destination", "is not one of the listed destinations", "config: upload.destination must be one of nextcloud, s3, sftp, webdav, custom, or a public host preset id (%s)", strings.Join(hostDestinationIDs(), ", "))

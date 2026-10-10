@@ -4,7 +4,8 @@
 // darwin/windows) feeds it a base image, an optional crop rectangle and a list
 // of shapes; Render rasterizes them onto a copy and returns the result.
 //
-// It depends only on the standard image/* packages and golang.org/x/image.
+// It depends only on the standard image/* packages and golang.org/x/image
+// (vector for anti-aliased strokes, opentype and the Go fonts for text).
 package annotate
 
 import (
@@ -14,9 +15,7 @@ import (
 	"math"
 	"strconv"
 
-	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -48,10 +47,9 @@ type Ellipse struct {
 	Stroke int
 }
 
-// Text is a single line of text whose baseline-left origin is At. Face is
-// optional; when nil a built-in bitmap face is used (basicfont.Face7x13). The
-// Stroke field scales the built-in face by integer nearest-neighbor so text is
-// legible at higher stroke widths.
+// Text is a single line of text. With a nil Face it is drawn anti-aliased in
+// DefaultFace(Stroke) (Go Regular at 11*Stroke px) and At is the top-left of
+// the text box; with a Face, At is the baseline-left origin.
 type Text struct {
 	At     image.Point
 	Text   string
@@ -109,6 +107,13 @@ type StepBadge struct {
 	Radius int
 }
 
+// Redact fills each Rect with an opaque Color. It is the safe way to hide
+// text; unlike BlurRegion and Pixelate nothing of the source survives.
+type Redact struct {
+	Rects []image.Rectangle
+	Color color.Color
+}
+
 // Render applies crop (if non-nil) to base then draws shapes onto a mutable
 // RGBA copy, returning the annotated image. base is never mutated.
 func Render(base image.Image, crop *image.Rectangle, shapes []Shape) (image.Image, error) {
@@ -149,104 +154,53 @@ func Crop(img image.Image, rect image.Rectangle) image.Image {
 	return dst
 }
 
-// --- rasterization helpers ---
-
-func setPixel(dst draw.Image, x, y int, c color.Color) {
-	if image.Pt(x, y).In(dst.Bounds()) {
-		dst.Set(x, y, c)
-	}
-}
-
-// fillDisc stamps a filled square of side ~stroke centered at (x,y). A square
-// stamp is adequate for the stroke widths used here and keeps the math simple.
-func stamp(dst draw.Image, x, y, stroke int, c color.Color) {
-	if stroke < 1 {
-		stroke = 1
-	}
-	r := stroke / 2
-	for dy := -r; dy <= r; dy++ {
-		for dx := -r; dx <= r; dx++ {
-			setPixel(dst, x+dx, y+dy, c)
-		}
-	}
-}
-
-// drawLine draws a stroked line using Bresenham, stamping a square of width
-// stroke at each step.
-func drawLine(dst draw.Image, a, b image.Point, stroke int, c color.Color) {
-	if stroke < 1 {
-		stroke = 1
-	}
-	dx := abs(b.X - a.X)
-	dy := -abs(b.Y - a.Y)
-	sx := sign(b.X - a.X)
-	sy := sign(b.Y - a.Y)
-	err := dx + dy
-	x, y := a.X, a.Y
-	for {
-		stamp(dst, x, y, stroke, c)
-		if x == b.X && y == b.Y {
-			break
-		}
-		e2 := 2 * err
-		if e2 >= dy {
-			err += dy
-			x += sx
-		}
-		if e2 <= dx {
-			err += dx
-			y += sy
-		}
-	}
-}
-
 func (a Arrow) draw(dst draw.Image) {
-	stroke := a.Stroke
-	if stroke < 1 {
-		stroke = 1
-	}
-	drawLine(dst, a.From, a.To, stroke, a.Color)
-
-	// Arrowhead: two short lines from the tip, angled back along the shaft.
-	dx := float64(a.To.X - a.From.X)
-	dy := float64(a.To.Y - a.From.Y)
-	length := dx*dx + dy*dy
-	if length == 0 {
+	stroke := max(a.Stroke, 1)
+	from, tip := center(a.From), center(a.To)
+	dx, dy := tip.x-from.x, tip.y-from.y
+	l := math.Hypot(dx, dy)
+	if l == 0 {
+		fillDisc(dst, a.To, float64(stroke)/2, a.Color)
 		return
 	}
-	l := sqrt(length)
-	ux, uy := dx/l, dy/l // unit vector toward tip
+	ux, uy := dx/l, dy/l // unit vector toward the tip
+	base, p1, p2 := arrowHead(tip, ux, uy, l, stroke)
 
-	// Head size scales with stroke and overall length.
-	head := 6*stroke + int(l*0.12)
-	if head < 8 {
-		head = 8
+	// Shaft and filled head in one anti-aliased pass; the shaft stops at the
+	// head's base so it never pokes through the tip.
+	var r raster
+	if math.Hypot(base.x-from.x, base.y-from.y) > 0 && (base.x-from.x)*ux+(base.y-from.y)*uy > 0 {
+		r.addPolyline([]pt{from, base}, float64(stroke))
 	}
-	const ang = 0.5 // radians off the shaft
-	cosA, sinA := cos(ang), sin(ang)
+	r.add([]pt{tip, p1, p2}, true)
+	r.draw(dst, a.Color)
+}
 
+// ArrowHeadAngle is the angle of each barb off the shaft, in radians.
+const ArrowHeadAngle = 0.5
+
+// ArrowHeadLength is the length of the barbs for a stroke and an arrow of
+// length l (both in the same units); the editor preview uses it too.
+func ArrowHeadLength(stroke, l float64) float64 {
+	return math.Max(8, 6*stroke+l*0.12)
+}
+
+// arrowHead returns the base midpoint and the two barb tips of the filled
+// head at tip, for the unit direction (ux, uy) of an arrow of length l.
+func arrowHead(tip pt, ux, uy, l float64, stroke int) (base, p1, p2 pt) {
+	head := ArrowHeadLength(float64(stroke), l)
+	cosA, sinA := math.Cos(ArrowHeadAngle), math.Sin(ArrowHeadAngle)
 	// Rotate the reversed unit vector by +/-ang to get the two barbs.
-	rx1 := -(ux*cosA - uy*sinA)
-	ry1 := -(ux*sinA + uy*cosA)
-	rx2 := -(ux*cosA + uy*sinA)
-	ry2 := -(-ux*sinA + uy*cosA)
-
-	p1 := image.Pt(a.To.X+int(rx1*float64(head)), a.To.Y+int(ry1*float64(head)))
-	p2 := image.Pt(a.To.X+int(rx2*float64(head)), a.To.Y+int(ry2*float64(head)))
-	drawLine(dst, a.To, p1, stroke, a.Color)
-	drawLine(dst, a.To, p2, stroke, a.Color)
+	rx1, ry1 := -(ux*cosA - uy*sinA), -(ux*sinA + uy*cosA)
+	rx2, ry2 := -(ux*cosA + uy*sinA), -(-ux*sinA + uy*cosA)
+	p1 = pt{tip.x + rx1*head, tip.y + ry1*head}
+	p2 = pt{tip.x + rx2*head, tip.y + ry2*head}
+	base = pt{tip.x - ux*head*cosA, tip.y - uy*head*cosA}
+	return base, p1, p2
 }
 
 func (r Rectangle) draw(dst draw.Image) {
-	rect := r.Rect.Canon()
-	tl := rect.Min
-	tr := image.Pt(rect.Max.X, rect.Min.Y)
-	bl := image.Pt(rect.Min.X, rect.Max.Y)
-	br := rect.Max
-	drawLine(dst, tl, tr, r.Stroke, r.Color)
-	drawLine(dst, tr, br, r.Stroke, r.Color)
-	drawLine(dst, br, bl, r.Stroke, r.Color)
-	drawLine(dst, bl, tl, r.Stroke, r.Color)
+	strokeRect(dst, r.Rect.Canon(), float64(max(r.Stroke, 1)), r.Color)
 }
 
 func (e Ellipse) draw(dst draw.Image) {
@@ -254,105 +208,35 @@ func (e Ellipse) draw(dst draw.Image) {
 	if rect.Dx() == 0 || rect.Dy() == 0 {
 		return
 	}
-	cx := float64(rect.Min.X+rect.Max.X) / 2
-	cy := float64(rect.Min.Y+rect.Max.Y) / 2
-	rx := float64(rect.Dx()) / 2
-	ry := float64(rect.Dy()) / 2
-	stroke := e.Stroke
-	if stroke < 1 {
-		stroke = 1
-	}
-	// Parametric sampling; step fine enough to avoid gaps at this radius.
-	steps := int(4 * (rx + ry))
-	if steps < 32 {
-		steps = 32
-	}
-	var prev image.Point
-	for i := 0; i <= steps; i++ {
-		t := 2 * pi * float64(i) / float64(steps)
-		x := int(cx + rx*cos(t))
-		y := int(cy + ry*sin(t))
-		p := image.Pt(x, y)
-		if i > 0 {
-			drawLine(dst, prev, p, stroke, e.Color)
-		}
-		prev = p
-	}
+	strokeEllipse(dst, rect, float64(max(e.Stroke, 1)), e.Color)
 }
 
 func (t Text) draw(dst draw.Image) {
-	face := t.Face
-	scale := t.Stroke
-	if scale < 1 {
-		scale = 1
-	}
-	if face == nil {
-		// Render into a temporary mask with the bitmap face, then scale up by an
-		// integer factor so stroke width controls legibility.
-		drawScaledText(dst, t.At, t.Text, t.Color, scale)
+	if t.Face != nil {
+		d := &font.Drawer{
+			Dst:  dst,
+			Src:  image.NewUniform(t.Color),
+			Face: t.Face,
+			Dot:  fixed.P(t.At.X, t.At.Y),
+		}
+		d.DrawString(t.Text)
 		return
 	}
+	// Default face: anti-aliased Go Regular sized by stroke. At is the
+	// top-left of the text box (not the baseline) for predictable placement
+	// from a GUI click.
+	face := DefaultFace(t.Stroke)
 	d := &font.Drawer{
 		Dst:  dst,
 		Src:  image.NewUniform(t.Color),
 		Face: face,
-		Dot:  fixed.P(t.At.X, t.At.Y),
+		Dot:  fixed.Point26_6{X: fixed.I(t.At.X), Y: fixed.I(t.At.Y) + face.Metrics().Ascent},
 	}
 	d.DrawString(t.Text)
 }
 
-// TextSize returns the size of s drawn by Text with the built-in face at the
-// given stroke (scale factor), so a GUI can preview the exact extent.
-func TextSize(s string, stroke int) image.Point {
-	if stroke < 1 {
-		stroke = 1
-	}
-	face := basicfont.Face7x13
-	w := (&font.Drawer{Face: face}).MeasureString(s).Ceil()
-	h := face.Metrics().Height.Ceil()
-	return image.Pt(w*stroke, h*stroke)
-}
-
-// drawScaledText renders text with basicfont.Face7x13 into a small mask and
-// nearest-neighbor scales it by factor onto dst. At is the top-left of the text
-// box (not the baseline) for predictable placement from a GUI click.
-func drawScaledText(dst draw.Image, at image.Point, s string, c color.Color, factor int) {
-	face := basicfont.Face7x13
-	d := &font.Drawer{Face: face}
-	w := d.MeasureString(s).Ceil()
-	if w <= 0 {
-		w = 1
-	}
-	h := face.Metrics().Height.Ceil()
-	if h <= 0 {
-		h = 13
-	}
-	asc := face.Metrics().Ascent.Ceil()
-
-	mask := image.NewRGBA(image.Rect(0, 0, w, h))
-	md := &font.Drawer{
-		Dst:  mask,
-		Src:  image.NewUniform(c),
-		Face: face,
-		Dot:  fixed.P(0, asc),
-	}
-	md.DrawString(s)
-
-	if factor == 1 {
-		draw.Draw(dst, image.Rect(at.X, at.Y, at.X+w, at.Y+h), mask, image.Point{}, draw.Over)
-		return
-	}
-	scaled := image.NewRGBA(image.Rect(0, 0, w*factor, h*factor))
-	xdraw.NearestNeighbor.Scale(scaled, scaled.Bounds(), mask, mask.Bounds(), xdraw.Over, nil)
-	draw.Draw(dst, image.Rect(at.X, at.Y, at.X+w*factor, at.Y+h*factor), scaled, image.Point{}, draw.Over)
-}
-
 func (l Line) draw(dst draw.Image) {
-	stroke := l.Stroke
-	if stroke < 1 {
-		stroke = 1
-	}
-	drawLine(dst, l.From, l.To, stroke, l.Color)
+	strokeSegment(dst, l.From, l.To, float64(max(l.Stroke, 1)), l.Color)
 }
 
 func (f Freehand) draw(dst draw.Image) {
@@ -363,13 +247,7 @@ func (f Freehand) draw(dst draw.Image) {
 	if len(f.Points) == 0 {
 		return
 	}
-	if len(f.Points) == 1 {
-		stamp(dst, f.Points[0].X, f.Points[0].Y, stroke, f.Color)
-		return
-	}
-	for i := 1; i < len(f.Points); i++ {
-		drawLine(dst, f.Points[i-1], f.Points[i], stroke, f.Color)
-	}
+	strokePolyline(dst, f.Points, float64(stroke), f.Color)
 }
 
 func (b BlurRegion) draw(dst draw.Image) {
@@ -447,6 +325,19 @@ func (p Pixelate) draw(dst draw.Image) {
 	}
 }
 
+func (r Redact) draw(dst draw.Image) {
+	if r.Color == nil {
+		return
+	}
+	// Un-premultiply, then force full alpha: a redaction is never see-through.
+	c := color.NRGBAModel.Convert(r.Color).(color.NRGBA)
+	c.A = 0xff
+	solid := image.NewUniform(c)
+	for _, rc := range r.Rects {
+		draw.Draw(dst, rc.Canon().Intersect(dst.Bounds()), solid, image.Point{}, draw.Src)
+	}
+}
+
 func (h Highlight) draw(dst draw.Image) {
 	rect := h.Rect.Canon().Intersect(dst.Bounds())
 	if rect.Empty() {
@@ -468,26 +359,23 @@ func (s StepBadge) draw(dst draw.Image) {
 	if radius < 1 {
 		radius = 14
 	}
-	cx, cy := s.Center.X, s.Center.Y
-	rr := radius * radius
-	for dy := -radius; dy <= radius; dy++ {
-		for dx := -radius; dx <= radius; dx++ {
-			if dx*dx+dy*dy <= rr {
-				setPixel(dst, cx+dx, cy+dy, s.Color)
-			}
-		}
-	}
+	fillDisc(dst, s.Center, float64(radius), s.Color)
 	label := strconv.Itoa(s.Number)
-	face := basicfont.Face7x13
-	d := &font.Drawer{Face: face}
-	w := d.MeasureString(label).Ceil()
-	hgt := face.Metrics().Height.Ceil()
-	scale := radius / 7
-	if scale < 1 {
-		scale = 1
+	// The number is about 1.2x the radius tall, centred on the disc.
+	face := faceForSize(max(8, radius*6/5))
+	m := face.Metrics()
+	w := (&font.Drawer{Face: face}).MeasureString(label)
+	c := center(s.Center)
+	d := &font.Drawer{
+		Dst:  dst,
+		Src:  image.NewUniform(badgeTextColor(s.Color)),
+		Face: face,
+		Dot: fixed.Point26_6{
+			X: fixed.Int26_6(c.x*64) - w/2,
+			Y: fixed.Int26_6(c.y*64) + (m.Ascent-m.Descent)/2,
+		},
 	}
-	at := image.Pt(cx-(w*scale)/2, cy-(hgt*scale)/2)
-	drawScaledText(dst, at, label, badgeTextColor(s.Color), scale)
+	d.DrawString(label)
 }
 
 // badgeTextColor returns black or white, whichever contrasts the disc color.
@@ -573,30 +461,4 @@ func clampi(v, lo, hi int) int {
 		return hi
 	}
 	return v
-}
-
-// --- tiny math helpers (avoid pulling math into hot pixel loops via aliases) ---
-
-const pi = math.Pi
-
-func cos(x float64) float64  { return math.Cos(x) }
-func sin(x float64) float64  { return math.Sin(x) }
-func sqrt(x float64) float64 { return math.Sqrt(x) }
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
-
-func sign(n int) int {
-	switch {
-	case n > 0:
-		return 1
-	case n < 0:
-		return -1
-	default:
-		return 0
-	}
 }

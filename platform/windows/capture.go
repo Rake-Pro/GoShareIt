@@ -97,7 +97,7 @@ func (c *Capturer) Capture(ctx context.Context, r capture.Request) (capture.Resu
 		return capture.Result{}, fmt.Errorf("%w: %s", ErrUnsupportedMode, r.Mode)
 	}
 
-	pngBytes, err := c.grab(ctx, r.Mode)
+	pngBytes, err := c.grab(ctx, r)
 	if err != nil {
 		return capture.Result{}, err
 	}
@@ -121,9 +121,9 @@ func (c *Capturer) Capture(ctx context.Context, r capture.Request) (capture.Resu
 	return res, nil
 }
 
-// grab dispatches on mode and returns encoded PNG bytes.
-func (c *Capturer) grab(ctx context.Context, mode capture.Mode) ([]byte, error) {
-	switch mode {
+// grab dispatches on the request's mode and returns encoded PNG bytes.
+func (c *Capturer) grab(ctx context.Context, r capture.Request) ([]byte, error) {
+	switch mode := r.Mode; mode {
 	case capture.FullScreen:
 		return c.captureVirtualScreen()
 	case capture.ActiveWindow, capture.WindowPick:
@@ -132,7 +132,7 @@ func (c *Capturer) grab(ctx context.Context, mode capture.Mode) ([]byte, error) 
 		// window. The user is expected to focus the target before triggering.
 		return c.captureForegroundWindow()
 	case capture.RegionInteractive:
-		return c.captureInteractive(ctx)
+		return c.captureInteractive(ctx, r.KeepClipboard)
 	case capture.LastRegion:
 		c.mu.Lock()
 		last := c.lastRegion
@@ -141,7 +141,7 @@ func (c *Capturer) grab(ctx context.Context, mode capture.Mode) ([]byte, error) 
 			return encodePNG(mustCaptureRect(last))
 		}
 		// No stored rect: fall back to interactive selection. TODO(P2) above.
-		return c.captureInteractive(ctx)
+		return c.captureInteractive(ctx, r.KeepClipboard)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedMode, mode)
 	}
@@ -225,7 +225,9 @@ func (c *Capturer) captureForegroundWindow() ([]byte, error) {
 // It is the Windows analog of `screencapture -i -c`. We snapshot the clipboard
 // image beforehand, launch the snip UI, then poll the clipboard until a NEW
 // image appears or snipTimeout elapses (treated as user cancellation).
-func (c *Capturer) captureInteractive(ctx context.Context) ([]byte, error) {
+// keepClipboard rules the snip fallback out (it leaves its image on the
+// clipboard): an overlay failure is then reported instead.
+func (c *Capturer) captureInteractive(ctx context.Context, keepClipboard bool) ([]byte, error) {
 	if c.Region != nil {
 		// Freeze the primary display first: the overlay paints it as its
 		// backdrop and the selection is cropped from this same frame, so the
@@ -240,6 +242,8 @@ func (c *Capturer) captureInteractive(ctx context.Context) ([]byte, error) {
 		}
 		rect, ok, err := c.Region.Select(ctx, screen)
 		switch {
+		case err != nil && keepClipboard:
+			return nil, fmt.Errorf("windows capture: region overlay: %w", err)
 		case err != nil:
 			log.Warn().Err(err).Msg("region overlay failed; falling back to Windows snip UI")
 		case !ok:
@@ -265,6 +269,9 @@ func (c *Capturer) captureInteractive(ctx context.Context) ([]byte, error) {
 			c.mu.Unlock()
 			return encodePNG(img)
 		}
+	}
+	if keepClipboard {
+		return nil, fmt.Errorf("windows capture: no region overlay (goshareit-editor) to select with")
 	}
 	if err := clipboardInit(); err != nil {
 		return nil, fmt.Errorf("windows capture: clipboard init: %w", err)

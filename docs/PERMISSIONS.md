@@ -34,6 +34,15 @@ required**; they were needed only by the previous `golang.design/x/hotkey`
 event-tap backend. An install that granted them for an older build can revoke
 them.
 
+## Text recognition needs no permission
+
+The editor's text recognition uses Apple Vision (`VNRecognizeTextRequest`) on
+the image it already holds. Capture Text does the same in the host process,
+on a region taken by the same capture as Capture Region (so it needs only the
+Screen Recording permission that capture already has). Vision is a public system framework that runs on
+device: no entitlement, no TCC prompt, no network. This is expected, not yet
+verified on a signed, notarized build (see BACKLOG.md).
+
 ## Persistence and signing
 
 TCC ties a grant to the app's code signature (Team ID + bundle id). What
