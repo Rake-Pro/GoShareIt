@@ -35,6 +35,7 @@ import (
 	"github.com/Rake-Pro/GoShareIt/internal/editor/annotate"
 	"github.com/Rake-Pro/GoShareIt/internal/editor/cropbox"
 	"github.com/Rake-Pro/GoShareIt/internal/editor/oplog"
+	"github.com/Rake-Pro/GoShareIt/internal/editor/toolset"
 )
 
 // Action identifies which button the user confirmed out of the editor with.
@@ -55,8 +56,9 @@ const (
 type Tool string
 
 const (
-	// ToolSelect picks a placed shape to move, delete or restyle. It is
-	// always in the toolbar (first), whatever editor.tools lists.
+	// ToolSelect picks a placed shape to move, delete or restyle, and
+	// selects recognized text (Live Text style). It is always in the toolbar
+	// (first), whatever editor.tools lists.
 	ToolSelect    Tool = "select"
 	ToolCrop      Tool = "crop"
 	ToolArrow     Tool = "arrow"
@@ -70,15 +72,19 @@ const (
 	ToolLine      Tool = "line"
 	ToolFreehand  Tool = "freehand"
 	// ToolRedact draws an opaque box: the safe way to hide text (blur and
-	// pixelate can be reversed).
+	// pixelate can be reversed). It is always in the toolbar (last).
 	ToolRedact Tool = "redact"
-	// ToolSelectText is the text-selection mode over recognized words.
+	// ToolSelectText is the old Select text tool. Text selection now lives
+	// in ToolSelect; the name is still accepted in editor.tools (ignored)
+	// and as the initial tool (opens in Select).
 	ToolSelectText Tool = "select_text"
 )
 
 // Options configures the initial editor state. Color is the initial stroke
-// color; Stroke the initial width; Tools restricts which tools appear in the
-// toolbar (empty -> all P4a tools); Tool is the initially selected tool.
+// color; Stroke the initial width; Tools picks and orders the drawing tools
+// in the toolbar (empty -> all of them; Select and Redact are always shown,
+// so "select", "redact" and "select_text" are ignored there); Tool is the
+// initially selected tool.
 // Theme is the resolved theme ("light" or "dark"; anything else, including
 // empty, falls back to dark) - callers resolve "system" before calling Run.
 // ConfirmLabel is rendered on the confirm button ("" -> "Done"). Actions, when
@@ -86,9 +92,10 @@ const (
 // whether the Upload button is enabled or shown greyed-out/inert.
 //
 // The OCR fields come from the host's --ocr flags. OCRMode is OCROn (engine
-// available; OCREngine set), OCROff (text tools greyed out with OCR's
-// reason) or OCRHidden (no text tools; also the zero value, so an old host
-// keeps today's UI). TextOut is where copied text is also written for the
+// available; OCREngine set: text selection in Select, Copy text, Quick
+// redact), OCROff (Copy text and Quick redact greyed out with OCR's reason)
+// or OCRHidden (no text features; also the zero value, so an old host keeps
+// today's UI). TextOut is where copied text is also written for the
 // host (Linux clipboard handoff).
 type Options struct {
 	Tool         Tool
@@ -163,9 +170,9 @@ func Run(img image.Image, opts Options) (result image.Image, action Action, err 
 		app.MinSize(unit.Dp(640), unit.Dp(400)),
 	)
 	// Recognition runs in the background from the first frame; nothing
-	// waits for it. Select text as the default tool counts as asking for it
-	// even with auto-run off.
-	if (e.ocr.auto && (e.hasTool(ToolSelectText) || e.hasTool(ToolRedact))) || e.tool == ToolSelectText {
+	// waits for it. Opening in Select counts as switching to it, so text
+	// selection works there even with auto-run off.
+	if toolset.StartsRecognition(e.ocr.auto, string(e.tool)) {
 		e.startOCR()
 	}
 	defer func() {
@@ -198,6 +205,7 @@ type editor struct {
 	// pointer, and an in-progress move (moveOrig is the shape before it).
 	selected   int
 	hoverShape int
+	hoverText  bool // the pointer is over recognized text (and no shape)
 	moving     bool
 	moveFrom   image.Point
 	moveDelta  image.Point // offset applied so far
@@ -260,19 +268,21 @@ type editor struct {
 	confirm      widget.Clickable
 	cancelB      widget.Clickable
 	textIn       widget.Editor
-	toolRow      layout.List // scrollable tool/swatch row (toolbar row 1)
+	measureB     widget.Clickable // scratch button for measuring labels
 
-	// Select text / Redact row-2 buttons and the zoom readout.
+	// Text buttons and the zoom readout.
 	copyTextB    widget.Clickable
-	copyAllB     widget.Clickable
 	redactSelB   widget.Clickable
 	quickRedactB widget.Clickable
 	zoomBtn      widget.Clickable
-	// Hover trackers for greyed-out buttons, which take no input themselves
-	// (gtx.Disabled), so the hint row can show why they are greyed.
-	toolHover  map[Tool]*gesture.Hover
-	quickHover gesture.Hover
-	hoverWhy   string // reason of the greyed button under the pointer this frame
+	// Pointer trackers for greyed-out buttons, which take no input
+	// themselves (gtx.Disabled), so the hint row can say why they are
+	// greyed on hover or press.
+	copyTextWhy  gesture.Click
+	redactSelWhy gesture.Click
+	quickWhy     gesture.Click
+	hoverWhy     string // reason of the greyed button under the pointer this frame
+	keysShown    bool   // tool labels carry their shortcut key this frame
 
 	imgOp paint.ImageOp
 
@@ -318,46 +328,25 @@ func newEditor(img image.Image, opts Options) *editor {
 		}
 	}
 
-	// Unknown tool names are dropped (they would get a button that draws
-	// nothing), and a default tool outside the enabled list falls back to the
-	// first enabled one so the active tool always has a highlighted button.
-	//
-	// With OCR hidden (turned off in Settings, or an old host) Select text is
-	// dropped the same way; Redact needs no OCR and stays.
+	// editor.tools picks and orders the drawing tools; Select (first) and
+	// Redact (last) are always there (see toolset.Toolbar). Only names with
+	// a label reach the toolbar, so a button always draws something.
 	ocrMode := opts.OCRMode
 	if ocrMode != OCROn && ocrMode != OCROff {
 		ocrMode = OCRHidden
 	}
-	known := func(t Tool) bool { return toolLabel(t) != "" && !(t == ToolSelectText && ocrMode == OCRHidden) }
-	var tools []Tool
+	listed := make([]string, 0, len(opts.Tools))
 	for _, t := range opts.Tools {
-		if known(t) {
-			tools = append(tools, t)
+		listed = append(listed, string(t))
+	}
+	names, initial := toolset.Toolbar(listed, string(opts.Tool))
+	var tools []Tool
+	for _, n := range names {
+		if toolLabel(Tool(n)) != "" {
+			tools = append(tools, Tool(n))
 		}
 	}
-	if len(tools) == 0 {
-		for _, t := range []Tool{
-			ToolCrop, ToolArrow, ToolRect, ToolEllip, ToolText,
-			ToolBlur, ToolPixelate, ToolHighlight, ToolStep, ToolLine, ToolFreehand,
-			ToolRedact, ToolSelectText,
-		} {
-			if known(t) {
-				tools = append(tools, t)
-			}
-		}
-	}
-	tool := opts.Tool
-	if tool == "" {
-		tool = ToolArrow
-	}
-	if !slices.Contains(tools, tool) || (tool == ToolSelectText && ocrMode != OCROn) {
-		tool = tools[0]
-		if tool == ToolSelectText && ocrMode != OCROn && len(tools) > 1 {
-			tool = tools[1]
-		}
-	}
-	// Select is not a drawing tool: it is always there, first in the row.
-	tools = append([]Tool{ToolSelect}, slices.DeleteFunc(tools, func(t Tool) bool { return t == ToolSelect })...)
+	tool := Tool(initial)
 	col := opts.Color
 	if col == (color.NRGBA{}) {
 		col = color.NRGBA{R: 0xff, G: 0x3b, B: 0x30, A: 0xff}
@@ -419,17 +408,20 @@ func newEditor(img image.Image, opts Options) *editor {
 		e.ocr.status = ocr.Status{Reason: "Text recognition is not available in this build."}
 	}
 	e.toolBtns = make(map[Tool]*widget.Clickable, len(tools))
-	e.toolHover = make(map[Tool]*gesture.Hover, len(tools))
 	for _, t := range tools {
 		e.toolBtns[t] = new(widget.Clickable)
-		e.toolHover[t] = new(gesture.Hover)
+	}
+	if !slices.Contains(e.palette, col) {
+		// The configured colour is not a swatch: it becomes an extra swatch
+		// after the others, so it stays visible and can be picked again, and
+		// the swatch row never changes width.
+		e.palette = append(e.palette, col)
 	}
 	e.swatchBtn = make([]*widget.Clickable, len(e.palette))
 	for i := range e.palette {
 		e.swatchBtn[i] = new(widget.Clickable)
 	}
 	e.textIn.SingleLine = true
-	e.toolRow.Axis = layout.Horizontal
 	return e
 }
 
@@ -510,7 +502,7 @@ func (e *editor) loop(w *app.Window) (image.Image, Action, error) {
 // layout registers the next frame's input areas. A finished recognition is
 // picked up first.
 func (e *editor) handleInput(gtx layout.Context) {
-	e.pollOCR()
+	e.pollOCR(gtx)
 
 	// Escape abandons a drag in progress, then clears a text or shape
 	// selection, then cancels (with a confirmation step when annotations
@@ -612,8 +604,8 @@ func (e *editor) handleShortcut(gtx layout.Context, ke key.Event) {
 			e.confirmNow(ActionSave)
 		}
 	case "A":
-		if e.tool == ToolSelectText {
-			e.selectAllText()
+		if e.tool == ToolSelect {
+			e.selectAllText(gtx)
 		}
 	case "R":
 		e.quickRedact(gtx)
@@ -707,10 +699,13 @@ func (e *editor) handlePointer(pe pointer.Event) {
 		e.hovering = true
 		if e.tool == ToolSelect {
 			e.hoverShape = e.hitShape(e.hover)
+			_, e.hoverText = e.textAt(e.hover)
+			e.hoverText = e.hoverText && e.hoverShape < 0 && !e.overSelection(e.hover)
 		}
 	case pointer.Leave:
 		e.hovering = false
 		e.hoverShape = -1
+		e.hoverText = false
 	case pointer.Cancel:
 		// The grab was taken away mid-gesture: drop the drag, keep nothing.
 		e.cancelGesture()
@@ -730,9 +725,6 @@ func (e *editor) handlePointer(pe pointer.Event) {
 		}
 		ip := e.toImage(pe.Position)
 		switch e.tool {
-		case ToolSelectText:
-			e.selPress(ip)
-			return
 		case ToolSelect:
 			e.pressSelect(ip)
 			return
@@ -776,7 +768,7 @@ func (e *editor) handlePointer(pe pointer.Event) {
 		ip := e.toImage(pe.Position)
 		e.hoverPos = pe.Position
 		switch {
-		case e.tool == ToolSelectText:
+		case e.sel.dragging:
 			e.selDrag(ip)
 		case e.moving:
 			e.dragMove(ip)
@@ -794,7 +786,7 @@ func (e *editor) handlePointer(pe pointer.Event) {
 			e.panning = false
 			return
 		}
-		if e.tool == ToolSelectText {
+		if e.sel.dragging {
 			e.selRelease()
 			return
 		}
@@ -841,6 +833,8 @@ func (e *editor) cancelGesture() bool {
 	case e.dragging:
 		e.dragging = false
 		e.freehandPts = nil
+	case e.sel.dragging:
+		e.clearSelection()
 	default:
 		return false
 	}

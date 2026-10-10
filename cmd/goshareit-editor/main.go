@@ -25,9 +25,11 @@
 //	    [--ocr-langs <csv>] [--ocr-quick-redact <csv>] [--ocr-timeout <seconds>] \
 //	    [--ocr-tesseract <path>]
 //
-// Text recognition: --ocr=on builds the platform engine and enables Select
-// text and Quick redact; off shows them greyed out with --ocr-reason; hidden
-// (the default, so an old host keeps today's UI) leaves Select text out.
+// Text recognition: --ocr=on builds the platform engine and enables text
+// selection in the Select tool, Copy text and Quick redact; off shows Copy
+// text and Quick redact greyed out with --ocr-reason; hidden (the default,
+// so an old host keeps today's UI) leaves the text features out. Select and
+// Redact are always in the toolbar; --tools picks the drawing tools.
 // Copying text never ends the editor and needs no exit code: the text goes
 // to the clipboard and is also written to --text-out (0600, overwritten on
 // each copy) so the host can re-assert it after exit (Linux selections die
@@ -66,10 +68,10 @@ func main() {
 	regionMode := flag.Bool("region", false, "run the interactive screen-region selector instead of the editor")
 	updateJob := flag.String("update", "", "run the update window for the given job file instead of the editor")
 	changelogJob := flag.String("changelog", "", "show the what's-new window for the given job file; exit 0 = update now, 64 = later")
-	tool := flag.String("tool", "", "initial tool (crop|arrow|rect|ellipse|line|freehand|text|blur|pixelate|highlight|step|redact|select_text)")
+	tool := flag.String("tool", "", "initial tool (select|crop|arrow|rect|ellipse|line|freehand|text|blur|pixelate|highlight|step|redact; select_text = select)")
 	colorHex := flag.String("color", "", "initial color as #rrggbb")
 	stroke := flag.Int("stroke", 0, "initial stroke width")
-	toolsCSV := flag.String("tools", "", "comma-separated tool whitelist")
+	toolsCSV := flag.String("tools", "", "comma-separated drawing tools in toolbar order (select and redact are always shown)")
 	theme := flag.String("theme", "", "theme: light|dark|system (system resolves via OS detection)")
 	confirmLabel := flag.String("confirm-label", "", "label rendered on the confirm button (\"\" -> Done)")
 	actions := flag.Bool("actions", false, "show the explicit Copy/Save/Upload action buttons")

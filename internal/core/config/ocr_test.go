@@ -57,7 +57,7 @@ func TestOCRValidation(t *testing.T) {
 	}
 }
 
-func TestEditorToolsMigration(t *testing.T) {
+func TestEditorToolsNoMigration(t *testing.T) {
 	load := func(t *testing.T, yaml string) *Config {
 		t.Helper()
 		cfg, err := LoadLocalOnly(writeFile(t, t.TempDir(), "config.yaml", "upload:\n  enabled: false\n"+yaml))
@@ -66,29 +66,22 @@ func TestEditorToolsMigration(t *testing.T) {
 		}
 		return cfg
 	}
-	// The old starter list, in any order, gets the two new tools.
+	// Select and Redact are always in the editor toolbar now, so the old
+	// starter list is no longer extended; it loads as written.
 	cfg := load(t, "editor:\n  tools: [step, crop, arrow, rect, text, blur, highlight]\n")
-	want := []string{"step", "crop", "arrow", "rect", "text", "blur", "highlight", "redact", "select_text"}
-	if !reflect.DeepEqual(cfg.Editor.Tools, want) || !cfg.MigratedEditorTools() || cfg.Editor.ToolsRevision != 1 {
-		t.Fatalf("migrated tools = %v (migrated %v, rev %d)", cfg.Editor.Tools, cfg.MigratedEditorTools(), cfg.Editor.ToolsRevision)
+	want := []string{"step", "crop", "arrow", "rect", "text", "blur", "highlight"}
+	if !reflect.DeepEqual(cfg.Editor.Tools, want) || cfg.Editor.ToolsRevision != 0 {
+		t.Fatalf("tools = %v (rev %d), want %v unchanged", cfg.Editor.Tools, cfg.Editor.ToolsRevision, want)
 	}
-	// Customised lists are left alone.
-	for _, y := range []string{
-		"editor:\n  tools: [crop, arrow, rect, text, blur, highlight]\n",
-		"editor:\n  tools: [crop, arrow, rect, text, blur, highlight, step, line]\n",
-		"editor:\n  tools: [crop, arrow, rect, text, blur, highlight, highlight]\n",
-	} {
-		if cfg := load(t, y); cfg.MigratedEditorTools() || len(cfg.Editor.Tools) > 8 {
-			t.Errorf("%q migrated to %v", y, cfg.Editor.Tools)
-		}
+	// Configs written by v0.3.x still load: tools_revision and the old
+	// select_text and redact tokens are accepted as they are.
+	cfg = load(t, "editor:\n  tools_revision: 1\n  tools: [crop, arrow, redact, select_text]\n")
+	want = []string{"crop", "arrow", "redact", "select_text"}
+	if !reflect.DeepEqual(cfg.Editor.Tools, want) || cfg.Editor.ToolsRevision != 1 {
+		t.Fatalf("v0.3 tools = %v (rev %d)", cfg.Editor.Tools, cfg.Editor.ToolsRevision)
 	}
-	// Once recorded, a list trimmed back to the old set stays as the user left it.
-	cfg = load(t, "editor:\n  tools_revision: 1\n  tools: [crop, arrow, rect, text, blur, highlight, step]\n")
-	if cfg.MigratedEditorTools() || len(cfg.Editor.Tools) != 7 {
-		t.Fatalf("revision 1 list changed to %v", cfg.Editor.Tools)
-	}
-	// No list: the editor shows every tool; nothing to migrate.
-	if cfg := load(t, ""); cfg.MigratedEditorTools() || cfg.Editor.Tools != nil {
+	// No list: the editor shows every tool.
+	if cfg := load(t, ""); cfg.Editor.Tools != nil {
 		t.Fatalf("empty tools = %v", cfg.Editor.Tools)
 	}
 }

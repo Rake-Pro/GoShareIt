@@ -175,16 +175,19 @@ editor:
   default_tool: arrow
   stroke_width: 6       # px; 3 is near-invisible on retina-resolution captures
   color: "#ff3b30"
-  # The Select tool (move, delete, restyle placed shapes) is always shown first.
-  tools: [crop, arrow, rect, text, blur, highlight, step, redact, select_text]
+  # The drawing tools, in toolbar order. Select (move, delete, restyle placed
+  # shapes; drag over recognized text to select it) is always first and Redact
+  # always last, so neither needs listing; "select_text" and "redact" from
+  # older configs are accepted and ignored.
+  tools: [crop, arrow, rect, text, blur, highlight, step]
 
-# On-device text recognition in the editor (Select text, Copy text, Quick
-# redact) and for Capture Text (hotkeys.text). Apple Vision on macOS, Windows
-# OCR on Windows, the tesseract command on Linux when it is installed;
-# nothing leaves the machine.
+# On-device text recognition in the editor (text selection in Select, Copy
+# text, Quick redact) and for Capture Text (hotkeys.text). Apple Vision on
+# macOS, Windows OCR on Windows, the tesseract command on Linux when it is
+# installed; nothing leaves the machine.
 ocr:
-  enabled: true           # text recognition (editor Select text, Quick redact; Capture Text); all on-device
-  auto_run: true          # recognize as soon as the editor opens (false = on first click of Select text)
+  enabled: true           # text recognition (editor Select/Copy text, Quick redact; Capture Text); all on-device
+  auto_run: true          # recognize as soon as the editor opens (false = when Select is opened or picked, or on the first Copy text)
   languages: []           # BCP-47 tags, e.g. [en, de]; empty = system default (Vision auto-detect,
                           # Windows profile languages, tesseract eng or the first installed pack)
   quick_redact: [email, phone]   # what the Quick redact button hides: email, phone, token, url, ip

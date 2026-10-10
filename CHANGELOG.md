@@ -11,36 +11,43 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   GO-2026-6611, GO-2026-6617).
 
 ### Added
-- Text recognition in the editor, on-device on every platform. A new
-  "Select text" tool (key `S`) shows where text was found; drag over words to
-  select them in reading order, double-click for a line, then Copy text
-  (Ctrl/Cmd+C, the editor stays open) or Copy all (Ctrl/Cmd+Shift+C).
-  Recognition starts in the background when the editor opens and never
-  blocks drawing. macOS uses Apple Vision; Windows uses Windows OCR (needs an
-  OCR language pack, the Settings page says where to get it); Linux uses the
-  `tesseract` command when it is installed (the tool is greyed out with the
-  install command otherwise, and appears on the next capture once installed,
-  no restart). Nothing is sent anywhere or stored (see PRIVACY.md).
-- Redact tool (key `X`): an opaque box, the safe way to hide text (Blur and
-  Pixelate can be reversed). "Redact selection" covers the selected words;
-  "Quick redact" (Ctrl/Cmd+Shift+R) covers the emails and phone numbers it
-  found in one undo step. It can miss text, so check the result.
+- Text recognition in the editor, on-device on every platform, used the
+  way Live Text works on macOS. In the Select tool (`V`) the cursor turns
+  into an I-beam over recognized text; a drag that starts on text selects it
+  in reading order, a double-click selects a line, Ctrl/Cmd+C copies the
+  selection (the editor stays open) and Ctrl/Cmd+A selects all of it. A drag
+  that starts on a placed annotation still moves the annotation. A "Copy
+  text" button next to Undo/Redo copies the selection, or all recognized
+  text when nothing is selected (also Ctrl/Cmd+Shift+C), and says how many
+  characters it copied; it reads "Reading text..." while recognition runs,
+  and when recognition finishes the hint row says how many lines it found.
+  A word drops out of selection and copying as soon as a quarter of it
+  sits under a Redact box. Recognition starts
+  in the background when the editor opens and never blocks drawing. macOS
+  uses Apple Vision; Windows uses Windows OCR (needs an OCR language pack,
+  the Settings page says where to get it); Linux uses the `tesseract`
+  command when it is installed (Copy text is greyed out with the install
+  command otherwise, and works on the next capture once installed, no
+  restart). Nothing is sent anywhere or stored (see PRIVACY.md).
+- Redact tool (key `X`), always in the toolbar: an opaque box, the safe way
+  to hide text (Blur and Pixelate can be reversed). In Select, "Redact
+  selection" covers the selected words; with Redact active, "Quick redact"
+  (Ctrl/Cmd+Shift+R) covers the emails and phone numbers it found in one
+  undo step. It can miss text, so check the result.
 - Settings > Text recognition: the engine and its languages (or why it is
   not available), recognize automatically, languages, what Quick redact
   hides, and the tesseract command on Linux. New `ocr:` block in the config
   (`enabled`, `auto_run`, `languages`, `quick_redact`, `tesseract_path`,
   `timeout_seconds`).
-- Upgrades: a config whose `editor.tools` is still the old starter list
-  (crop, arrow, rect, text, blur, highlight, step) gets Redact and Select text
-  added once (recorded as `editor.tools_revision: 1`, logged at start). A
-  customised list is left alone; tick the new tools in Settings > Editor >
-  Tools.
+- `editor.tools` lists the drawing tools; Select (first) and Redact (last)
+  are always in the toolbar, whatever it lists. `select_text`, `redact` and
+  `editor.tools_revision` written by v0.3.2 are accepted and ignored.
 - Editor zoom controls: Ctrl/Cmd+0 fits the image, Ctrl/Cmd+1 shows it at
   100%, Ctrl/Cmd+= and Ctrl/Cmd+- zoom in and out, and a zoom readout in the
   toolbar toggles between fit and 100%.
-- Single-key tool shortcuts in the editor (C, A, R, E, T, B, P, H, N, L, F,
-  X, S), `[` and `]` for the stroke width and `1` to `7` for the colours; wide
-  windows show each key on its tool button.
+- Single-key tool shortcuts in the editor (V, C, A, R, E, T, B, P, H, N, L,
+  F, X), `[` and `]` for the stroke width and `1` to `7` for the colours;
+  each tool button shows its key when all of them fit on one row that way.
 - Capture Text: a tray item and a hotkey (`hotkeys.text`, Cmd+Shift+8 on
   macOS and Ctrl+Shift+8 on Windows and Linux for new installs; set it in
   Settings > Hotkeys on an existing config) that copy the text in a region
@@ -164,6 +171,15 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   clicked. The link still lands on the clipboard as before.
 
 ### Changed
+- For v0.3.2 users: the "Select text" tool (key `S`) and "Copy all" are
+  gone. Text selection now lives in the Select tool and "Copy text" copies
+  everything when nothing is selected (see Added). Select and Redact show up
+  even with a customised `editor.tools`, so the v0.3.2 one-time tool-list
+  upgrade is no longer done. Settings > Editor > Tools no longer lists
+  Redact or Select text, and Redact or Select can be the default tool.
+  With "Recognize automatically" off, recognition now starts when the
+  editor opens in Select, on switching to Select, or on the first Copy
+  text.
 - Editor strokes are anti-aliased and arrows have a filled head; annotation
   text uses Go Regular (anti-aliased) instead of the scaled bitmap font, so
   saved captures match the on-canvas preview.
@@ -190,6 +206,22 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   so Wails debug-mode code is compiled out of release builds.
 
 ### Fixed
+- Editor toolbar no longer cuts off buttons. The tool buttons and colour
+  swatches wrap onto a second row instead of scrolling out of view (the
+  colour swatches were hidden at the default window size on macOS), tool
+  labels drop their "(V)" key hints when they would not all fit on one row,
+  and the action buttons move to a row of their own, right-aligned, when the
+  window is narrow, so Cancel and the confirm button are always visible down
+  to the minimum window width.
+  The toolbar keeps the same height when you switch tools, so the image no
+  longer jumps, and a configured colour that is not one of the swatches
+  stays as an extra swatch instead of disappearing once another colour is
+  picked.
+- Editor: copied text no longer includes words under a Redact box. In
+  v0.3.2, "Copy all" copied every recognized word, including redacted
+  emails or tokens. Now Copy text, Ctrl/Cmd+Shift+C and text selection skip
+  any word mostly (more than half) covered by a Redact box, and the word
+  comes back when the box is undone or deleted.
 - Editor: Cancel, Esc, closing the window, a helper crash or a
   `timeout_seconds` expiry no longer upload, copy or save the unedited
   capture. With "Keep a local copy" on, the capture is no longer written to

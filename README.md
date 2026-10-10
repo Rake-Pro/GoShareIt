@@ -229,12 +229,70 @@ Not available: Tenor has no public upload API, and Gfycat shut down.
 Deletion links, when a host returns one, are written to `history.jsonl`
 (`delete_url`) and logged at upload time.
 
+## Editor
+
+The post-capture editor opens after a capture when `editor.enabled` is on
+(or from the `*_edit` hotkeys and "Capture Region and Edit").
+
+| Toolbar part | Holds |
+|---|---|
+| Tool buttons | Select (always first), the drawing tools from `editor.tools`, Redact (always last); then the colour swatches |
+| Controls | stroke `-` / `+` with the width, zoom readout, the text field (Text tool), Quick redact (Redact tool), Undo, Redo, Copy text, Redact selection (Select tool) |
+| Actions | Copy, Save, Upload (greyed out while uploads are off), Cancel and the confirm button (its label follows your after-capture settings, e.g. "Copy & Upload") |
+| Hint row | what the active tool does, why a greyed-out button is unavailable, what was just copied or redacted |
+
+- Nothing scrolls or is cut off: the tool buttons and swatches wrap onto a
+  second row when the window is too narrow, and the actions move to a row
+  of their own, right-aligned, with Cancel and the confirm button always
+  visible (down to the 640 dp minimum window width).
+- Tool buttons show their key ("Arrow (A)") only when all of them fit on
+  one row that way; otherwise the hint row names the active tool's key.
+- **Select (`V`)** works like Live Text on macOS: over recognized text the
+  cursor is an I-beam, a drag that starts on text selects it in reading
+  order, a double-click selects a line, Ctrl/Cmd+C copies the selection
+  (the editor stays open) and Ctrl/Cmd+A selects all of it. A drag that
+  starts on a placed annotation moves the annotation (it wins over text
+  under it); a click elsewhere deselects.
+- **Copy text** copies the selected text, or all recognized text when
+  nothing is selected, and the hint row says how many characters were
+  copied. It reads "Reading text..." while recognition runs and is greyed
+  out with the reason when recognition is unavailable. When recognition
+  finishes, the hint row says how many lines of text it found.
+- Words with a quarter or more of their box under a Redact box are never selected or
+  copied; undoing or deleting the box brings them back.
+- **Redact (`X`)** is always in the toolbar: drag an opaque box (current
+  colour, black recommended). With Redact active, Quick redact hides the
+  emails and phone numbers it found (`ocr.quick_redact`) in one undo step.
+  In Select, Redact selection covers the selected text.
+- `editor.tools` lists only the drawing tools; `select_text` and `redact`
+  from older configs are accepted and ignored.
+
+| Key (not while typing annotation text) | Does |
+|---|---|
+| `V` `C` `A` `R` `E` `T` `B` `P` `H` `N` `L` `F` `X` | Select, Crop, Arrow, Rectangle, Ellipse, Text, Blur, Pixelate, Highlight, Step, Line, Freehand, Redact |
+| Select: click a shape, drag it | selects and moves a placed annotation (thin strokes have a few pixels of slack) |
+| Select: drag over text / double-click a word | selects text in reading order / selects the line |
+| Ctrl/Cmd+C | copies the selected text (the editor stays open); with no text selection it copies the image and closes, as before |
+| Ctrl/Cmd+Shift+C | copies all recognized text |
+| Ctrl/Cmd+A | selects all recognized text (Select) |
+| Ctrl/Cmd+Shift+R | Quick redact (one undo step) |
+| Delete / Backspace | removes the selected shape |
+| Arrow keys / Shift+arrow keys | nudge the selected shape 1 px / 10 px (a run of nudges is one undo step) |
+| Esc | abandons a drag in progress, then clears a text selection, then deselects, then cancels as before |
+| Crop (`C`) handles | drag a corner or edge to resize, inside to move, outside for a new crop; Enter confirms the editor |
+| `[` / `]` | stroke width -1 / +1 (also restyles the selected shape) |
+| `1` to `7` | colour swatch (also recolours the selected shape) |
+| Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y | undo / redo, including moves, deletes, restyles and crop changes |
+| Ctrl/Cmd+0 / Ctrl/Cmd+1 | zoom to fit / 100% (the zoom readout in the toolbar toggles the same) |
+| Ctrl/Cmd+= / Ctrl/Cmd+- | zoom in / out |
+
 ## Text recognition (OCR)
 
-The editor can find text in a capture: select and copy it, copy all of it,
-or cover it with an opaque Redact box. Recognition runs on this computer
-only (see [PRIVACY.md](PRIVACY.md)); when no engine is available the text
-tools are greyed out with the reason and the fix.
+The editor can find text in a capture: select and copy it with the Select
+tool, copy all of it with Copy text, or cover it with an opaque Redact box.
+Recognition runs on this computer only (see [PRIVACY.md](PRIVACY.md)); when
+no engine is available Copy text and Quick redact are greyed out with the
+reason and the fix.
 
 | Platform | Engine | Requirement |
 |---|---|---|
@@ -246,6 +304,8 @@ tools are greyed out with the reason and the fix.
   not available, and holds the `ocr:` options (see `config.example.yaml`).
 - Recognition starts in the background when the editor opens
   (`ocr.auto_run`); drawing, zooming and the action buttons never wait for it.
+  With it off, recognition starts when the editor opens in Select, on
+  switching to Select, or on the first Copy text.
 - Quick redact hides the emails and phone numbers it found (configurable:
   `ocr.quick_redact`). It can miss text; check the result. Blur and Pixelate
   are not safe for text; use Redact.
@@ -260,31 +320,8 @@ tools are greyed out with the reason and the fix.
 |---|---|---|---|
 | Capture Text (new installs; existing configs: set it in Settings > Hotkeys) | Cmd+Shift+8 | Ctrl+Shift+8 | Ctrl+Shift+8 |
 
-| In the editor | Does |
-|---|---|
-| Select text (`S`), then drag over words | selects in reading order; double-click selects a line |
-| Ctrl/Cmd+C | copies the selected text (the editor stays open); with no text selection it copies the image and closes, as before |
-| Ctrl/Cmd+Shift+C | copies all recognized text |
-| Ctrl/Cmd+A | selects all words (Select text) |
-| Ctrl/Cmd+Shift+R | Quick redact (one undo step) |
-| Esc | clears a text selection, then cancels as before |
-| Redact (`X`) | drag an opaque box; uses the current colour, black recommended |
-
-Other editor keys (not while typing annotation text):
-
-| Key | Does |
-|---|---|
-| `V` `C` `A` `R` `E` `T` `B` `P` `H` `N` `L` `F` `X` `S` | Select, Crop, Arrow, Rectangle, Ellipse, Text, Blur, Pixelate, Highlight, Step, Line, Freehand, Redact, Select text |
-| Select (`V`): click a shape, drag it | selects and moves a placed annotation (thin strokes have a few pixels of slack) |
-| Delete / Backspace | removes the selected shape |
-| Arrow keys / Shift+arrow keys | nudge the selected shape 1 px / 10 px (a run of nudges is one undo step) |
-| Esc | abandons a drag in progress, then deselects, then cancels as before |
-| Crop (`C`) handles | drag a corner or edge to resize, inside to move, outside for a new crop; Enter confirms the editor |
-| `[` / `]` | stroke width -1 / +1 (also restyles the selected shape) |
-| `1` to `7` | colour swatch (also recolours the selected shape) |
-| Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y | undo / redo, including moves, deletes, restyles and crop changes |
-| Ctrl/Cmd+0 / Ctrl/Cmd+1 | zoom to fit / 100% (the zoom readout in the toolbar toggles the same) |
-| Ctrl/Cmd+= / Ctrl/Cmd+- | zoom in / out |
+Text selection, Copy text and the redaction tools are described under
+[Editor](#editor).
 
 ## Validated upload flow
 

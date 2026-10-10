@@ -303,14 +303,16 @@
 // names, since config.Config has no json tags). Special types "secret:*" map
 // to the write-only SaveRequest fields. Each section also carries the sidebar
 // glyph (raw inline SVG) and the tint of its rounded icon square.
-// Editor tools: config value -> label shown here and in the editor toolbar.
+// Editor drawing tools: config value -> label shown here and in the editor
+// toolbar. Select (first) and Redact (last) are always in the toolbar, so
+// they are not in the Tools list but can be the default tool.
 const TOOLS = [
   { v: "crop", l: "Crop" }, { v: "arrow", l: "Arrow" }, { v: "rect", l: "Rectangle" },
   { v: "ellipse", l: "Ellipse" }, { v: "line", l: "Line" }, { v: "freehand", l: "Freehand" },
   { v: "text", l: "Text" }, { v: "blur", l: "Blur" }, { v: "pixelate", l: "Pixelate" },
   { v: "highlight", l: "Highlight" }, { v: "step", l: "Step" },
-  { v: "redact", l: "Redact" }, { v: "select_text", l: "Select text" },
 ];
+const DEFAULT_TOOLS = [{ v: "select", l: "Select" }, ...TOOLS, { v: "redact", l: "Redact" }];
 // Text recognition: the Quick redact kinds, and a gate whose hint is read
 // from LoadResult.ocrReason (the "@" prefix) so it shows the live reason.
 const QUICK_REDACT = [
@@ -473,9 +475,9 @@ const SCHEMA = [
     { p: "Editor.Enabled", l: "Open editor after capture", t: "bool" },
     { p: "Editor.OnModes", l: "For capture modes", t: "checks",
       opts: [{ v: "region", l: "Region" }, { v: "fullscreen", l: "Full screen" }, { v: "window", l: "Window" }] },
-    { p: "Editor.Tools",   l: "Tools", t: "checks", opts: TOOLS },
+    { p: "Editor.Tools",   l: "Tools", t: "checks", opts: TOOLS, hint: "Select and Redact are always shown" },
     // Options follow the checked Tools (syncDefaultTool).
-    { p: "Editor.DefaultTool", l: "Default tool", t: "select", opts: TOOLS },
+    { p: "Editor.DefaultTool", l: "Default tool", t: "select", opts: DEFAULT_TOOLS },
     { p: "Editor.Color",       l: "Color", t: "color" },
     { p: "Editor.StrokeWidth", l: "Stroke width", t: "number", max: 32, hint: "editor default, 1 to 32 px" },
   ]},
@@ -484,9 +486,9 @@ const SCHEMA = [
     note: "Select and copy text in a capture, and hide emails and phone numbers with Quick redact. Recognition runs on this computer only; recognized text goes nowhere but your clipboard.",
     fields: [
     { p: "@ocr_status", l: "Status", t: "status" },
-    { p: "OCR.Enabled", l: "Recognize text in the editor", t: "bool", hint: "adds Select text and Quick redact to the editor" },
+    { p: "OCR.Enabled", l: "Recognize text in the editor", t: "bool", hint: "select text with the editor's Select tool, Copy text, Quick redact" },
     { p: "OCR.AutoRun", l: "Recognize automatically when the editor opens", t: "bool",
-      hint: "off = recognition starts on the first click of Select text", gates: [OCR_GATE] },
+      hint: "off = recognition starts in the Select tool or when you press Copy text", gates: [OCR_GATE] },
     { p: "OCR.Languages", l: "Languages", t: "csv", hint: "language tags such as en, de; leave empty for the system default", gates: [OCR_GATE] },
     { p: "OCR.QuickRedact", l: "Quick redact hides", t: "checks", opts: QUICK_REDACT, gates: [OCR_GATE] },
     { p: "OCR.TesseractPath", l: "Tesseract command", t: "text", os: "linux",
@@ -918,11 +920,12 @@ function syncDefaultTool() {
   const sel = $(fieldId("Editor.DefaultTool"));
   if (!sel) return;
   const checked = [...document.querySelectorAll(`input[data-group="${fieldId("Editor.Tools")}"]:checked`)].map((x) => x.value);
-  const allowed = checked.length ? checked : TOOLS.map((t) => t.v); // none checked = the editor shows all
+  // none checked = the editor shows all; Select and Redact are always there
+  const allowed = ["select", ...(checked.length ? checked : TOOLS.map((t) => t.v)), "redact"];
   const cur = sel.value;
-  sel.innerHTML = TOOLS.filter((t) => allowed.includes(t.v))
+  sel.innerHTML = DEFAULT_TOOLS.filter((t) => allowed.includes(t.v))
     .map((t) => `<option value="${esc(t.v)}">${esc(t.l)}</option>`).join("");
-  sel.value = allowed.includes(cur) ? cur : allowed[0];
+  sel.value = allowed.includes(cur) ? cur : allowed[1]; // the first drawing tool
 }
 
 function collect() {

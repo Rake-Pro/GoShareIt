@@ -1,7 +1,7 @@
-// Package textsel is the pure-Go word layout behind the editor's Select text
-// mode: hit testing, reading-order ranges, the selected text and the
-// rectangles a selection covers. It has no GUI dependency, so it is
-// unit-tested in the core CI job.
+// Package textsel is the pure-Go word layout behind the editor's text
+// selection in the Select tool: hit testing, reading-order ranges, the
+// selected text and the rectangles a selection covers. It has no GUI
+// dependency, so it is unit-tested in the core CI job.
 package textsel
 
 import (
@@ -177,6 +177,100 @@ func (l Layout) group(refs []Ref) [][]ocr.Word {
 			cur = r.Line
 		}
 		out[len(out)-1] = append(out[len(out)-1], l.Lines[r.Line].Words[r.Word])
+	}
+	return out
+}
+
+// AllText is every word as running text: the engine's own line text where
+// the line is whole, the joined words where Mask removed some.
+func (l Layout) AllText() string {
+	parts := make([]string, 0, len(l.Lines))
+	for _, ln := range l.Lines {
+		t := ln.Text
+		if t == "" {
+			t = ocr.JoinWords(ln.Words)
+		}
+		parts = append(parts, t)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// Mask returns the layout without the words that cover hides: a word goes
+// when more than half of its box lies under the union of the cover
+// rectangles (the editor's Redact boxes), so redacted text can be neither
+// selected nor copied. A line that loses words drops its engine text and
+// shrinks to the words left; a line that loses all of them is dropped. With
+// no cover the layout is returned as is, so removing the boxes (undo)
+// brings the words back.
+func (l Layout) Mask(cover []image.Rectangle) Layout {
+	if len(cover) == 0 {
+		return l
+	}
+	var out Layout
+	for _, ln := range l.Lines {
+		var kept []ocr.Word
+		for _, w := range ln.Words {
+			if !Covered(w.Rect, cover) {
+				kept = append(kept, w)
+			}
+		}
+		switch {
+		case len(kept) == len(ln.Words):
+			out.Lines = append(out.Lines, ln)
+		case len(kept) > 0:
+			out.Lines = append(out.Lines, ocr.Line{Rect: ocr.UnionRect(kept), Words: kept})
+		}
+	}
+	return out
+}
+
+// Covered reports whether more than half of r lies under the union of
+// cover. Overlapping cover rectangles are counted once.
+func Covered(r image.Rectangle, cover []image.Rectangle) bool {
+	area := r.Dx() * r.Dy()
+	if area <= 0 {
+		return false
+	}
+	var clipped []image.Rectangle
+	xs, ys := []int{r.Min.X, r.Max.X}, []int{r.Min.Y, r.Max.Y}
+	for _, c := range cover {
+		if c = c.Intersect(r); !c.Empty() {
+			clipped = append(clipped, c)
+			xs = append(xs, c.Min.X, c.Max.X)
+			ys = append(ys, c.Min.Y, c.Max.Y)
+		}
+	}
+	if len(clipped) == 0 {
+		return false
+	}
+	// Union area by coordinate compression: each grid cell between
+	// neighbouring edges is either fully inside some cover box or not.
+	xs, ys = sortedUnique(xs), sortedUnique(ys)
+	under := 0
+	for i := 0; i+1 < len(xs); i++ {
+		for j := 0; j+1 < len(ys); j++ {
+			p := image.Pt(xs[i], ys[j])
+			for _, c := range clipped {
+				if p.In(c) {
+					under += (xs[i+1] - xs[i]) * (ys[j+1] - ys[j])
+					break
+				}
+			}
+		}
+	}
+	// A quarter is enough: a Redact box drawn over the secret half of a
+	// token must take the whole word out of selection and copying, and
+	// Redact selection and Quick redact always cover whole words anyway.
+	return 4*under >= area
+}
+
+func sortedUnique(v []int) []int {
+	sort.Ints(v)
+	out := v[:0]
+	for i, x := range v {
+		if i == 0 || x != v[i-1] {
+			out = append(out, x)
+		}
 	}
 	return out
 }

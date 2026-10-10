@@ -60,8 +60,6 @@ type Config struct {
 	webdavPassword    string `yaml:"-"`
 	customSecret      string `yaml:"-"`
 	hostSecret        string `yaml:"-"`
-
-	migratedTools bool // set by applyDefaults; see MigratedEditorTools
 }
 
 // validUploadDestinations enumerates the upload.destination values backed by
@@ -295,60 +293,15 @@ type EditorConfig struct {
 	StrokeWidth    int      `yaml:"stroke_width"`
 	Color          string   `yaml:"color"`
 	Tools          []string `yaml:"tools"`
-	// ToolsRevision records which tool-list migrations ran (see
-	// migrateEditorTools), so a list the user later trims is never touched
-	// again. Not shown in Settings; written back on the next Settings save.
+	// ToolsRevision is kept so configs that carry tools_revision still
+	// load. It is no longer used: Select and Redact are always in the
+	// editor toolbar and text selection is part of Select, so no tool-list
+	// migration is needed.
 	ToolsRevision int `yaml:"tools_revision,omitempty"`
 }
 
-// legacyStarterTools is the editor.tools list every starter config wrote
-// before v0.4.0 added redact and select_text.
-var legacyStarterTools = []string{"crop", "arrow", "rect", "text", "blur", "highlight", "step"}
-
-// editorToolsRevision is the current tool-list migration revision.
-const editorToolsRevision = 1
-
-// migrateEditorTools is a one-time upgrade: a stored editor.tools that is
-// exactly the old starter list (same set, no extras) gets the v0.4.0 tools
-// redact and select_text appended; any customised list is left alone. It
-// reports whether it changed the list.
-func (c *Config) migrateEditorTools() bool {
-	if c.Editor.ToolsRevision >= editorToolsRevision {
-		return false
-	}
-	c.Editor.ToolsRevision = editorToolsRevision
-	if !sameSet(c.Editor.Tools, legacyStarterTools) {
-		return false
-	}
-	c.Editor.Tools = append(append([]string(nil), c.Editor.Tools...), "redact", "select_text")
-	return true
-}
-
-// MigratedEditorTools reports whether loading this config appended the
-// v0.4.0 tools to an old starter tool list (the caller logs it).
-func (c *Config) MigratedEditorTools() bool { return c.migratedTools }
-
-func sameSet(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	seen := make(map[string]bool, len(a))
-	for _, v := range a {
-		seen[v] = true
-	}
-	if len(seen) != len(b) {
-		return false
-	}
-	for _, v := range b {
-		if !seen[v] {
-			return false
-		}
-	}
-	return true
-}
-
-// OCRConfig controls on-device text recognition in the editor (Select text,
-// Copy text, Quick redact). Everything runs locally: Apple Vision on macOS,
+// OCRConfig controls on-device text recognition in the editor (text
+// selection in the Select tool, Copy text, Quick redact). Everything runs locally: Apple Vision on macOS,
 // Windows OCR on Windows, the tesseract command on Linux when it is
 // installed. Enabled and AutoRun default to true; a platform without an
 // engine simply greys the tools out.
@@ -369,7 +322,9 @@ type OCRConfig struct {
 func (c *Config) OCREnabled() bool { return c.OCR.Enabled == nil || *c.OCR.Enabled }
 
 // OCRAutoRun reports whether recognition starts as soon as the editor opens
-// (default true); false waits for the first click of Select text.
+// (default true); false waits until the editor opens in or switches to the
+// Select tool, or the first text action (Copy text, Quick redact,
+// Ctrl/Cmd+A).
 func (c *Config) OCRAutoRun() bool { return c.OCR.AutoRun == nil || *c.OCR.AutoRun }
 
 // ocrKinds and reLangTag back the ocr validation.
@@ -571,9 +526,6 @@ func (c *Config) applyDefaults() {
 	if c.Editor.StrokeWidth <= 0 {
 		// 6px default: 3px is near-invisible on retina-resolution captures.
 		c.Editor.StrokeWidth = 6
-	}
-	if c.migrateEditorTools() {
-		c.migratedTools = true
 	}
 	if c.OCR.QuickRedact == nil {
 		c.OCR.QuickRedact = []string{"email", "phone"}
