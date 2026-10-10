@@ -86,8 +86,19 @@ jobs:
             # for the public release.
             next="v0.0.1"
           else
-            labels=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
-              --jq '[.[].labels[].name] | join(",")' || echo "")
+            # The merge commit itself is not one of the PR's commits, so the
+            # commits/{sha}/pulls lookup returns [] for a promotion merge and
+            # the release:minor/major labels were ignored (v0.3.2 shipped where
+            # v0.4.0 was intended). Read the PR number from the merge subject
+            # first ("Merge pull request #N from ..."), then fall back.
+            pr=$(git log -1 --format=%s "${GITHUB_SHA}" | sed -n 's/^Merge pull request #\([0-9]*\) .*/\1/p')
+            if [ -n "${pr}" ]; then
+              labels=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr}" \
+                --jq '[.labels[].name] | join(",")' || echo "")
+            else
+              labels=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+                --jq '[.[].labels[].name] | join(",")' || echo "")
+            fi
             bump=patch
             case ",${labels}," in
               *,release:major,*) bump=major ;;
