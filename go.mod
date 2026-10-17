@@ -15,7 +15,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.design/x/clipboard v0.11.0
 	golang.org/x/crypto v0.57.0
-	golang.org/x/image v0.46.0
+	golang.org/x/image v0.47.0
 	golang.org/x/sys v0.49.0
 )
 
@@ -47,6 +47,6 @@ require (
 	golang.org/x/exp/shiny v0.0.0-20260709172345-9ea1abe57597 // indirect
 	golang.org/x/mobile v0.0.0-20260709172247-6129f5bee9d5 // indirect
 	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 )
