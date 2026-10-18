@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	gioui.org v0.10.3
 	github.com/go-ole/go-ole v1.3.0
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/jezek/xgb v1.3.1
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/minio/minio-go/v7 v7.3.0
