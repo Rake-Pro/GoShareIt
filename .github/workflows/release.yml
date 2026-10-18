@@ -239,6 +239,7 @@ jobs:
           name: macos
           path: out/*
           if-no-files-found: error
+          retention-days: 1
 
   windows:
     needs: [version]
@@ -289,6 +290,7 @@ jobs:
           name: windows-unsigned-binaries
           path: dist/windows/*.exe
           if-no-files-found: error
+          retention-days: 1
 
       - name: Sign binaries (SignPath)
         if: steps.secrets.outputs.sign == 'true'
@@ -364,6 +366,7 @@ jobs:
           name: windows-unsigned-installer
           path: out/*_setup.exe
           if-no-files-found: error
+          retention-days: 1
 
       - name: Sign installer (SignPath)
         if: steps.secrets.outputs.sign == 'true'
@@ -395,6 +398,7 @@ jobs:
           name: windows
           path: out/*
           if-no-files-found: error
+          retention-days: 1
 
   linux:
     needs: [version]
@@ -447,6 +451,7 @@ jobs:
           name: linux
           path: out/*
           if-no-files-found: error
+          retention-days: 1
 
   publish:
     needs: [version, macos, windows, linux]
