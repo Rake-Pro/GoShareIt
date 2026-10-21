@@ -131,7 +131,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       - name: Build universal binaries (cgo, arm64 + amd64 + lipo)
@@ -255,7 +255,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       - name: Build (CGO off, windowsgui)
@@ -411,7 +411,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.27.2"
+          go-version: "1.27.3"
           cache: true
 
       # The Linux desktop shell is cgo: Wails (GTK3 + WebKitGTK 4.1 via the
