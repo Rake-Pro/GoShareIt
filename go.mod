@@ -1,6 +1,6 @@
 module github.com/Rake-Pro/GoShareIt
 
-go 1.26.0
+go 1.27.3
 
 require (
 	gioui.org v0.10.3
