@@ -12,7 +12,7 @@ require (
 	github.com/pkg/sftp v1.13.12
 	github.com/rs/zerolog v1.35.1
 	github.com/wailsapp/wails/v3 v3.0.0-beta.34
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.design/x/clipboard v0.11.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/image v0.47.0
