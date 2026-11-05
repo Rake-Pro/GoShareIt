@@ -341,6 +341,16 @@ type UpdateConfig struct {
 	ShowChangelog *bool  `yaml:"show_changelog"`
 	Repo          string `yaml:"repo"`
 	IntervalHours int    `yaml:"interval_hours"`
+	Channel       string `yaml:"channel"`
+}
+
+// UpdateChannel reports the update channel: "dev" or "stable" (the default
+// for an empty value).
+func (c *Config) UpdateChannel() string {
+	if c.Update.Channel == "dev" {
+		return "dev"
+	}
+	return "stable"
 }
 
 // UpdateEnabled reports the effective enabled state (default true).
@@ -788,6 +798,11 @@ func (c *Config) validate() error {
 	case "", "light", "dark", "system":
 	default:
 		return fieldErr("theme", "must be System, Light or Dark", "config: theme must be one of light, dark, system, or empty (system)")
+	}
+	switch c.Update.Channel {
+	case "", "stable", "dev":
+	default:
+		return fieldErr("update.channel", "must be Stable or Dev", "config: update.channel must be one of stable, dev, or empty (stable)")
 	}
 	if c.Upload.ShareExpireDays < 0 {
 		return fieldErr("upload.share_expire_days", "cannot be negative", "config: upload.share_expire_days must be >= 0")

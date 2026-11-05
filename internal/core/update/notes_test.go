@@ -18,6 +18,8 @@ func TestMinorBump(t *testing.T) {
 		{"0.1.17", "0.1.18", false},
 		{"0.1.17", "0.2.0", true},
 		{"junk", "1.0.0", false},
+		{"0.4.6", "0.5.0-dev.3.abc1234", true},
+		{"0.4.7-dev.12.abc1234", "0.4.7-dev.13.def5678", false},
 	}
 	for _, c := range cases {
 		if got := MinorBump(c.cur, c.next); got != c.want {

@@ -369,6 +369,20 @@ a what's-new window with the release notes since your version (Update now
 straight through. No credentials or configuration are needed for updates. Microsoft Store installs are updated by the Store
 instead.
 
+Update channel (`update.channel`, also in the settings UI under Updates):
+
+- `stable` (default): only published releases.
+- `dev`: also offers a build of every commit on the `dev` branch, newest
+  first (versions look like `0.4.7-dev.12.ab12cd3`).
+- Dev builds are GitHub prereleases, so they can be less stable than a
+  release.
+- A release newer than the latest dev build wins on the dev channel too.
+- Switching back to `stable` keeps the installed dev build until a stable
+  release with an equal or higher version ships (no downgrade).
+- A local build with no version stamp (`0.0.0-dev`) never auto-updates.
+
+Further reading:
+
 - [docs/RELEASE.md](docs/RELEASE.md): the CI release path, signing secrets,
   and the local `make release` runbook.
 - [docs/PERMISSIONS.md](docs/PERMISSIONS.md): the Screen Recording and

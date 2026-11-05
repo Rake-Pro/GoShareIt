@@ -90,6 +90,7 @@ update:
   show_changelog: true    # what's-new window with Update now / Later before minor or major updates
   repo: Rake-Pro/GoShareIt
   interval_hours: 24
+  channel: stable         # stable | dev (dev = builds from every commit on the dev branch)
 
 logging:
   level: "info"

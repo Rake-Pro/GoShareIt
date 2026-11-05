@@ -11,6 +11,13 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   GO-2026-6611, GO-2026-6617).
 
 ### Added
+- Opt-in "dev" update channel (`update.channel: dev`, or Update channel in
+  the settings UI). Besides releases it offers a prerelease build of every
+  commit on the `dev` branch (`X.Y.Z-dev.N.SHA7`), read from the
+  `dev-latest` manifest and verified against that build's `checksums.txt`.
+  Switching back to `stable` never downgrades: the dev build stays until a
+  stable release with an equal or higher version ships. Only unstamped
+  local builds (`0.0.0-dev`) skip update checks now.
 - Text recognition in the editor, on-device on every platform, used the
   way Live Text works on macOS. In the Select tool (`V`) the cursor turns
   into an I-beam over recognized text; a drag that starts on text selects it

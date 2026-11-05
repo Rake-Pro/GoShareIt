@@ -156,6 +156,7 @@ func main() {
 		upd, err := update.New(update.Config{
 			Repo:    cfg.Update.Repo,
 			Current: version.Version,
+			Channel: cfg.UpdateChannel(),
 		})
 		if err != nil {
 			logger.Warn().Err(err).Msg("updater disabled")
@@ -167,6 +168,7 @@ func main() {
 					updates.enableHandoff(cfg.Editor.HelperPath, update.Job{
 						Repo:     cfg.Update.Repo,
 						Current:  version.Version,
+						Channel:  cfg.UpdateChannel(),
 						Relaunch: relaunch,
 						HostExe:  hostExe,
 						Args:     os.Args[1:],

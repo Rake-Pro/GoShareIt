@@ -502,6 +502,9 @@ const SCHEMA = [
     { p: "Update.ShowChangelog", l: "Show what's new before minor updates", t: "bool", hint: "release notes for every version in between, with Update now / Later; patch updates skip it",
       gates: [STORE_UPDATES, ["changelogSupported", "not available on Linux yet; updates install without it"]] },
     { p: "Update.IntervalHours", l: "Check interval (hours)", t: "number", gates: [STORE_UPDATES] },
+    { p: "Update.Channel", l: "Update channel", t: "select", opts: [
+      { v: "stable", l: "Stable" }, { v: "dev", l: "Dev" }],
+      hint: "Dev installs a build from every change before it is released; it can be less stable", gates: [STORE_UPDATES] },
   ]},
   { title: "Logging", tint: "#636366",
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>`,
