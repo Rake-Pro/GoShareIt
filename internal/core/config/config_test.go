@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -264,5 +265,36 @@ func TestHostDestinations(t *testing.T) {
 	cfg.Hosts = map[string]HostConfig{"giphy": {SecretEnv: "GIPHY_KEY"}}
 	if file, env = cfg.HostSecretSource("giphy"); file != "" || env != "GIPHY_KEY" {
 		t.Errorf("configured secret source = %q/%q", file, env)
+	}
+}
+
+func TestUpdateChannel(t *testing.T) {
+	cases := []struct {
+		yaml string
+		want string // "" = expect a field error on update.channel
+	}{
+		{"", "stable"},
+		{"update:\n  channel: stable\n", "stable"},
+		{"update:\n  channel: dev\n", "dev"},
+		{"update:\n  channel: beta\n", ""},
+		{"update:\n  channel: Dev\n", ""},
+	}
+	for _, c := range cases {
+		path := writeFile(t, t.TempDir(), "config.yaml", "upload:\n  enabled: false\n"+c.yaml)
+		cfg, err := LoadLocalOnly(path)
+		if c.want == "" {
+			var fe *FieldError
+			if !errors.As(err, &fe) || fe.Field != "update.channel" {
+				t.Errorf("%q: err = %v, want a field error on update.channel", c.yaml, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%q: unexpected error %v", c.yaml, err)
+			continue
+		}
+		if got := cfg.UpdateChannel(); got != c.want {
+			t.Errorf("%q: UpdateChannel = %q, want %q", c.yaml, got, c.want)
+		}
 	}
 }

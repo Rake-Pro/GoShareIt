@@ -250,3 +250,217 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "all builds green"
+
+  # ---------------------------------------------------------------------------
+  # Dev channel (opt-in in the app: update.channel: dev). Every green push to
+  # dev is packaged by the release pipeline's own jobs (package.yml) and
+  # published as its own dev-<sha> prerelease, so a manifest an install already
+  # fetched stays downloadable after later pushes. dev-latest.json lives on one
+  # persistent "dev-latest" prerelease and is re-uploaded there; the app reads
+  # releases/download/dev-latest/dev-latest.json, then verifies the download
+  # against the dev-<sha> release's own checksums.txt. All of it is
+  # prereleases, so releases/latest (the stable channel) never sees a dev
+  # build. Tag names (dev-<sha>, dev-latest) do not match release.yml's v*
+  # trigger or its v* tag listing, and are created with GITHUB_TOKEN anyway.
+  # Builds older than the newest 10 are deleted with their tags.
+  # Switch the channel off with the repo variable DEV_CHANNEL=false.
+  # ---------------------------------------------------------------------------
+  dev-version:
+    name: dev version
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && vars.DEV_CHANNEL != 'false'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # X.Y.Z-dev.N.SHA7: X.Y.Z is the next patch after the newest stable tag,
+      # N the commits since that tag (grows with every push, which is what the
+      # updater orders dev builds by), SHA7 the build's commit.
+      - name: Compute dev version
+        id: v
+        run: |
+          set -euo pipefail
+          sha="${GITHUB_SHA:0:7}"
+          latest=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          if [ -z "${latest}" ]; then
+            next="0.0.1"; n=$(git rev-list --count HEAD)
+          else
+            IFS=. read -r ma mi pa <<< "${latest#v}"
+            next="${ma}.${mi}.$((pa+1))"
+            n=$(git rev-list --count "${latest}..HEAD")
+          fi
+          version="${next}-dev.${n}.${sha}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "dev version ${version}"
+
+  dev-package:
+    needs: [dev-version]
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.dev-version.outputs.version }}
+      channel: dev
+    secrets: inherit
+
+  publish-dev:
+    name: publish dev build
+    needs: [dev-version, dev-package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One publish at a time: the dev-latest pointer is read, compared and
+    # rewritten below.
+    concurrency:
+      group: dev-publish
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.dev-version.outputs.version }}
+      SHA: ${{ needs.dev-version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: assets
+          pattern: "{macos,windows,linux}"
+          merge-multiple: true
+
+      # Notes = the commit this build was made from plus a pointer at the
+      # changelog as of that commit (the Unreleased section itself is too
+      # long to repeat on every build).
+      - name: Notes
+        run: |
+          set -euo pipefail
+          subject=$(git log -1 --format=%s)
+          {
+            printf 'Dev build %s from `%s`.\n\n' "${VERSION}" "${subject}"
+            printf 'Dev builds are made from every change on the dev branch before it is released and can be less stable.\n\n'
+            printf 'Changes since the last release: [CHANGELOG.md, Unreleased](https://github.com/%s/blob/%s/CHANGELOG.md#unreleased)\n' "${GITHUB_REPOSITORY}" "${GITHUB_SHA}"
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      # A re-run for the same SHA keeps the published bytes (a rebuild is not
+      # byte-identical, and installs verify against the published checksums).
+      # Only a complete, published release counts: a run killed mid-upload
+      # leaves a draft or a release missing assets, which installs cannot
+      # read, so that one is removed and built again from this run's bytes.
+      - name: Keep already-published assets
+        id: existing
+        run: |
+          set -euo pipefail
+          exists=false
+          if state=$(gh release view "dev-${SHA}" --repo "$GITHUB_REPOSITORY" --json isDraft,assets \
+               --jq '[(.isDraft|tostring)] + [.assets[].name] | join(" ")' 2>/dev/null); then
+            # state = "<isDraft> <asset name> <asset name> ..."
+            complete=true
+            [ "${state%% *}" = "false" ] || complete=false
+            for want in checksums.txt \
+              "GoShareIt_${VERSION}_darwin_universal.zip" \
+              "GoShareIt_${VERSION}_windows_amd64.zip" \
+              "GoShareIt_${VERSION}_linux_amd64.tar.gz"; do
+              case " ${state} " in *" ${want} "*) ;; *) complete=false ;; esac
+            done
+            if [ "${complete}" = "true" ]; then
+              echo "dev-${SHA} is already published; using the hosted bytes"
+              rm -rf assets && mkdir assets
+              gh release download "dev-${SHA}" --repo "$GITHUB_REPOSITORY" --dir assets
+              exists=true
+            else
+              echo "dev-${SHA} exists but is a draft or incomplete (${state}); replacing it"
+              gh release delete "dev-${SHA}" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            fi
+          fi
+          echo "exists=${exists}" >> "$GITHUB_OUTPUT"
+
+      # checksums.txt is what the in-app updater verifies a download against;
+      # it fails closed without it.
+      - name: Checksums
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          cd assets
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Write dev-latest.json
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, hashlib, json, os
+          version, sha = os.environ["VERSION"], os.environ["SHA"]
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/dev-{sha}"
+          notes = open(os.path.join(os.environ["RUNNER_TEMP"], "notes.md"), encoding="utf-8").read().strip()
+          assets = []
+          for name in sorted(os.listdir("assets")):
+              data = open(os.path.join("assets", name), "rb").read()
+              assets.append({"name": name, "url": f"{base}/{name}",
+                             "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
+          manifest = {"name": "GoShareIt", "version": version, "tag": f"dev-{sha}",
+                      "published_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                      "notes": notes, "assets": assets}
+          with open("dev-latest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, indent=2); f.write("\n")
+          PY
+          cat dev-latest.json
+
+      - name: Publish the dev build
+        env:
+          EXISTS: ${{ steps.existing.outputs.exists }}
+        run: |
+          set -euo pipefail
+          if [ "${EXISTS}" != "true" ]; then
+            gh release create "dev-${SHA}" assets/* --repo "$GITHUB_REPOSITORY" \
+              --prerelease --target "$GITHUB_SHA" --title "Dev build ${VERSION}" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+
+      # Runs can finish out of order; the pointer only ever moves forward.
+      - name: Point dev-latest at this build
+        run: |
+          set -euo pipefail
+          key() { python3 -c 'import re,sys; m=re.match(r"(\d+)\.(\d+)\.(\d+)-dev\.(\d+)\.", sys.argv[1]); print(" ".join(m.groups()) if m else "0 0 0 0")' "$1"; }
+          title="Dev channel (latest: ${VERSION})"
+          if has=$(gh release view dev-latest --repo "$GITHUB_REPOSITORY" --json assets \
+               --jq '[.assets[].name] | index("dev-latest.json") != null' 2>/dev/null); then
+            if [ "${has}" = "true" ]; then
+              # The pointer exists, so it must be readable before it may be
+              # replaced: a failed download fails the job rather than letting
+              # an older build overwrite a newer one.
+              mkdir -p "$RUNNER_TEMP/current"
+              gh release download dev-latest --repo "$GITHUB_REPOSITORY" --pattern dev-latest.json --dir "$RUNNER_TEMP/current"
+              cur=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$RUNNER_TEMP/current/dev-latest.json")
+              if [ "$(printf '%s\n%s\n' "$(key "$cur")" "$(key "$VERSION")" | sort -k1,1n -k2,2n -k3,3n -k4,4n | tail -1)" != "$(key "$VERSION")" ]; then
+                echo "dev-latest already points at ${cur}, newer than ${VERSION}; leaving it"
+                exit 0
+              fi
+            fi
+            gh release upload dev-latest dev-latest.json --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit dev-latest --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create dev-latest dev-latest.json --repo "$GITHUB_REPOSITORY" \
+              --prerelease --target "$GITHUB_SHA" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+
+      # Keep the newest 10 dev-<sha> builds (an install re-reads the feed every
+      # interval_hours, 24 by default, so a cached manifest stays valid).
+      - name: Prune old dev builds
+        run: |
+          set -euo pipefail
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | test("^dev-[0-9a-f]{7}$"))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+          while read -r tag; do
+            echo "deleting ${tag}"
+            gh release delete "${tag}" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          done

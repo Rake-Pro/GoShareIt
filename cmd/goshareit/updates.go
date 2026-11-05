@@ -78,11 +78,12 @@ func (c *updateController) menuItem(ctx context.Context) tray.MenuItem {
 }
 
 // start runs the launch check (~30s in, so the tray and network are up) and
-// the periodic background check. Dev builds never auto-check (a 0.0.0-dev
-// binary would otherwise immediately "upgrade" to the last release).
+// the periodic background check. Unstamped local builds (0.0.0-dev) never
+// auto-check (such a binary would otherwise immediately "upgrade" to the last
+// release). Dev channel builds (0.4.7-dev.12.ab12cd3) check like any other.
 func (c *updateController) start(ctx context.Context) {
 	if c.upd.IsDev() {
-		log.Debug().Msg("update: dev build, background checks disabled")
+		log.Debug().Msg("update: unstamped local build, background checks disabled")
 		return
 	}
 	go func() {

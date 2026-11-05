@@ -15,7 +15,9 @@ running anything by hand:
      default; a `release:minor` or `release:major` label on the merged PR
      bumps accordingly). Versioning restarted at `v0.0.1` after the 2026-07-22
      history squash; `1.0.0` is reserved for the public release.
-   - builds and packages all three OS targets in the same run, from that tag:
+   - builds and packages all three OS targets in the same run, from that tag
+     (the OS jobs live in `.github/workflows/package.yml`, shared with the
+     dev channel below):
      - **macOS**: universal (`lipo` arm64+amd64) `GoShareIt.app`, packaged as
        `GoShareIt_<ver>_darwin_universal.dmg` (human install) and
        `GoShareIt_<ver>_darwin_universal.zip` (the updater feed, whole `.app`).
@@ -31,6 +33,46 @@ running anything by hand:
    - publishes everything to a GitHub Release on that tag. That release feed
      is exactly what `internal/core/update` polls; asset names must stay in
      sync with `update.AssetName()`.
+
+## Dev channel (CI)
+
+Opt-in builds from every change on `dev`, for installs that set
+`update.channel: dev` (Settings > Updates > Update channel). The stable
+channel never sees them.
+
+- **Trigger:** every push to `dev` whose `ci.yml` jobs are green. Pull
+  requests and manual runs do not publish.
+- **Version:** `X.Y.Z-dev.N.SHA7`. `X.Y.Z` is the next patch after the newest
+  stable tag, `N` the commits since that tag, `SHA7` the commit. The updater
+  orders dev builds by `N`, and a stable `X.Y.Z` always beats `X.Y.Z-dev.*`.
+- **Build:** `ci.yml` calls `package.yml` with `channel: dev`. Same signing
+  and notarization on macOS as a release; no dmg, no Inno Setup installer, no
+  MSIX and no SignPath.
+- **Publish (`publish-dev` job):**
+
+  | Release | Tag | Holds |
+  |---|---|---|
+  | one per build, prerelease | `dev-<SHA7>` | the three updater archives + `checksums.txt` (a draft or incomplete one from a killed run is rebuilt) |
+  | one persistent pointer, prerelease | `dev-latest` | `dev-latest.json` (version, tag, notes, asset list) |
+
+- **How the app updates:** it reads
+  `releases/download/dev-latest/dev-latest.json`, resolves the named
+  `dev-<SHA7>` release and verifies the download against that release's
+  `checksums.txt`, the same check as a stable update.
+- **Retention:** the newest 10 `dev-<SHA7>` builds are kept; older ones are
+  deleted with their tags.
+- **Ordering:** `dev-latest.json` only moves forward. A run that finishes
+  after a newer build was published leaves the pointer alone.
+- **Skipped builds:** publishes run one at a time. If three finish close
+  together GitHub can cancel the one still waiting, so that commit gets no
+  dev build; the next push catches the channel up.
+- **After a history rewrite on `dev`** (force-push or squash): `N` can drop
+  below the published value, and the pointer and installs then wait until
+  `N` passes it or a stable release ships. To reset sooner, delete the
+  `dev-latest` release and re-run CI on `dev`.
+- **Switch it off:** set the repository variable `DEV_CHANNEL` to `false`.
+- **Tags:** `dev-*` tags never match the `v*` release trigger or the `v*` tag
+  listing that mints the next version.
 
 ### CI signing secrets (macOS)
 

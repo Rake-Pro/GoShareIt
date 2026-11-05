@@ -45,7 +45,7 @@ func RunChangelog(job update.Job, dark bool) (proceed bool, err error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		var notes []update.ReleaseNotes
-		upd, e := update.New(update.Config{Repo: job.Repo, Current: job.Current, APIBaseURL: job.APIBaseURL})
+		upd, e := update.New(update.Config{Repo: job.Repo, Current: job.Current, APIBaseURL: job.APIBaseURL, Channel: job.Channel})
 		if e == nil {
 			notes, e = upd.Notes(ctx, job.Current, job.Version)
 		}

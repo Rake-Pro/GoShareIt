@@ -10,11 +10,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -25,15 +27,46 @@ import (
 // DefaultAPIBaseURL is the GitHub REST API root.
 const DefaultAPIBaseURL = "https://api.github.com"
 
+// DefaultFeedBaseURL is the host serving release downloads (the dev manifest).
+const DefaultFeedBaseURL = "https://github.com"
+
+// Update channels. The zero value of Config.Channel means ChannelStable.
+const (
+	ChannelStable = "stable"
+	ChannelDev    = "dev"
+)
+
+// devManifestPath is the release download holding the latest dev build's
+// manifest, relative to the repo.
+const devManifestPath = "/releases/download/dev-latest/dev-latest.json"
+
+// devTagRE is the only tag shape accepted from the dev manifest; the tag is
+// placed in a URL path, so anything else is rejected.
+var devTagRE = regexp.MustCompile(`^dev-[0-9a-f]{7}$`)
+
+// devVersionRE is the stamp CI gives a dev build: X.Y.Z-dev.N.SHA7. The
+// manifest's version must have this shape and end in the tag's sha, so a
+// manifest that names one build and points at another is refused instead of
+// installing a binary whose own stamp will never match the feed.
+var devVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+\.([0-9a-f]{7})$`)
+
+// errNotFound marks an HTTP 404 from a feed endpoint.
+var errNotFound = errors.New("not found")
+
 // checksumsAsset is the asset holding "sha256  filename" lines for the release.
 const checksumsAsset = "checksums.txt"
 
 // Config configures an Updater.
 type Config struct {
 	Repo       string // "owner/name", e.g. "Rake-Pro/GoShareIt"
-	Current    string // running version, e.g. "1.2.3" or "0.0.0-dev"
+	Current    string // running version, e.g. "1.2.3", "0.4.7-dev.12.ab12cd3" or "0.0.0-dev"
 	APIBaseURL string // override for tests; DefaultAPIBaseURL when empty
-	HTTPClient *http.Client
+	// Channel is ChannelStable ("" means stable) or ChannelDev. The dev
+	// channel also offers per-commit prerelease builds from the dev-latest
+	// manifest when they are newer than the latest stable release.
+	Channel     string
+	FeedBaseURL string // override for tests; DefaultFeedBaseURL when empty
+	HTTPClient  *http.Client
 }
 
 // Updater checks for, downloads and applies releases.
@@ -71,19 +104,176 @@ func New(cfg Config) (*Updater, error) {
 	if cfg.APIBaseURL == "" {
 		cfg.APIBaseURL = DefaultAPIBaseURL
 	}
+	switch cfg.Channel {
+	case "":
+		cfg.Channel = ChannelStable
+	case ChannelStable, ChannelDev:
+	default:
+		return nil, fmt.Errorf("update: unknown channel %q (want %q or %q)", cfg.Channel, ChannelStable, ChannelDev)
+	}
+	if cfg.FeedBaseURL == "" {
+		cfg.FeedBaseURL = DefaultFeedBaseURL
+	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = http.DefaultClient
 	}
 	return &Updater{cfg: cfg}, nil
 }
 
-// IsDev reports whether the running build is a dev build (never auto-updated).
-func (u *Updater) IsDev() bool { return strings.Contains(u.cfg.Current, "-dev") }
+// IsDev reports whether the running build is an unstamped local build
+// (version 0.0.0 with a suffix, e.g. "0.0.0-dev"), which is never
+// auto-updated. Channel builds such as "0.4.7-dev.12.ab12cd3" are not.
+func (u *Updater) IsDev() bool {
+	nums, suffix, err := parseSemver(strings.TrimPrefix(u.cfg.Current, "v"))
+	return err == nil && nums == [3]int{} && suffix != ""
+}
 
 // Check fetches the latest release and reports whether it is newer than the
-// running version. A nil Release with nil error means "up to date".
+// running version. A nil Release with nil error means "up to date". On the
+// dev channel the dev-latest manifest is consulted too and the greater of the
+// two candidates wins.
 func (u *Updater) Check(ctx context.Context) (*Release, error) {
-	req, err := u.apiRequest(ctx, "/repos/"+u.cfg.Repo+"/releases/latest", "application/vnd.github+json")
+	cur := strings.TrimPrefix(u.cfg.Current, "v")
+	if u.cfg.Channel != ChannelDev {
+		rj, err := u.latestStable(ctx)
+		if err != nil {
+			if errors.Is(err, errNotFound) {
+				return nil, fmt.Errorf("update: no release found (404): no releases published yet")
+			}
+			return nil, err
+		}
+		return u.pickStable(rj, cur)
+	}
+
+	rj, serr := u.latestStable(ctx)
+	if serr != nil {
+		rj = nil
+	}
+	man, merr := u.fetchManifest(ctx)
+	if merr != nil {
+		man = nil
+	}
+	sReal := serr != nil && !errors.Is(serr, errNotFound)
+	mReal := merr != nil && !errors.Is(merr, errNotFound)
+	switch {
+	case sReal && mReal:
+		return nil, fmt.Errorf("%w; %v", serr, merr)
+	case mReal:
+		log.Warn().Err(merr).Msg("update: dev manifest unavailable, using stable release")
+	case sReal:
+		log.Warn().Err(serr).Msg("update: stable release lookup failed, using dev manifest")
+	}
+	if man == nil && rj == nil {
+		if sReal {
+			return nil, serr
+		}
+		if mReal {
+			return nil, merr
+		}
+		return nil, nil
+	}
+
+	devWins := man != nil
+	if man != nil && rj != nil {
+		var err error
+		devWins, err = semverGreater(strings.TrimPrefix(man.Version, "v"), strings.TrimPrefix(rj.TagName, "v"))
+		if err != nil {
+			return nil, fmt.Errorf("update: compare dev %q vs stable %q: %w", man.Version, rj.TagName, err)
+		}
+	}
+	if !devWins {
+		return u.pickStable(rj, cur)
+	}
+	ver := strings.TrimPrefix(man.Version, "v")
+	newer, err := semverGreater(ver, cur)
+	if err != nil {
+		return nil, fmt.Errorf("update: compare %q vs %q: %w", ver, u.cfg.Current, err)
+	}
+	if !newer {
+		// The stable lookup failed for real and the dev feed has nothing
+		// newer: that is "could not check", not "up to date".
+		if sReal {
+			return nil, serr
+		}
+		return nil, nil
+	}
+	if !devTagRE.MatchString(man.Tag) {
+		return nil, fmt.Errorf("update: dev manifest has invalid tag %q", man.Tag)
+	}
+	if m := devVersionRE.FindStringSubmatch(ver); m == nil || "dev-"+m[1] != man.Tag {
+		return nil, fmt.Errorf("update: dev manifest version %q does not match tag %q", man.Version, man.Tag)
+	}
+	rel, err := u.releaseByTag(ctx, man.Tag)
+	if err != nil {
+		return nil, err
+	}
+	return &Release{Version: ver, TagName: man.Tag, assets: rel.Assets}, nil
+}
+
+// pickStable returns rj as a Release when it is newer than cur.
+func (u *Updater) pickStable(rj *releaseJSON, cur string) (*Release, error) {
+	ver := strings.TrimPrefix(rj.TagName, "v")
+	newer, err := semverGreater(ver, cur)
+	if err != nil {
+		return nil, fmt.Errorf("update: compare %q vs %q: %w", ver, u.cfg.Current, err)
+	}
+	if !newer {
+		return nil, nil
+	}
+	return &Release{Version: ver, TagName: rj.TagName, assets: rj.Assets}, nil
+}
+
+// devManifest is the dev-latest.json document. Only Version and Tag are used;
+// asset URLs and hashes are ignored in favour of the release's checksums.txt.
+type devManifest struct {
+	Version string `json:"version"`
+	Tag     string `json:"tag"`
+}
+
+// fetchManifest downloads the dev-latest manifest. A 404 yields errNotFound.
+func (u *Updater) fetchManifest(ctx context.Context) (*devManifest, error) {
+	url := strings.TrimRight(u.cfg.FeedBaseURL, "/") + "/" + u.cfg.Repo + devManifestPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("update: dev manifest request: %w", err)
+	}
+	resp, err := u.cfg.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("update: dev manifest: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("update: dev manifest: unexpected status %s", resp.Status)
+	}
+	var m devManifest
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&m); err != nil {
+		return nil, fmt.Errorf("update: decode dev manifest: %w", err)
+	}
+	if m.Version == "" || m.Tag == "" {
+		return nil, fmt.Errorf("update: dev manifest is missing version or tag")
+	}
+	return &m, nil
+}
+
+// latestStable fetches releases/latest. A 404 yields errNotFound.
+func (u *Updater) latestStable(ctx context.Context) (*releaseJSON, error) {
+	return u.getRelease(ctx, "/repos/"+u.cfg.Repo+"/releases/latest")
+}
+
+// releaseByTag fetches one release by tag (the tag must already be validated).
+func (u *Updater) releaseByTag(ctx context.Context, tag string) (*releaseJSON, error) {
+	rj, err := u.getRelease(ctx, "/repos/"+u.cfg.Repo+"/releases/tags/"+tag)
+	if errors.Is(err, errNotFound) {
+		return nil, fmt.Errorf("update: dev release %s not found (404)", tag)
+	}
+	return rj, err
+}
+
+func (u *Updater) getRelease(ctx context.Context, path string) (*releaseJSON, error) {
+	req, err := u.apiRequest(ctx, path, "application/vnd.github+json")
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +283,7 @@ func (u *Updater) Check(ctx context.Context) (*Release, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("update: no release found (404): no releases published yet")
+		return nil, errNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("update: check: unexpected status %s", resp.Status)
@@ -102,15 +292,7 @@ func (u *Updater) Check(ctx context.Context) (*Release, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rj); err != nil {
 		return nil, fmt.Errorf("update: decode release: %w", err)
 	}
-	ver := strings.TrimPrefix(rj.TagName, "v")
-	newer, err := semverGreater(ver, strings.TrimPrefix(u.cfg.Current, "v"))
-	if err != nil {
-		return nil, fmt.Errorf("update: compare %q vs %q: %w", ver, u.cfg.Current, err)
-	}
-	if !newer {
-		return nil, nil
-	}
-	return &Release{Version: ver, TagName: rj.TagName, assets: rj.Assets}, nil
+	return &rj, nil
 }
 
 // Download fetches this platform's asset for rel into a temp file and verifies
@@ -202,7 +384,7 @@ func (u *Updater) apiRequest(ctx context.Context, path, accept string) (*http.Re
 }
 
 // AssetName returns the release asset filename the updater expects for the
-// running platform. Must stay in sync with .github/workflows/release.yml.
+// running platform. Must stay in sync with .github/workflows/package.yml.
 func AssetName(version string) string {
 	switch runtime.GOOS {
 	case "darwin":
@@ -239,7 +421,8 @@ func checksumFor(sums, name string) (string, error) {
 
 // semverGreater reports whether a > b for "X.Y.Z[-suffix]" versions. Suffixes
 // are ignored for ordering except that a suffixed version loses a tie against
-// the same bare version ("1.2.3-dev" < "1.2.3").
+// the same bare version ("1.2.3-dev" < "1.2.3"), and two "dev.N[.rest]"
+// suffixes on the same X.Y.Z order by N.
 func semverGreater(a, b string) (bool, error) {
 	am, as, err := parseSemver(a)
 	if err != nil {
@@ -254,7 +437,26 @@ func semverGreater(a, b string) (bool, error) {
 			return am[i] > bm[i], nil
 		}
 	}
+	if an, ok := devSeq(as); ok {
+		if bn, ok := devSeq(bs); ok {
+			return an > bn, nil
+		}
+	}
 	return as == "" && bs != "", nil
+}
+
+// devSeq extracts N from a "dev.N" or "dev.N.<anything>" suffix.
+func devSeq(suffix string) (int, bool) {
+	rest, ok := strings.CutPrefix(suffix, "dev.")
+	if !ok {
+		return 0, false
+	}
+	num, _, _ := strings.Cut(rest, ".")
+	n, err := strconv.Atoi(num)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 func parseSemver(v string) ([3]int, string, error) {
