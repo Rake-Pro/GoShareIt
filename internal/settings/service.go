@@ -739,6 +739,9 @@ func applyEditingDefaults(cfg *config.Config) {
 		t := true
 		cfg.Update.ShowChangelog = &t
 	}
+	if cfg.Update.Channel == "" {
+		cfg.Update.Channel = "stable"
+	}
 	if cfg.Upload.Enabled == nil {
 		t := true
 		cfg.Upload.Enabled = &t

@@ -126,7 +126,7 @@ func perform(job update.Job, st *state, w *app.Window) (err error) {
 		}
 	}()
 
-	upd, err := update.New(update.Config{Repo: job.Repo, Current: job.Current, APIBaseURL: job.APIBaseURL})
+	upd, err := update.New(update.Config{Repo: job.Repo, Current: job.Current, APIBaseURL: job.APIBaseURL, Channel: job.Channel})
 	if err != nil {
 		return err
 	}

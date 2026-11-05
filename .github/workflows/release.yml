@@ -1,6 +1,6 @@
-# Release: promotion-PR merge into main mints the next semver tag, then three
-# OS jobs build and package the app, and publish attaches everything to a
-# GitHub Release. That release feed is what the in-app updater
+# Release: promotion-PR merge into main mints the next semver tag, then the
+# three OS jobs in package.yml build and package the app, and publish attaches
+# everything to a GitHub Release. That release feed is what the in-app updater
 # (internal/core/update) consumes - asset names must stay in sync with
 # update.AssetName().
 #
@@ -16,9 +16,9 @@
 #            validated on real desktops)
 #   checksums.txt (sha256; the updater fails closed without it)
 #
-# macOS signing/notarization are gated on secrets and skipped cleanly when
-# absent: MACOS_CERT_P12 (base64 .p12) + MACOS_CERT_P12_PASSWORD +
-# DEVELOPER_ID_APP to sign; AC_APPLE_ID + AC_PASSWORD + TEAM_ID to notarize.
+# Signing secrets and their gating are documented in package.yml. The dev
+# channel (ci.yml publish-dev) reuses the same package jobs for dev-<sha>
+# prereleases; those never match the v* trigger or the v* tag listing here.
 name: Release
 
 on:
@@ -115,346 +115,21 @@ jobs:
           git tag "${next}" "${GITHUB_SHA}"
           git push origin "refs/tags/${next}"
           emit "${next}"
-
-  macos:
+  # The OS build + package jobs live in package.yml (shared with the dev
+  # channel in ci.yml); their outputs arrive as the artifacts macos, windows
+  # and linux.
+  package:
     needs: [version]
     if: needs.version.outputs.tag != ''
-    runs-on: macos-latest
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ needs.version.outputs.tag }}
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: "1.27.3"
-          cache: true
-
-      - name: Build universal binaries (cgo, arm64 + amd64 + lipo)
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          ldflags="-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
-          for arch in arm64 amd64; do
-            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags production -ldflags "$ldflags" -o "dist/goshareit-$arch" ./cmd/goshareit
-            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -ldflags "$ldflags" -o "dist/goshareit-editor-$arch" ./cmd/goshareit-editor
-            CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -tags production -ldflags "$ldflags" -o "dist/goshareit-settings-$arch" ./cmd/goshareit-settings
-          done
-          lipo -create -output dist/goshareit dist/goshareit-arm64 dist/goshareit-amd64
-          lipo -create -output dist/goshareit-editor dist/goshareit-editor-arm64 dist/goshareit-editor-amd64
-          lipo -create -output dist/goshareit-settings dist/goshareit-settings-arm64 dist/goshareit-settings-amd64
-
-      - name: Assemble GoShareIt.app
-        run: |
-          VERSION="${VERSION}" BIN=dist/goshareit EDITOR_BIN=dist/goshareit-editor \
-            SETTINGS_BIN=dist/goshareit-settings APP=dist/GoShareIt.app scripts/bundle.sh
-
-      - name: Check signing secrets
-        id: secrets
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
-        run: |
-          echo "sign=$([ -n "$MACOS_CERT_P12" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "notarize=$([ -n "$AC_APPLE_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
-      - name: Sign
-        if: steps.secrets.outputs.sign == 'true'
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_P12_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
-          DEVELOPER_ID_APP: ${{ secrets.DEVELOPER_ID_APP }}
-        run: |
-          set -euo pipefail
-          echo "$MACOS_CERT_P12" | base64 -d > /tmp/cert.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign
-          # Apple Developer ID intermediates (G1 + G2): a Keychain-exported
-          # p12 carries only the leaf cert + private key, and the bare runner
-          # keychain has no Developer ID CA to chain it to - the identity then
-          # imports but is never *valid*, and codesign fails with "no identity
-          # found" despite "1 identity imported". Self-signed certs never hit
-          # this (they are their own anchor), which is why the pre-Developer-ID
-          # signing path worked without these.
-          curl -fsSL -o /tmp/devid_g1.cer https://www.apple.com/certificateauthority/DeveloperIDCA.cer
-          curl -fsSL -o /tmp/devid_g2.cer https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
-          security import /tmp/devid_g1.cer -k build.keychain
-          security import /tmp/devid_g2.cer -k build.keychain
-          rm /tmp/devid_g1.cer /tmp/devid_g2.cer
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-          rm /tmp/cert.p12
-          # Sign by the identity's SHA-1 hash instead of the DEVELOPER_ID_APP
-          # name string: codesign matches -s <name> against the exact cert CN,
-          # so any formatting drift in the secret fails with "no identity
-          # found" even though the identity is present and valid. The build
-          # keychain only ever holds the one imported identity, so the first
-          # valid hash is unambiguous.
-          IDENTITY_HASH=$(security find-identity -v -p codesigning build.keychain \
-            | awk '/^ *1\)/{print $2; exit}')
-          if [ -z "$IDENTITY_HASH" ]; then
-            echo "sign: no valid codesigning identity in build.keychain" >&2
-            security find-identity -p codesigning build.keychain >&2
-            exit 1
-          fi
-          APP=dist/GoShareIt.app DEVELOPER_ID_APP="$IDENTITY_HASH" scripts/sign.sh
-
-      # No cert secrets: ad-hoc sign the WHOLE bundle so it has one consistent
-      # identity. TCC grants (Screen Recording etc.) then persist within an
-      # install; a totally unsigned bundle re-prompts on every capture. The
-      # identity still changes per release, so users re-grant once per update
-      # until real Developer ID signing lands.
-      - name: Ad-hoc sign (fallback)
-        if: steps.secrets.outputs.sign != 'true'
-        run: codesign --force --deep -s - dist/GoShareIt.app
-
-      - name: Notarize and staple
-        if: steps.secrets.outputs.sign == 'true' && steps.secrets.outputs.notarize == 'true'
-        env:
-          AC_APPLE_ID: ${{ secrets.AC_APPLE_ID }}
-          AC_PASSWORD: ${{ secrets.AC_PASSWORD }}
-          TEAM_ID: ${{ secrets.TEAM_ID }}
-        run: |
-          set -euo pipefail
-          ditto -c -k --keepParent dist/GoShareIt.app /tmp/notarize.zip
-          xcrun notarytool submit /tmp/notarize.zip \
-            --apple-id "$AC_APPLE_ID" --team-id "$TEAM_ID" --password "$AC_PASSWORD" --wait
-          xcrun stapler staple dist/GoShareIt.app
-
-      - name: Package dmg + zip
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          ditto -c -k --keepParent dist/GoShareIt.app "out/GoShareIt_${VERSION}_darwin_universal.zip"
-          hdiutil create -volname GoShareIt -srcfolder dist/GoShareIt.app -ov -format UDZO \
-            "out/GoShareIt_${VERSION}_darwin_universal.dmg"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: macos
-          path: out/*
-          if-no-files-found: error
-          retention-days: 1
-
-  windows:
-    needs: [version]
-    if: needs.version.outputs.tag != ''
-    runs-on: windows-latest
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ needs.version.outputs.tag }}
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: "1.27.3"
-          cache: true
-
-      - name: Build (CGO off, windowsgui)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist/windows
-          ldflags="-H windowsgui -X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags production -ldflags "$ldflags" -o dist/windows/goshareit.exe ./cmd/goshareit
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$ldflags" -o dist/windows/goshareit-editor.exe ./cmd/goshareit-editor
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags production -ldflags "$ldflags" -o dist/windows/goshareit-settings.exe ./cmd/goshareit-settings
-
-      # Authenticode via SignPath Foundation (free OSS signing). Gated on the
-      # SIGNPATH_API_TOKEN secret: absent -> binaries ship unsigned, job stays
-      # green. Two signing requests per release (loose exes, then the
-      # installer built from the signed exes); the release-signing policy
-      # requires a manual approval in the SignPath UI for each, and the
-      # submit step blocks until it arrives (or the timeout below lapses).
-      - name: Check signing secrets
-        id: secrets
-        shell: bash
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: echo "sign=$([ -n "$SIGNPATH_API_TOKEN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload unsigned binaries
-        if: steps.secrets.outputs.sign == 'true'
-        id: unsigned-bin
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-unsigned-binaries
-          path: dist/windows/*.exe
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Sign binaries (SignPath)
-        if: steps.secrets.outputs.sign == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'GoShareIt' }}
-          signing-policy-slug: release-signing
-          artifact-configuration-slug: windows-binaries
-          github-artifact-id: ${{ steps.unsigned-bin.outputs.artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 7200
-          output-artifact-directory: dist/windows
-
-      - name: Package zip (updater feed)
-        shell: bash
-        run: |
-          mkdir -p out
-          7z a "out/GoShareIt_${VERSION}_windows_amd64.zip" ./dist/windows/goshareit.exe ./dist/windows/goshareit-editor.exe ./dist/windows/goshareit-settings.exe
-
-      # pwsh, not bash: git-bash rewrites /D... /O... switches as POSIX paths.
-      # iscc ships preinstalled on the runner image; choco only as fallback.
-      - name: Build Inno Setup installer
-        shell: pwsh
-        run: |
-          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
-            choco install innosetup -y --no-progress
-          }
-          iscc "/DAppVersion=$env:VERSION" "/DBinDir=$PWD\dist\windows" /Oout build\windows\goshareit.iss
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      # Microsoft Store upload package. Unsigned by design (Partner Center
-      # re-signs with Microsoft's certificate), so it is NOT sideloadable and
-      # ships as a workflow artifact, not a release asset. Identity values
-      # default to placeholders until the app name is reserved in Partner
-      # Center; set repo variables MSSTORE_IDENTITY_NAME + MSSTORE_PUBLISHER
-      # to the values it shows. makeappx comes from the Windows SDK on the
-      # runner image. See docs/RELEASE.md "Microsoft Store package".
-      - name: Build MSIX (Store upload package)
-        shell: pwsh
-        env:
-          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME || 'RakePro.GoShareIt' }}
-          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER || 'CN=Rake-Pro' }}
-        run: |
-          $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\makeappx.exe" |
-            Sort-Object FullName | Select-Object -Last 1
-          if (-not $makeappx) { throw "makeappx.exe not found in the Windows SDK" }
-          $stage = "msix-stage"
-          New-Item -ItemType Directory -Force $stage, "$stage\Assets", "out-msix" | Out-Null
-          Copy-Item dist\windows\*.exe $stage\
-          Copy-Item build\windows\msix\Assets\*.png "$stage\Assets\"
-          (Get-Content build\windows\msix\AppxManifest.xml -Raw) `
-            -replace '__IDENTITY_NAME__', $env:MSSTORE_IDENTITY_NAME `
-            -replace '__PUBLISHER__', $env:MSSTORE_PUBLISHER `
-            -replace '__VERSION__', "$env:VERSION.0" |
-            Set-Content "$stage\AppxManifest.xml" -Encoding utf8
-          & $makeappx.FullName pack /d $stage /p "out-msix\GoShareIt_${env:VERSION}_windows_amd64_msstore_upload.msix" /o
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: windows-msstore-upload
-          path: out-msix/*.msix
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload unsigned installer
-        if: steps.secrets.outputs.sign == 'true'
-        id: unsigned-setup
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-unsigned-installer
-          path: out/*_setup.exe
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Sign installer (SignPath)
-        if: steps.secrets.outputs.sign == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'GoShareIt' }}
-          signing-policy-slug: release-signing
-          artifact-configuration-slug: windows-installer
-          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
-          wait-for-completion: true
-          wait-for-completion-timeout-in-seconds: 7200
-          output-artifact-directory: out
-
-      - name: Verify signatures
-        if: steps.secrets.outputs.sign == 'true'
-        shell: pwsh
-        run: |
-          $files = @(Get-ChildItem dist/windows/*.exe) + @(Get-ChildItem out/*_setup.exe)
-          foreach ($f in $files) {
-            $sig = Get-AuthenticodeSignature $f.FullName
-            "$($f.Name): $($sig.Status) $($sig.SignerCertificate.Subject)"
-            if ($sig.Status -ne 'Valid') { exit 1 }
-          }
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: windows
-          path: out/*
-          if-no-files-found: error
-          retention-days: 1
-
-  linux:
-    needs: [version]
-    if: needs.version.outputs.tag != ''
-    runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ needs.version.outputs.tag }}
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: "1.27.3"
-          cache: true
-
-      # The Linux desktop shell is cgo: Wails (GTK3 + WebKitGTK 4.1 via the
-      # gtk3 tag, the most widely installed pair) for the tray, shortcuts,
-      # notifications, dialogs and the settings UI; Gio (X11 + Wayland) for
-      # the editor and region overlay. Same package list as ci.yml.
-      - name: Install desktop build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libwebkit2gtk-4.1-dev \
-            libegl1-mesa-dev libgles2-mesa-dev libwayland-dev libxkbcommon-dev \
-            libxkbcommon-x11-dev libx11-dev libx11-xcb-dev libxcursor-dev libxfixes-dev \
-            libvulkan-dev libffi-dev
-
-      - name: Build and package (cgo, GTK3)
-        env:
-          CGO_ENABLED: "1"
-        run: |
-          set -euo pipefail
-          mkdir -p dist out
-          ldflags="-X github.com/Rake-Pro/GoShareIt/internal/core/version.Version=${VERSION}"
-          go build -tags production,gtk3 -ldflags "$ldflags" -o dist/goshareit ./cmd/goshareit
-          go build -ldflags "$ldflags" -o dist/goshareit-editor ./cmd/goshareit-editor
-          go build -tags production,gtk3 -ldflags "$ldflags" -o dist/goshareit-settings ./cmd/goshareit-settings
-          # Loose binaries at the archive root: that is the layout the in-app
-          # updater (update.applyFlat) installs from.
-          tar -C dist -czf "out/GoShareIt_${VERSION}_linux_amd64.tar.gz" \
-            goshareit goshareit-editor goshareit-settings
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: linux
-          path: out/*
-          if-no-files-found: error
-          retention-days: 1
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: refs/tags/${{ needs.version.outputs.tag }}
+      version: ${{ needs.version.outputs.version }}
+      channel: stable
+    secrets: inherit
 
   publish:
-    needs: [version, macos, windows, linux]
+    needs: [version, package]
     if: needs.version.outputs.tag != ''
     runs-on: ubuntu-latest
     env:
@@ -485,6 +160,12 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
           else
+            # Generated notes must span from the previous stable release: the
+            # dev channel publishes dev-<sha> prereleases in between, and the
+            # default "previous tag" would be one of those.
+            prev=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-pre-releases --exclude-drafts \
+              --limit 1 --json tagName --jq '.[0].tagName // empty')
             gh release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" \
-              --title "GoShareIt $TAG" --notes "$notes" --generate-notes
+              --title "GoShareIt $TAG" --notes "$notes" --generate-notes \
+              ${prev:+--notes-start-tag "$prev"}
           fi

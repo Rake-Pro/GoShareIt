@@ -23,6 +23,27 @@ func TestJobRoundTrip(t *testing.T) {
 	}
 }
 
+func TestJobChannel(t *testing.T) {
+	path, err := WriteJob(Job{Version: "0.4.7-dev.1.abc1234", Repo: "o/r", Relaunch: "/x/app", Channel: ChannelDev})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	if j, err := ReadJob(path); err != nil || j.Channel != ChannelDev {
+		t.Errorf("channel round trip = %+v, %v", j, err)
+	}
+	// An old job file without the field reads as stable.
+	old := filepath.Join(t.TempDir(), "old.json")
+	os.WriteFile(old, []byte(`{"version":"1.0.0","repo":"o/r","relaunch":"/x/app"}`), 0o600)
+	j, err := ReadJob(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{Repo: j.Repo, Current: "0.9.0", Channel: j.Channel}); err != nil || j.Channel != "" {
+		t.Errorf("old job channel = %q, err %v", j.Channel, err)
+	}
+}
+
 func TestReadJobRejectsIncomplete(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "job.json")
 	os.WriteFile(p, []byte(`{"version":"1.0.0"}`), 0o600)

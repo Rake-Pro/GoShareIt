@@ -13,15 +13,16 @@ import (
 // the new host again. It lives in a small JSON file the updater deletes when
 // done.
 type Job struct {
-	Version    string   `json:"version"`  // release the host found, e.g. "1.4.0"
-	Repo       string   `json:"repo"`     // "owner/name"
-	APIBaseURL string   `json:"api_base"` // "" = GitHub
-	Current    string   `json:"current"`  // host version, for the newer-than check
-	HostPID    int      `json:"host_pid"` // process to wait for before touching files
-	Relaunch   string   `json:"relaunch"` // SelfLaunchPath of the host (exe, or .app on darwin)
-	HostExe    string   `json:"host_exe"` // the host binary; the install happens next to it
-	Args       []string `json:"args"`     // host args to forward on relaunch (e.g. --config)
-	Theme      string   `json:"theme"`    // "light" | "dark" | "" (system) for the updater window
+	Version    string   `json:"version"`           // release the host found, e.g. "1.4.0"
+	Repo       string   `json:"repo"`              // "owner/name"
+	APIBaseURL string   `json:"api_base"`          // "" = GitHub
+	Current    string   `json:"current"`           // host version, for the newer-than check
+	Channel    string   `json:"channel,omitempty"` // "stable" | "dev"; "" (old job files) = stable
+	HostPID    int      `json:"host_pid"`          // process to wait for before touching files
+	Relaunch   string   `json:"relaunch"`          // SelfLaunchPath of the host (exe, or .app on darwin)
+	HostExe    string   `json:"host_exe"`          // the host binary; the install happens next to it
+	Args       []string `json:"args"`              // host args to forward on relaunch (e.g. --config)
+	Theme      string   `json:"theme"`             // "light" | "dark" | "" (system) for the updater window
 }
 
 // WriteJob stores j as JSON in a fresh temp file and returns its path.

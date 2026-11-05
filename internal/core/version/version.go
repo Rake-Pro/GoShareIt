@@ -3,5 +3,6 @@
 package version
 
 // Version is the app version ("1.2.3"). Dev builds keep the default; the
-// updater treats a "-dev" suffix as "never auto-update".
+// updater never auto-updates an unstamped build (0.0.0 with a suffix); dev
+// channel builds are stamped "X.Y.Z-dev.N.SHA7".
 var Version = "0.0.0-dev"

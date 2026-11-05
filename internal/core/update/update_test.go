@@ -28,6 +28,16 @@ func TestSemverGreater(t *testing.T) {
 		{"1.0.0", "0.0.0-dev", true},
 		{"1.2.3", "1.2.3-dev", true},
 		{"1.2.3-rc1", "1.2.3", false},
+		{"0.4.7-dev.12.abc1234", "0.4.6", true},
+		{"0.4.7", "0.4.7-dev.12.abc1234", true},
+		{"0.4.7-dev.12.abc1234", "0.4.7", false},
+		{"0.4.7-dev.13.x", "0.4.7-dev.12.y", true},
+		{"0.4.7-dev.12.y", "0.4.7-dev.13.x", false},
+		{"0.4.7-dev.12.x", "0.4.7-dev.12.y", false},
+		{"0.4.7-dev.12.y", "0.4.7-dev.12.x", false},
+		{"0.4.8-dev.1.x", "0.4.7", true},
+		{"0.4.7-dev.9", "0.4.7-dev.10.x", false},
+		{"0.0.0-dev", "0.0.0-dev", false},
 	}
 	for _, c := range cases {
 		got, err := semverGreater(c.a, c.b)
@@ -40,6 +50,35 @@ func TestSemverGreater(t *testing.T) {
 	}
 	if _, err := semverGreater("1.2", "1.0.0"); err == nil {
 		t.Error("expected error for malformed version")
+	}
+	if _, err := semverGreater("0.4.7-dev.12.x", "1.x.0"); err == nil {
+		t.Error("expected error for malformed version")
+	}
+}
+
+func TestIsDev(t *testing.T) {
+	cases := map[string]bool{
+		"0.0.0-dev":            true,
+		"v0.0.0-dev":           true,
+		"0.0.0":                false,
+		"1.2.3":                false,
+		"0.4.7-dev.12.ab12cd3": false,
+		"garbage":              false,
+	}
+	for cur, want := range cases {
+		u, err := New(Config{Repo: "o/r", Current: cur})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := u.IsDev(); got != want {
+			t.Errorf("IsDev(%q) = %v, want %v", cur, got, want)
+		}
+	}
+}
+
+func TestNewRejectsUnknownChannel(t *testing.T) {
+	if _, err := New(Config{Repo: "o/r", Current: "1.0.0", Channel: "beta"}); err == nil {
+		t.Error("expected error for unknown channel")
 	}
 }
 
