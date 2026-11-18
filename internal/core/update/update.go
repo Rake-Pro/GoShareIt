@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -55,6 +56,12 @@ var errNotFound = errors.New("not found")
 
 // checksumsAsset is the asset holding "sha256  filename" lines for the release.
 const checksumsAsset = "checksums.txt"
+
+// maxAssetSize bounds an update download, far above any real release archive.
+var maxAssetSize int64 = 1 << 30
+
+// repoPattern is a GitHub "owner/name"; the value goes into API URL paths.
+var repoPattern = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
 
 // Config configures an Updater.
 type Config struct {
@@ -98,6 +105,9 @@ func New(cfg Config) (*Updater, error) {
 	if cfg.Repo == "" {
 		return nil, fmt.Errorf("update: repo is required")
 	}
+	if _, name, _ := strings.Cut(cfg.Repo, "/"); !repoPattern.MatchString(cfg.Repo) || name == "." || name == ".." {
+		return nil, fmt.Errorf("update: repo %q is not an owner/name GitHub repository", cfg.Repo)
+	}
 	if cfg.Current == "" {
 		return nil, fmt.Errorf("update: current version is required")
 	}
@@ -115,7 +125,11 @@ func New(cfg Config) (*Updater, error) {
 		cfg.FeedBaseURL = DefaultFeedBaseURL
 	}
 	if cfg.HTTPClient == nil {
-		cfg.HTTPClient = http.DefaultClient
+		// No total timeout (a large download on a slow link must finish), but a
+		// server that never answers does not hang the check forever.
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.ResponseHeaderTimeout = 2 * time.Minute
+		cfg.HTTPClient = &http.Client{Transport: t}
 	}
 	return &Updater{cfg: cfg}, nil
 }
@@ -337,12 +351,15 @@ func (u *Updater) DownloadProgress(ctx context.Context, rel *Release, progress f
 		return "", fmt.Errorf("update: temp file: %w", err)
 	}
 	h := sha256.New()
-	var src io.Reader = body
+	var src io.Reader = io.LimitReader(body, maxAssetSize+1)
 	if progress != nil {
-		src = &progressReader{r: body, total: a.Size, fn: progress}
+		src = &progressReader{r: src, total: a.Size, fn: progress}
 	}
-	_, err = io.Copy(io.MultiWriter(tmp, h), src)
+	n, err := io.Copy(io.MultiWriter(tmp, h), src)
 	cerr := tmp.Close()
+	if err == nil && n > maxAssetSize {
+		err = fmt.Errorf("larger than %d bytes", maxAssetSize)
+	}
 	if err != nil || cerr != nil {
 		os.Remove(tmp.Name())
 		return "", fmt.Errorf("update: download %s: copy=%v close=%v", name, err, cerr)

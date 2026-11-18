@@ -45,7 +45,9 @@ func buildChoiceScript(title, body string) string {
 }
 
 // psEscape escapes a string for embedding inside a PowerShell single-quoted
-// literal (only the single quote needs doubling).
+// literal: every quote character PowerShell accepts as a single quote (ASCII
+// plus U+2018..U+201B) is doubled.
 func psEscape(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
+	return strings.NewReplacer("'", "''", "\u2018", "\u2018\u2018", "\u2019", "\u2019\u2019",
+		"\u201a", "\u201a\u201a", "\u201b", "\u201b\u201b").Replace(s)
 }

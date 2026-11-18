@@ -94,6 +94,7 @@ func main() {
 	}
 	zerolog.SetGlobalLevel(level)
 	logger := log.Logger
+	cfg.Editor.HelperPath = trustedHelperPath(cfg.Editor.HelperPath)
 
 	hist, err := history.New(historyPath())
 	if err != nil {

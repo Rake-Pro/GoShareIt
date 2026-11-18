@@ -430,6 +430,41 @@ their version. Planned work lives in [BACKLOG.md](BACKLOG.md).
   accepted any URL. The secret is only ever substituted into headers and
   multipart form fields, never into the URL, so it cannot end up in a query
   string. `{name}`/`{mime}` placeholders in the URL are unaffected.
+- Links handed back by a server are opened only when they are http(s) web
+  addresses: the "upload complete" notification click and the Nextcloud
+  browser sign-in no longer pass `file:`, UNC or custom-protocol targets to
+  the OS opener.
+- Nextcloud browser sign-in: the poll address the server returns must not
+  drop from https:// to http://, so the minted app password never travels in
+  cleartext.
+- Upload redirects: a redirect from https:// to http:// is refused, and a
+  redirect to another host is followed without the configured credentials
+  and custom headers (an API key header used to go along).
+- Upload errors no longer include the request URL's path or query, so a key
+  in the query (imgbb, lensdump, chevereto) stays out of the log and the
+  "Upload failed" notification.
+- Uploads and update checks give up on a server that accepts the request
+  and never answers (response-header timeout); there is still no overall
+  time limit, so large uploads are not cut off. Update downloads are capped
+  at 1 GiB and `update.repo` must be a plain `owner/name`.
+- The cleanup after an update removes only the files and stage directories
+  the updater created, instead of every `*.old` file next to the binary.
+- Linux: screen recordings are written into a private (0700) temp directory
+  instead of straight into the shared `/tmp`, and are removed on every exit
+  path. The XDG portal screenshot answer is accepted only from the portal
+  itself, a file it names is deleted only after it decodes as the
+  screenshot, and oversized images are refused.
+- macOS: the hardened-runtime entitlements no longer include
+  `disable-library-validation` or `allow-dyld-environment-variables`, which
+  let another process inject code into the app and use its Screen Recording
+  permission.
+- Release builds ignore an `editor.helper_path` that points outside the
+  application folder (the helper inherits the app's permissions, on macOS
+  its Screen Recording grant); development builds keep the override.
+- Release workflow: the build jobs run with a read-only token, and every
+  GitHub Action is pinned to a full commit SHA.
+- PRIVACY.md now names every endpoint the updater contacts and the default
+  local-save folder.
 
 ### Fixed
 - Settings: the host restarts to apply changes only when Save was actually

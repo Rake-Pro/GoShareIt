@@ -64,7 +64,7 @@ func applyDarwin(archivePath, exe string) (string, error) {
 		return "", fmt.Errorf("update: stage dir: %w", err)
 	}
 	defer os.RemoveAll(stage)
-	if out, err := exec.Command("ditto", "-x", "-k", archivePath, stage).CombinedOutput(); err != nil {
+	if out, err := exec.Command("/usr/bin/ditto", "-x", "-k", archivePath, stage).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("update: ditto extract: %w: %s", err, out)
 	}
 	newBundle := filepath.Join(stage, filepath.Base(bundle))
@@ -243,7 +243,7 @@ func Relaunch(path string, args ...string) error {
 		if len(args) > 0 {
 			openArgs = append(append(openArgs, "--args"), args...)
 		}
-		cmd = exec.Command("open", openArgs...)
+		cmd = exec.Command("/usr/bin/open", openArgs...)
 	} else {
 		cmd = exec.Command(path, args...)
 	}

@@ -97,8 +97,6 @@ func (r *Recorder) StartRegion(ctx context.Context, mode capture.Mode, rect imag
 	if display == "" {
 		display = ":0"
 	}
-	out := filepath.Join(os.TempDir(), fmt.Sprintf("goshareit_rec_%d.mp4", time.Now().UnixNano()))
-
 	args := []string{
 		"-y",
 		"-f", "x11grab",
@@ -120,6 +118,13 @@ func (r *Recorder) StartRegion(ctx context.Context, mode capture.Mode, rect imag
 		args = append(args, "-video_size", fmt.Sprintf("%dx%d", w, h))
 		input = fmt.Sprintf("%s+%d,%d", display, rect.Min.X, rect.Min.Y)
 	}
+	// ffmpeg creates the output with the umask's default mode, so it goes into
+	// a private (0700) directory rather than straight into the shared /tmp.
+	dir, err := os.MkdirTemp("", "goshareit-rec-")
+	if err != nil {
+		return fmt.Errorf("linux recorder: temp dir: %w", err)
+	}
+	out := filepath.Join(dir, "rec.mp4")
 	args = append(args,
 		"-i", input,
 		"-c:v", "libx264",
@@ -131,10 +136,12 @@ func (r *Recorder) StartRegion(ctx context.Context, mode capture.Mode, rect imag
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		_ = os.RemoveAll(dir)
 		return fmt.Errorf("linux recorder: stdin pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = os.RemoveAll(dir)
 		return fmt.Errorf("linux recorder: start ffmpeg: %w", err)
 	}
 
@@ -201,6 +208,7 @@ func (r *Recorder) Stop(ctx context.Context) (capture.Result, error) {
 	r.outPath = ""
 	r.done = nil
 	r.mu.Unlock()
+	defer os.RemoveAll(filepath.Dir(out))
 
 	if waitErr != nil && !killed {
 		return capture.Result{}, fmt.Errorf("linux recorder: ffmpeg exited: %w", waitErr)
@@ -213,7 +221,6 @@ func (r *Recorder) Stop(ctx context.Context) (capture.Result, error) {
 	if len(data) == 0 {
 		return capture.Result{}, fmt.Errorf("linux recorder: recording is empty (ffmpeg may have been killed before finalizing)")
 	}
-	_ = os.Remove(out)
 
 	return capture.Result{
 		Bytes: data,

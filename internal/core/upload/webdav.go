@@ -25,10 +25,10 @@ type WebDAV struct {
 	client *http.Client
 }
 
-// NewWebDAV builds an uploader. If client is nil, http.DefaultClient is used.
+// NewWebDAV builds an uploader. If client is nil, defaultClient is used.
 func NewWebDAV(cfg WebDAVConfig, client *http.Client) *WebDAV {
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultClient
 	}
 	return &WebDAV{cfg: cfg, client: client}
 }

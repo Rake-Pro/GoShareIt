@@ -71,3 +71,50 @@ func TestWaitExitGoneProcess(t *testing.T) {
 		t.Error("pid 0 should count as gone")
 	}
 }
+
+// CleanupOld runs at every start in the directory the binary lives in, which
+// for a portable install may be a shared folder: it must remove only what the
+// updater itself creates.
+func TestCleanupOldOnlyRemovesUpdaterFiles(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(exe)
+	ours := []string{
+		filepath.Join(dir, "goshareit.old"),
+		filepath.Join(dir, "goshareit-editor.exe.old"),
+	}
+	ourStage := filepath.Join(dir, ".goshareit-update-123456789")
+	foreign := filepath.Join(dir, "users-own-notes.old")
+	foreignStage := filepath.Join(dir, ".goshareit-update-not-ours")
+	for _, p := range append(ours, foreign) {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Remove(p) })
+	}
+	for _, d := range []string{ourStage, foreignStage} {
+		if err := os.MkdirAll(filepath.Join(d, "sub"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(d) })
+	}
+
+	CleanupOld()
+
+	for _, p := range append(ours, ourStage) {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("%s was not cleaned up", filepath.Base(p))
+		}
+	}
+	for _, p := range []string{foreign, foreignStage} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s was removed: %v", filepath.Base(p), err)
+		}
+	}
+}

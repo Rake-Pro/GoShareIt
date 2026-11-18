@@ -29,13 +29,13 @@ type Nextcloud struct {
 	client *http.Client
 }
 
-// NewNextcloud builds an uploader. If client is nil, http.DefaultClient is used.
+// NewNextcloud builds an uploader. If client is nil, defaultClient is used.
 func NewNextcloud(cfg NextcloudConfig, client *http.Client) *Nextcloud {
 	if cfg.DavUser == "" {
 		cfg.DavUser = davUserFromUsername(cfg.Username)
 	}
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultClient
 	}
 	return &Nextcloud{cfg: cfg, client: client}
 }
