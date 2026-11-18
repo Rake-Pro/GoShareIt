@@ -4,14 +4,15 @@ package linux
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"net/url"
 	"os"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -34,7 +35,9 @@ var ErrPortalCancelled = fmt.Errorf("linux capture: %w", capture.ErrCancelled)
 // bounded only by ctx, because the user is driving the compositor's picker.
 const portalWait = 30 * time.Second
 
-var portalSeq atomic.Uint64
+// maxPortalPixels bounds the decoded screenshot (about 268 megapixels, far
+// beyond any real multi-monitor desktop) so a crafted PNG cannot exhaust memory.
+const maxPortalPixels = 1 << 28
 
 // portalScreenshot takes a screenshot through the XDG desktop portal and
 // returns the decoded image. interactive=false grabs the whole desktop (all
@@ -51,7 +54,7 @@ func portalScreenshot(ctx context.Context, interactive bool) (image.Image, error
 	// The portal names its request object from our unique bus name and the
 	// handle token, so the Response signal can be subscribed before the call
 	// is made (the spec's recommended race-free pattern).
-	token := fmt.Sprintf("goshareit%d", portalSeq.Add(1))
+	token := "goshareit" + rand.Text()
 	sender := strings.ReplaceAll(strings.TrimPrefix(conn.Names()[0], ":"), ".", "_")
 	reqPath := dbus.ObjectPath(fmt.Sprintf("%s/request/%s/%s", portalPath, sender, token))
 
@@ -82,6 +85,13 @@ func portalScreenshot(ctx context.Context, interactive bool) (image.Image, error
 	if err := call.Store(&handle); err != nil {
 		return nil, fmt.Errorf("linux capture: portal Screenshot call: %w (is xdg-desktop-portal running?)", err)
 	}
+	// Any session-bus peer can emit a Response on our request path (or send it
+	// to us directly), so only the portal's own connection is believed. The
+	// owner is looked up after the call, which has bus-activated the portal.
+	var owner string
+	if err := conn.BusObject().CallWithContext(ctx, "org.freedesktop.DBus.GetNameOwner", 0, portalDest).Store(&owner); err != nil {
+		return nil, fmt.Errorf("linux capture: portal owner: %w", err)
+	}
 	if handle != reqPath {
 		// Pre-0.9 portals pick their own request path; subscribe to that too.
 		_ = conn.AddMatchSignal(
@@ -99,7 +109,7 @@ func portalScreenshot(ctx context.Context, interactive bool) (image.Image, error
 			if !ok {
 				return nil, errors.New("linux capture: session bus closed")
 			}
-			if sig.Path != reqPath && sig.Path != handle {
+			if sig.Sender != owner || (sig.Path != reqPath && sig.Path != handle) {
 				continue
 			}
 			if len(sig.Body) != 2 {
@@ -121,7 +131,8 @@ func portalScreenshot(ctx context.Context, interactive bool) (image.Image, error
 }
 
 // readPortalFile decodes the PNG the portal wrote and removes it: the portal
-// leaves the file to the caller (it lands in ~/Pictures on GNOME).
+// leaves the file to the caller (it lands in ~/Pictures on GNOME). A file that
+// does not decode is left alone, since it is then not a screenshot we took.
 func readPortalFile(uri string) (image.Image, error) {
 	u, err := url.Parse(uri)
 	if err != nil || u.Scheme != "file" || u.Path == "" {
@@ -131,13 +142,21 @@ func readPortalFile(uri string) (image.Image, error) {
 	if err != nil {
 		return nil, fmt.Errorf("linux capture: open portal screenshot: %w", err)
 	}
-	defer func() {
-		f.Close()
-		os.Remove(u.Path)
-	}()
+	defer f.Close()
+	cfg, err := png.DecodeConfig(f)
+	if err != nil {
+		return nil, fmt.Errorf("linux capture: decode portal screenshot: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxPortalPixels {
+		return nil, fmt.Errorf("linux capture: portal screenshot is %dx%d, too large", cfg.Width, cfg.Height)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("linux capture: read portal screenshot: %w", err)
+	}
 	img, err := png.Decode(f)
 	if err != nil {
 		return nil, fmt.Errorf("linux capture: decode portal screenshot: %w", err)
 	}
+	os.Remove(u.Path)
 	return img, nil
 }

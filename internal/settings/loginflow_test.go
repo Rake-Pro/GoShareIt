@@ -139,3 +139,39 @@ func TestBrowserLoginCancel(t *testing.T) {
 		t.Fatalf("BrowserLogin after cancel: err = %v, want cancelled", err)
 	}
 }
+
+// The flow response is server-controlled: the browser URL goes to the OS
+// opener and the poll endpoint receives the token and returns the app
+// password, so both are checked against the validated base URL.
+func TestStartLoginFlowRejectsUnsafeURLs(t *testing.T) {
+	cases := []struct {
+		name, login, poll string
+		ok                bool
+	}{
+		{"same host", "{base}/login/v2/flow", "{base}/login/v2/poll", true},
+		{"login on other host", "https://sso.example.com/flow", "{base}/login/v2/poll", true},
+		{"non-web login scheme", "ms-settings:privacy", "{base}/login/v2/poll", false},
+		{"file login", "file:///etc/passwd", "{base}/login/v2/poll", false},
+		{"poll downgraded to http", "{base}/login/v2/flow", "{httpbase}/login/v2/poll", false},
+		{"https poll on other host (overwritehost)", "{base}/login/v2/flow", "https://cloud.example.com/poll", true},
+		{"poll on other port", "{base}/login/v2/flow", "https://{host}:1/poll", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var srv *httptest.Server
+			srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				r2 := strings.NewReplacer("{base}", srv.URL, "{httpbase}", strings.Replace(srv.URL, "https://", "http://", 1),
+					"{host}", strings.Split(strings.TrimPrefix(srv.URL, "https://"), ":")[0])
+				fmt.Fprintf(w, `{"poll":{"token":"tok","endpoint":%q},"login":%q}`, r2.Replace(tc.poll), r2.Replace(tc.login))
+			}))
+			defer srv.Close()
+			_, err := startLoginFlow(t.Context(), srv.Client(), srv.URL)
+			if tc.ok && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatal("expected the flow response to be rejected")
+			}
+		})
+	}
+}

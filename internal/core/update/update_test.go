@@ -82,6 +82,32 @@ func TestNewRejectsUnknownChannel(t *testing.T) {
 	}
 }
 
+// update.repo is free text in the config and goes into API URL paths.
+func TestNewRejectsMalformedRepo(t *testing.T) {
+	for _, repo := range []string{"o", "o/r/x", "../o/r", "o/..", "o/.", "o/r?x=1", "o r/x", "https://example.com/o/r"} {
+		if _, err := New(Config{Repo: repo, Current: "1.0.0"}); err == nil {
+			t.Errorf("repo %q accepted", repo)
+		}
+	}
+	for _, repo := range []string{"Rake-Pro/GoShareIt", "o/r", "owner/name.go", "a-b/c_d.e", "o/a..b"} {
+		if _, err := New(Config{Repo: repo, Current: "1.0.0"}); err != nil {
+			t.Errorf("repo %q rejected: %v", repo, err)
+		}
+	}
+}
+
+func TestNewDefaultClientHasNoTotalTimeout(t *testing.T) {
+	u, err := New(Config{Repo: "o/r", Current: "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := u.cfg.HTTPClient
+	tr, ok := c.Transport.(*http.Transport)
+	if c.Timeout != 0 || !ok || tr.ResponseHeaderTimeout == 0 || tr.Proxy == nil {
+		t.Errorf("default client: timeout=%v transport=%+v", c.Timeout, c.Transport)
+	}
+}
+
 func TestChecksumFor(t *testing.T) {
 	sums := "abc\n" +
 		"0123456789012345678901234567890123456789012345678901234567890123  GoShareIt_1.0.0_linux_amd64.tar.gz\n" +
@@ -234,5 +260,31 @@ func TestExtractTarGzFlattens(t *testing.T) {
 	fi, _ := os.Stat(filepath.Join(dir, "goshareit"))
 	if fi.Mode().Perm()&0o100 == 0 {
 		t.Error("extracted file is not executable")
+	}
+}
+
+// An asset larger than maxAssetSize is refused even when its checksum matches.
+func TestDownloadSizeCap(t *testing.T) {
+	old := maxAssetSize
+	maxAssetSize = 8
+	t.Cleanup(func() { maxAssetSize = old })
+	payload := []byte("nine byte")
+	sum := sha256.Sum256(payload)
+	name := AssetName("1.1.0")
+	srv := serveRelease(t, "v1.1.0", map[string][]byte{
+		name:            payload,
+		"checksums.txt": []byte(hex.EncodeToString(sum[:]) + "  " + name + "\n"),
+	})
+	u, err := New(Config{Repo: "o/r", Current: "1.0.0", APIBaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := u.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, err := u.Download(context.Background(), rel); err == nil {
+		os.Remove(path)
+		t.Fatal("expected the oversized asset to be refused")
 	}
 }

@@ -170,7 +170,7 @@ hotkeys:
 editor:
   enabled: false          # master switch; false -> current behavior (no editor)
   on_modes: [region]      # which capture modes open the editor (region|fullscreen|window)
-  helper_path: ""         # "" -> goshareit-editor next to the host binary
+  helper_path: ""         # "" -> goshareit-editor next to the host binary (release builds ignore paths outside that folder)
   timeout_seconds: 0      # 0 -> no timeout; when it expires the capture is discarded
   default_tool: arrow
   stroke_width: 6       # px; 3 is near-invisible on retina-resolution captures

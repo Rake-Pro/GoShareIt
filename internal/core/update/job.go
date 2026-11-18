@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Job is the hand-off from the host to the out-of-process updater
@@ -59,11 +60,34 @@ func ReadJob(path string) (Job, error) {
 	return j, nil
 }
 
+// updaterOldFiles are the only "<file>.old" names applyFlat creates: the
+// release archives carry exactly these executables.
+var updaterOldFiles = map[string]bool{
+	"goshareit.old": true, "goshareit-editor.old": true, "goshareit-settings.old": true,
+	"goshareit.exe.old": true, "goshareit-editor.exe.old": true, "goshareit-settings.exe.old": true,
+}
+
+// isStageDir matches the names os.MkdirTemp gives the ".goshareit-update-"
+// stage directories: the prefix plus a decimal random suffix.
+func isStageDir(name string) bool {
+	rest, ok := strings.CutPrefix(name, ".goshareit-update-")
+	if !ok || rest == "" {
+		return false
+	}
+	for _, c := range rest {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // CleanupOld removes what a previous update left next to the running
-// binary: "<file>.old" siblings (the replaced executables) and abandoned
-// ".goshareit-update-*" stage directories. On darwin it also drops the
-// "<App>.app.old" bundle beside the current one. Best-effort: files still in
-// use are skipped and retried on the next start.
+// binary: the replaced executables ("<exe>.old") and abandoned
+// ".goshareit-update-<n>" stage directories. Nothing else is touched: a
+// portable install may share its directory with the user's own files. On
+// darwin it also drops the "<App>.app.old" bundle beside the current one.
+// Best-effort: files still in use are skipped and retried on the next start.
 func CleanupOld() {
 	exe, err := os.Executable()
 	if err != nil {
@@ -85,9 +109,9 @@ func CleanupOld() {
 		for _, e := range entries {
 			name := e.Name()
 			switch {
-			case filepath.Ext(name) == ".old" && !e.IsDir():
+			case !e.IsDir() && updaterOldFiles[name]:
 				os.Remove(filepath.Join(dir, name))
-			case e.IsDir() && len(name) > len(".goshareit-update-") && name[:len(".goshareit-update-")] == ".goshareit-update-":
+			case e.IsDir() && isStageDir(name):
 				os.RemoveAll(filepath.Join(dir, name))
 			}
 		}
