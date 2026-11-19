@@ -8,10 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Rake-Pro/GoShareIt/internal/core/notify"
 )
 
 // Nextcloud Login Flow v2. The browser session performs the actual
@@ -58,7 +62,37 @@ func startLoginFlow(ctx context.Context, client *http.Client, baseURL string) (*
 	if start.Login == "" || start.Poll.Token == "" || start.Poll.Endpoint == "" {
 		return nil, fmt.Errorf("login: server returned an incomplete flow response")
 	}
+	if err := checkFlowURLs(baseURL, &start); err != nil {
+		return nil, err
+	}
 	return &start, nil
+}
+
+// checkFlowURLs rejects server-supplied flow URLs that would leave the
+// validated base URL's guarantees: the browser URL is opened by the OS, so it
+// must be a plain http(s) web address, and the poll endpoint receives the
+// token and returns the app password, so it must stay on the base URL's host
+// and must not drop from https to http.
+func checkFlowURLs(baseURL string, start *loginFlowStart) error {
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("login: base URL: %w", err)
+	}
+	if !notify.IsWebURL(start.Login) {
+		return fmt.Errorf("login: server returned an unusable sign-in address")
+	}
+	poll, err := url.Parse(start.Poll.Endpoint)
+	if err != nil || (poll.Scheme != "https" && poll.Scheme != "http") || poll.Host == "" {
+		return fmt.Errorf("login: server returned an unusable poll address")
+	}
+	// The token and the minted app password may travel in cleartext only to
+	// the plain-http server the user entered (and ValidateBaseURL accepted).
+	// An https poll is fine on any host: behind a reverse proxy Nextcloud
+	// names its overwritehost, which can differ from the address typed in.
+	if poll.Scheme == "http" && (base.Scheme != "http" || !strings.EqualFold(poll.Hostname(), base.Hostname())) {
+		return fmt.Errorf("login: server returned a plain http:// poll address (%s); check the Nextcloud overwriteprotocol setting, or enter an app password instead", poll.Host)
+	}
+	return nil
 }
 
 // pollLoginFlow polls until the user completes the browser login (404 while
@@ -105,14 +139,21 @@ func pollLoginFlow(ctx context.Context, client *http.Client, start *loginFlowSta
 }
 
 // osOpenURL opens url in the default browser; the GUI shell can override via
-// Service.OpenURL for a native implementation.
+// Service.OpenURL for a native implementation. Only http(s) URLs are opened.
 func osOpenURL(u string) error {
+	if !notify.IsWebURL(u) {
+		return fmt.Errorf("login: %q is not an http(s) web address", u)
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", u)
+		cmd = exec.Command("/usr/bin/open", u)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
+		root := os.Getenv("SystemRoot")
+		if root == "" {
+			root = `C:\Windows`
+		}
+		cmd = exec.Command(filepath.Join(root, "System32", "rundll32.exe"), "url.dll,FileProtocolHandler", u)
 	default:
 		cmd = exec.Command("xdg-open", u)
 	}

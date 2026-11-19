@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective 2026-10-10. Applies to the GoShareIt desktop application for macOS,
+Effective 2026-11-18. Applies to the GoShareIt desktop application for macOS,
 Windows, and Linux, and to the GoShareIt project as a whole.
 
 ## Summary
@@ -13,10 +13,12 @@ maintainers have no way to see what you capture or where you send it.
 ## What the app does with your data
 
 - **Captures** (screenshots, recordings, GIFs) are created on your machine
-  and stay there unless you configure an upload destination. Local copies,
-  the clipboard, and the capture history log are all written under your
-  user profile (`~/.goshareit` on macOS/Linux, `%USERPROFILE%\goshareit` on
-  Windows) and never leave the machine on their own.
+  and stay there unless you configure an upload destination. Local copies
+  (when saving is turned on) go to the folder you choose, by default
+  `Pictures/GoShareIt` in your home folder. The capture history log is
+  written under the app root (`~/.goshareit` on macOS/Linux,
+  `%USERPROFILE%\goshareit` on Windows). None of these leave the machine on
+  their own.
 - **Uploads** go only to a server you configure yourself (Nextcloud, WebDAV,
   S3-compatible storage, SFTP, or a custom HTTP endpoint). That transfer is
   between your computer and your chosen provider under that provider's own
@@ -24,13 +26,21 @@ maintainers have no way to see what you capture or where you send it.
   which case the app makes no upload connections at all.
 - **Credentials** for your upload destination are stored locally in files
   under the app root (or read from environment variables you set) and are
-  sent only to that destination. The optional Nextcloud browser sign-in
-  talks only to the Nextcloud server you entered.
-- **Update checks** query the public GitHub Releases API for this repository
-  (`https://api.github.com`) anonymously to learn whether a newer version
-  exists. No identifier is sent beyond what any HTTPS request carries (your
-  IP address and a user agent), and GitHub's own privacy policy applies to
-  that request. Update checks can be disabled in Settings.
+  sent only to that destination. If the destination redirects an upload to
+  another host, the credentials and custom headers are not sent along, and a
+  redirect from https:// to http:// is refused. The optional Nextcloud
+  browser sign-in talks only to the Nextcloud server you entered; the sign-in
+  page that server names opens in your default browser.
+- **Update checks** query the public GitHub Releases API
+  (`https://api.github.com`) anonymously for the configured repository
+  (`update.repo`, this repository by default) to learn whether a newer
+  version exists. The opt-in dev channel also reads a small manifest from
+  `https://github.com`. Downloading an update fetches the release files
+  through the same API, which redirects to GitHub's release-asset storage
+  (`*.githubusercontent.com`). No identifier is sent beyond what any HTTPS
+  request carries (your IP address and a user agent), and GitHub's own
+  privacy policy applies to those requests. Update checks can be disabled
+  in Settings.
 - **Text recognition** (text selection, Copy text, Quick redact in the editor,
   and Capture Text from the tray or its hotkey) runs entirely on your
   machine: Apple Vision on macOS, Windows OCR on Windows, and the
@@ -54,8 +64,11 @@ captures into issues.
 ## Third parties
 
 The only network endpoints the app contacts are the upload destination you
-configure and, if enabled, `api.github.com` for update checks. The app
-bundles no third-party SDKs that phone home.
+configure (and, for the Nextcloud browser sign-in, the server you entered)
+and, if update checks are enabled, GitHub: `api.github.com`, `github.com`
+(dev channel manifest) and GitHub's release-asset storage
+(`*.githubusercontent.com`) for downloads. The app bundles no third-party
+SDKs that phone home.
 
 ## Children
 

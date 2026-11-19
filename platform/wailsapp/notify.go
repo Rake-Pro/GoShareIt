@@ -89,6 +89,10 @@ func (p *Provider) handleNotificationResponse(result notifications.NotificationR
 	if url == "" {
 		return
 	}
+	if !notify.IsWebURL(url) {
+		log.Warn().Msg("notification click: the link is not an http(s) web address; not opening it")
+		return
+	}
 	if err := p.app.Browser.OpenURL(url); err != nil {
 		log.Warn().Err(err).Msg("notification click: could not open the link")
 	}

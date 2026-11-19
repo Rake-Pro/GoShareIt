@@ -44,10 +44,10 @@ type Custom struct {
 	client *http.Client
 }
 
-// NewCustom builds an uploader. If client is nil, http.DefaultClient is used.
+// NewCustom builds an uploader. If client is nil, defaultClient is used.
 func NewCustom(cfg CustomConfig, client *http.Client) *Custom {
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultClient
 	}
 	return &Custom{cfg: cfg, client: client}
 }
@@ -114,7 +114,7 @@ func (c *Custom) Upload(ctx context.Context, name string, body io.Reader, size i
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return UploadResult{}, fmt.Errorf("custom upload: %w", err)
+		return UploadResult{}, fmt.Errorf("custom upload: %w", redactURLError(err))
 	}
 	defer resp.Body.Close()
 
